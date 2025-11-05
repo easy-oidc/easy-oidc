@@ -1,0 +1,13 @@
+# Caddy automatically:
+# 1. Obtains Let's Encrypt certificates for the hostname
+# 2. Redirects HTTP (port 80) to HTTPS (port 443)
+# 3. Renews certificates before expiration
+# 4. Serves HTTPS on port 443
+
+auth.example.com {
+    reverse_proxy localhost:8080
+    
+    log {
+        output file /var/log/caddy/access.log
+    }
+}

@@ -1,0 +1,35 @@
+{
+  // Local development configuration
+  // Secrets are loaded from environment variables (see .env.example)
+  "issuer_url": "http://localhost:8080",
+  "http_listen_addr": "127.0.0.1:8080",
+  "data_dir": "temp",
+  
+  "secrets": {
+    "provider": "env",
+    "env_signing_key": "EASYOIDC_SIGNING_KEY",
+    "env_oauth_client_id": "EASYOIDC_OAUTH_CLIENT_ID",
+    "env_oauth_client_secret": "EASYOIDC_OAUTH_CLIENT_SECRET"
+  },
+  
+  "connector": {
+    "type": "google",
+    "client_id": "your-oauth-client-id",
+    "redirect_url": "http://localhost:8080/callback/google",
+    "scopes": ["openid", "email", "profile"]
+  },
+  
+  "default_redirect_uris": ["http://localhost:8000"],
+  
+  "groups_overrides": {
+    "local-groups": {
+      "your-email@example.com": ["admins", "developers"]
+    }
+  },
+  
+  "clients": {
+    "kubelogin-local": {
+      "groups_override": "local-groups"
+    }
+  }
+}

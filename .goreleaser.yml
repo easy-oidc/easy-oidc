@@ -1,0 +1,63 @@
+# Copyright 2025 Nadrama Pty Ltd
+# SPDX-License-Identifier: Apache-2.0
+
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: easy-oidc
+    main: ./cmd/easy-oidc
+    binary: easy-oidc
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/easy-oidc/easy-oidc/internal/buildvars.buildVersion={{.Version}}
+      - -X github.com/easy-oidc/easy-oidc/internal/buildvars.buildDate={{.Date}}
+      - -X github.com/easy-oidc/easy-oidc/internal/buildvars.commitHash={{.ShortCommit}}
+      - -X github.com/easy-oidc/easy-oidc/internal/buildvars.commitDate={{.CommitDate}}
+      - -X github.com/easy-oidc/easy-oidc/internal/buildvars.commitBranch={{.Branch}}
+
+archives:
+  - id: easy-oidc
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+      - examples/**/*
+
+checksum:
+  name_template: '{{ .ProjectName }}_{{ .Version }}_checksums.txt'
+
+sboms:
+  - id: archive
+    artifacts: archive
+    documents:
+      - "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}.spdx.json"
+  - id: binary
+    artifacts: binary
+    documents:
+      - "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}_{{ .Binary }}.spdx.json"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+
+release:
+  github:
+    owner: easy-oidc
+    name: easy-oidc
+  draft: false
+  prerelease: auto

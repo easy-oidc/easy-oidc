@@ -1,0 +1,41 @@
+{
+  "issuer_url": "http://127.0.0.1:8080",
+  "http_listen_addr": "127.0.0.1:8080",
+  "data_dir": "./temp",
+
+  "secrets": {
+    "provider": "env",
+    "env_signing_key": "EASYOIDC_SIGNING_KEY",
+    "env_oauth_client_id": "EASYOIDC_OAUTH_CLIENT_ID",
+    "env_oauth_client_secret": "EASYOIDC_OAUTH_CLIENT_SECRET"
+  },
+
+  "connector": {
+    "type": "generic",
+    "client_id": "easy-oidc-e2e",
+    "redirect_url": "http://127.0.0.1:8080/callback/generic",
+    "scopes": ["openid", "email", "profile", "groups"],
+
+    "generic": {
+      "authorization_url": "http://127.0.0.1:5556/dex/auth",
+      "token_url": "http://127.0.0.1:5556/dex/token",
+      "userinfo_url": "http://127.0.0.1:5556/dex/userinfo",
+      "email_field": "email",
+      "email_verified_field": "email_verified"
+    }
+  },
+
+  "default_redirect_uris": ["http://localhost:18000"],
+
+  "groups_overrides": {
+    "local-groups": {
+      "kilgore@kilgore.trout": ["admins", "developers"]
+    }
+  },
+
+  "clients": {
+    "e2e-test-client": {
+      "groups_override": "local-groups"
+    }
+  }
+}

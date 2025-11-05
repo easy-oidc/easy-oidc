@@ -1,0 +1,53 @@
+{
+  // Core settings
+  "issuer_url": "https://auth.example.com",
+  "http_listen_addr": "127.0.0.1:8080",
+  "data_dir": "/var/lib/easy-oidc",
+
+  // Secrets configuration
+  "secrets": {
+    "provider": "env",  // "aws", "gcp", "azure", or "env" for local dev
+    "env_signing_key": "your-signing-key-here",
+    "env_oauth_client_id": "your-client-id",
+    "env_oauth_client_secret": "your-client-secret"
+  },
+
+  // Upstream connector - Generic OAuth2/OIDC provider
+  "connector": {
+    "type": "generic",
+    "client_id": "your-oauth-client-id",
+    "redirect_url": "https://auth.example.com/callback/generic",
+    "scopes": ["openid", "email", "profile"],
+
+    // Generic provider configuration
+    "generic": {
+      "authorization_url": "https://dex.example.com/auth",
+      "token_url": "https://dex.example.com/token",
+      "userinfo_url": "https://dex.example.com/userinfo",
+      "email_field": "email",           // Optional: defaults to "email"
+      "email_verified_field": "email_verified"  // Optional: defaults to "email_verified"
+    }
+  },
+
+  // Default redirect URIs (used if not specified per client)
+  "default_redirect_uris": ["http://localhost:8000"],
+
+  // Groups overrides (email → groups mappings)
+  "groups_overrides": {
+    "prod-groups": {
+      "alice@example.com": ["admins", "developers"],
+      "bob@example.com": ["readonly"]
+    }
+  },
+
+  // OIDC clients (key is the client_id)
+  "clients": {
+    "kubelogin-prod": {
+      "redirect_uris": ["http://localhost:8000"],
+      "groups_override": "prod-groups"
+    }
+  }
+
+  // Optional: Token TTL in seconds (default: 3600 = 1 hour)
+  // "token_ttl_seconds": 3600,
+}

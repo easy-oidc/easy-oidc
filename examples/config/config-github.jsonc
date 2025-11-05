@@ -1,0 +1,47 @@
+{
+  // Core settings
+  "issuer_url": "https://auth.example.com",
+  "http_listen_addr": "127.0.0.1:8080",
+  "data_dir": "/var/lib/easy-oidc",
+  
+  // Secrets configuration
+  "secrets": {
+    "provider": "aws",
+    "signing_key_name": "easy-oidc-signing-key",
+    "connector_secret_name": "easy-oidc-connector-secret"
+  },
+  
+  // Upstream connector
+  "connector": {
+    "type": "github",
+    "client_id": "Iv1.abc123def456",
+    "redirect_url": "https://auth.example.com/callback/github",
+    "scopes": ["user:email"],
+    
+    // Optional: for GitHub Enterprise
+    "github": {
+      "hostname": "github.com"
+    }
+  },
+  
+  // Default redirect URIs
+  "default_redirect_uris": ["http://localhost:8000"],
+  
+  // Groups overrides
+  "groups_overrides": {
+    "prod-groups": {
+      "alice@example.com": ["admins", "developers"],
+      "bob@example.com": ["readonly"]
+    }
+  },
+  
+  // OIDC clients
+  "clients": {
+    "kubelogin-prod": {
+      "groups_override": "prod-groups"
+    }
+  }
+  
+  // Optional: Token TTL in seconds (default: 3600 = 1 hour)
+  // "token_ttl_seconds": 3600,
+}

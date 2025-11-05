@@ -1,0 +1,36 @@
+# Copyright 2025 Nadrama Pty Ltd
+# SPDX-License-Identifier: Apache-2.0
+
+issuer: http://127.0.0.1:5556/dex
+
+storage:
+  type: memory
+
+web:
+  http: 0.0.0.0:5556
+
+telemetry:
+  http: 0.0.0.0:5558
+
+oauth2:
+  skipApprovalScreen: true
+
+staticClients:
+- id: easy-oidc-e2e
+  redirectURIs:
+  - 'http://127.0.0.1:8080/callback/generic'
+  name: 'Easy OIDC E2E Test'
+  public: true
+
+connectors:
+- type: mockCallback
+  id: mock
+  name: Mock
+
+enablePasswordDB: true
+
+staticPasswords:
+- email: "test@example.com"
+  hash: "$2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W"
+  username: "test"
+  userID: "08a8684b-db88-4b73-90a9-3cd1661f5466"

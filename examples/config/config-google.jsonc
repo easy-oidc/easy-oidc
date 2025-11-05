@@ -1,0 +1,55 @@
+{
+  // Core settings
+  "issuer_url": "https://auth.example.com",
+  "http_listen_addr": "127.0.0.1:8080",
+  "data_dir": "/var/lib/easy-oidc",
+  
+  // Secrets configuration
+  "secrets": {
+    "provider": "aws",  // "aws", "gcp", or "env" for local dev
+    "signing_key_name": "easy-oidc-signing-key",
+    "connector_secret_name": "easy-oidc-connector-secret"
+  },
+  
+  // Upstream connector
+  "connector": {
+    "type": "google",
+    "client_id": "123456789.apps.googleusercontent.com",
+    "redirect_url": "https://auth.example.com/callback/google",
+    "scopes": ["openid", "email", "profile"],
+    
+    // Optional: restrict to specific Google Workspace domain
+    "google": {
+      "hd": "example.com"
+    }
+  },
+  
+  // Default redirect URIs (used if not specified per client)
+  "default_redirect_uris": ["http://localhost:8000"],
+  
+  // Groups overrides (email → groups mappings)
+  "groups_overrides": {
+    "prod-groups": {
+      "alice@example.com": ["prod-admins", "devs"],
+      "bob@example.com": ["prod-readonly"]
+    },
+    "dev-groups": {
+      "alice@example.com": ["dev-admins"],
+      "charlie@example.com": ["developers"]
+    }
+  },
+  
+  // OIDC clients (key is the client_id)
+  "clients": {
+    "kubelogin-prod": {
+      "redirect_uris": ["http://localhost:8000"],
+      "groups_override": "prod-groups"
+    },
+    "kubelogin-dev": {
+      "groups_override": "dev-groups"
+    }
+  }
+  
+  // Optional: Token TTL in seconds (default: 3600 = 1 hour)
+  // "token_ttl_seconds": 3600,
+}
