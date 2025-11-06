@@ -103,7 +103,7 @@ fi
 
 echo "Installing easy-oidc ${EASY_OIDC_VERSION}..."
 
-curl -L "https://github.com/easy-oidc/easy-oidc/releases/download/${EASY_OIDC_VERSION}/easy-oidc_${EASY_OIDC_VERSION}_linux_${ARCH}.tar.gz" -o /tmp/easy-oidc.tar.gz
+curl -L "https://github.com/easy-oidc/easy-oidc/releases/download/${EASY_OIDC_VERSION}/easy-oidc_${EASY_OIDC_VERSION#v}_linux_${ARCH}.tar.gz" -o /tmp/easy-oidc.tar.gz
 tar -xzf /tmp/easy-oidc.tar.gz -C /tmp
 mv /tmp/easy-oidc /usr/local/bin/easy-oidc
 chmod +x /usr/local/bin/easy-oidc
@@ -123,13 +123,13 @@ chmod 700 /var/lib/easy-oidc
 # Resolve "latest" or empty to actual version
 if [ -z "${CADDY_VERSION}" ] || [ "${CADDY_VERSION}" = "latest" ]; then
     echo "Fetching latest Caddy release..."
-    CADDY_VERSION=$(curl -sSL https://api.github.com/repos/caddyserver/caddy/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' | sed 's/^v//')
+    CADDY_VERSION=$(curl -sSL https://api.github.com/repos/caddyserver/caddy/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
     echo "Latest version: ${CADDY_VERSION}"
 fi
 
 echo "Installing Caddy ${CADDY_VERSION}..."
 
-curl -L "https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}/caddy_${CADDY_VERSION}_linux_${ARCH}.tar.gz" -o /tmp/caddy.tar.gz
+curl -L "https://github.com/caddyserver/caddy/releases/download/${CADDY_VERSION}/caddy_${CADDY_VERSION#v}_linux_${ARCH}.tar.gz" -o /tmp/caddy.tar.gz
 tar -xzf /tmp/caddy.tar.gz -C /tmp caddy
 mv /tmp/caddy /usr/bin/caddy
 chmod +x /usr/bin/caddy
