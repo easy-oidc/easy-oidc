@@ -4,17 +4,17 @@
 
 set -eo pipefail
 
-# User data script for Ubuntu LTS, which sets up easy-oidc and Caddy on a fresh instance
-# This script is designed to work with Terraform's templatefile() function
+# Userdata script for Ubuntu LTS, which sets up easy-oidc and Caddy on a fresh instance.
+# Variables which you can set prior to invoking this script:
+# EASY_OIDC_VERSION="latest"
+# CADDY_VERSION="latest"
+# OIDC_HOSTNAME="auth.example.com"
+# EASY_OIDC_CONFIG='{"clients":{}}'
+# SSH=false
+# FIREWALL=true
+# AUTO_UPDATES=true
 
-EASY_OIDC_VERSION="${EASY_OIDC_VERSION:-latest}"
-CADDY_VERSION="${CADDY_VERSION:-latest}"
-
-# OIDC hostname (Terraform should set this)
-OIDC_HOSTNAME="${OIDC_HOSTNAME}"
-
-# Easy OIDC configuration JSON (Terraform should pass the full jsonencode() here)
-EASY_OIDC_CONFIG='${EASY_OIDC_CONFIG}'
+# === DO NOT EDIT BELOW ===
 
 # Caddyfile content
 read -r -d '' CADDYFILE <<'CADDYEOF' || true
@@ -30,8 +30,6 @@ CADDYEOF
 SSH="${SSH:-false}"
 FIREWALL="${FIREWALL:-true}"
 AUTO_UPDATES="${AUTO_UPDATES:-true}"
-
-# === Script - DO NOT EDIT BELOW ===
 
 echo "=== Starting Installation ==="
 
@@ -110,12 +108,11 @@ chmod +x /usr/local/bin/easy-oidc
 rm /tmp/easy-oidc.tar.gz
 
 if ! id -u easy-oidc >/dev/null 2>&1; then
-    useradd -r -s /usr/sbin/nologin easy-oidc
+    useradd -r -s /usr/sbin/nologin -d /var/lib/easy-oidc -m easy-oidc
 fi
 
 mkdir -p /etc/easy-oidc
 mkdir -p /opt/easy-oidc
-mkdir -p /var/lib/easy-oidc
 chown easy-oidc:easy-oidc /var/lib/easy-oidc
 chmod 700 /var/lib/easy-oidc
 
@@ -136,20 +133,19 @@ chmod +x /usr/bin/caddy
 rm /tmp/caddy.tar.gz
 
 if ! id -u caddy >/dev/null 2>&1; then
-    useradd -r -s /usr/sbin/nologin caddy
+    useradd -r -s /usr/sbin/nologin -d /var/lib/caddy -m caddy
 fi
 
 mkdir -p /etc/caddy
 mkdir -p /var/log/caddy
 chown caddy:caddy /var/log/caddy
+chown -R caddy:caddy /var/lib/caddy
 
 # === Create configuration files ===
 echo "Creating configuration files..."
 
 # Write easy-oidc config (already a complete JSON document from Terraform)
-cat > /etc/easy-oidc/config.jsonc <<'EOF'
-${EASY_OIDC_CONFIG}
-EOF
+echo "${EASY_OIDC_CONFIG}" > /etc/easy-oidc/config.jsonc
 chown easy-oidc:easy-oidc /etc/easy-oidc/config.jsonc
 
 # Write Caddyfile (expand variables)
@@ -212,6 +208,7 @@ LimitNOFILE=1048576
 LimitNPROC=512
 PrivateTmp=true
 ProtectSystem=full
+ReadWritePaths=/var/lib/caddy
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
 
 [Install]
