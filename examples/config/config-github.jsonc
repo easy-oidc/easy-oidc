@@ -14,7 +14,6 @@
   // Upstream connector
   "connector": {
     "type": "github",
-    "redirect_url": "https://auth.example.com/callback/github",
     "scopes": ["user:email"],
     
     // Optional: for GitHub Enterprise

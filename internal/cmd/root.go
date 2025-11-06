@@ -146,7 +146,7 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	// set up upstream connector
-	connector, err := upstream.NewConnector(cfg.Connector, oauthCreds.ClientID, oauthCreds.ClientSecret)
+	connector, err := upstream.NewConnector(cfg.Connector, cfg.IssuerURL, oauthCreds.ClientID, oauthCreds.ClientSecret)
 	if err != nil {
 		logger.Error("failed to create connector", "error", err)
 		return err

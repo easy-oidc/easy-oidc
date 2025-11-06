@@ -34,12 +34,11 @@ type SecretsConfig struct {
 // ConnectorConfig defines the upstream OAuth provider configuration.
 // Supports Google, GitHub, and generic OAuth2/OIDC providers.
 type ConnectorConfig struct {
-	Type        string         `json:"type"`
-	RedirectURL string         `json:"redirect_url"`
-	Scopes      []string       `json:"scopes"`
-	Google      *GoogleConfig  `json:"google,omitempty"`
-	GitHub      *GitHubConfig  `json:"github,omitempty"`
-	Generic     *GenericConfig `json:"generic,omitempty"`
+	Type    string         `json:"type"`
+	Scopes  []string       `json:"scopes"`
+	Google  *GoogleConfig  `json:"google,omitempty"`
+	GitHub  *GitHubConfig  `json:"github,omitempty"`
+	Generic *GenericConfig `json:"generic,omitempty"`
 }
 
 // GoogleConfig contains Google-specific OAuth configuration options.

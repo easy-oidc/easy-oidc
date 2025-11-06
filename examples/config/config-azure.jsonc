@@ -15,7 +15,6 @@
   // Upstream connector
   "connector": {
     "type": "google",
-    "redirect_url": "https://auth.example.com/callback/google",
     "scopes": ["openid", "email", "profile"],
     
     // Optional: restrict to specific Google Workspace domain

@@ -140,10 +140,6 @@ func validateConnector(c *ConnectorConfig) error {
 		return fmt.Errorf("type must be google, github, or generic")
 	}
 
-	if c.RedirectURL == "" {
-		return fmt.Errorf("redirect_url is required")
-	}
-
 	if c.Type == "generic" {
 		if c.Generic == nil {
 			return fmt.Errorf("generic configuration is required for type generic")
