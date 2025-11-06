@@ -25,6 +25,7 @@ type SecretsConfig struct {
 	Provider             string `json:"provider"`
 	SigningKeyName       string `json:"signing_key_name"`
 	ConnectorSecretName  string `json:"connector_secret_name"`
+	AWSRegion            string `json:"aws_region,omitempty"`
 	AzureKeyVaultURL     string `json:"azure_keyvault_url"`
 	EnvSigningKey        string `json:"env_signing_key"`
 	EnvOAuthClientID     string `json:"env_oauth_client_id"`

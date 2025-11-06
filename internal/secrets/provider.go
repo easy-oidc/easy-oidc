@@ -28,7 +28,7 @@ type OAuthCredentials struct {
 func NewProvider(ctx context.Context, cfg config.SecretsConfig) (Provider, error) {
 	switch cfg.Provider {
 	case "aws":
-		return NewAWSProvider(ctx)
+		return NewAWSProvider(ctx, cfg.AWSRegion)
 	case "gcp":
 		return NewGCPProvider(ctx)
 	case "azure":
