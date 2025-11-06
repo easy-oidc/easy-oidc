@@ -23,7 +23,7 @@ type GenericConnector struct {
 }
 
 // NewGenericConnector creates a new generic OAuth2 connector with the provided configuration.
-func NewGenericConnector(cfg config.ConnectorConfig, clientSecret string) *GenericConnector {
+func NewGenericConnector(cfg config.ConnectorConfig, clientID, clientSecret string) *GenericConnector {
 	if cfg.Generic == nil {
 		panic("GenericConfig is required for generic connector")
 	}
@@ -35,7 +35,7 @@ func NewGenericConnector(cfg config.ConnectorConfig, clientSecret string) *Gener
 
 	// Note: clientSecret is intentionally not set for public clients (PKCE-only)
 	oauth2Config := &oauth2.Config{
-		ClientID:    cfg.ClientID,
+		ClientID:    clientID,
 		RedirectURL: cfg.RedirectURL,
 		Scopes:      scopes,
 		Endpoint: oauth2.Endpoint{

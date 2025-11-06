@@ -27,14 +27,14 @@ type googleUserInfo struct {
 }
 
 // NewGoogleConnector creates a new Google OAuth2 connector with the provided configuration.
-func NewGoogleConnector(cfg config.ConnectorConfig, clientSecret string) *GoogleConnector {
+func NewGoogleConnector(cfg config.ConnectorConfig, clientID, clientSecret string) *GoogleConnector {
 	scopes := cfg.Scopes
 	if len(scopes) == 0 {
 		scopes = []string{"openid", "email", "profile"}
 	}
 
 	oauth2Config := &oauth2.Config{
-		ClientID:     cfg.ClientID,
+		ClientID:     clientID,
 		ClientSecret: clientSecret,
 		RedirectURL:  cfg.RedirectURL,
 		Scopes:       scopes,

@@ -144,7 +144,6 @@ func TestValidateConnector(t *testing.T) {
 			name: "valid google",
 			connector: ConnectorConfig{
 				Type:        "google",
-				ClientID:    "test-client",
 				RedirectURL: "https://auth.example.com/callback/google",
 			},
 			expectError: false,
@@ -153,7 +152,6 @@ func TestValidateConnector(t *testing.T) {
 			name: "valid github",
 			connector: ConnectorConfig{
 				Type:        "github",
-				ClientID:    "test-client",
 				RedirectURL: "https://auth.example.com/callback/github",
 			},
 			expectError: false,
@@ -162,24 +160,14 @@ func TestValidateConnector(t *testing.T) {
 			name: "invalid type",
 			connector: ConnectorConfig{
 				Type:        "okta",
-				ClientID:    "test-client",
 				RedirectURL: "https://auth.example.com/callback",
-			},
-			expectError: true,
-		},
-		{
-			name: "missing client_id",
-			connector: ConnectorConfig{
-				Type:        "google",
-				RedirectURL: "https://auth.example.com/callback/google",
 			},
 			expectError: true,
 		},
 		{
 			name: "missing redirect_url",
 			connector: ConnectorConfig{
-				Type:     "google",
-				ClientID: "test-client",
+				Type: "google",
 			},
 			expectError: true,
 		},
@@ -187,7 +175,6 @@ func TestValidateConnector(t *testing.T) {
 			name: "valid generic",
 			connector: ConnectorConfig{
 				Type:        "generic",
-				ClientID:    "test-client",
 				RedirectURL: "https://auth.example.com/callback/generic",
 				Generic: &GenericConfig{
 					AuthorizationURL: "https://dex.example.com/auth",
@@ -201,7 +188,6 @@ func TestValidateConnector(t *testing.T) {
 			name: "generic missing config",
 			connector: ConnectorConfig{
 				Type:        "generic",
-				ClientID:    "test-client",
 				RedirectURL: "https://auth.example.com/callback/generic",
 			},
 			expectError: true,
@@ -210,7 +196,6 @@ func TestValidateConnector(t *testing.T) {
 			name: "generic missing authorization_url",
 			connector: ConnectorConfig{
 				Type:        "generic",
-				ClientID:    "test-client",
 				RedirectURL: "https://auth.example.com/callback/generic",
 				Generic: &GenericConfig{
 					TokenURL:    "https://dex.example.com/token",
@@ -223,7 +208,6 @@ func TestValidateConnector(t *testing.T) {
 			name: "generic missing token_url",
 			connector: ConnectorConfig{
 				Type:        "generic",
-				ClientID:    "test-client",
 				RedirectURL: "https://auth.example.com/callback/generic",
 				Generic: &GenericConfig{
 					AuthorizationURL: "https://dex.example.com/auth",
@@ -236,7 +220,6 @@ func TestValidateConnector(t *testing.T) {
 			name: "generic missing userinfo_url",
 			connector: ConnectorConfig{
 				Type:        "generic",
-				ClientID:    "test-client",
 				RedirectURL: "https://auth.example.com/callback/generic",
 				Generic: &GenericConfig{
 					AuthorizationURL: "https://dex.example.com/auth",
@@ -249,7 +232,6 @@ func TestValidateConnector(t *testing.T) {
 			name: "generic invalid authorization_url",
 			connector: ConnectorConfig{
 				Type:        "generic",
-				ClientID:    "test-client",
 				RedirectURL: "https://auth.example.com/callback/generic",
 				Generic: &GenericConfig{
 					AuthorizationURL: "://invalid",
@@ -419,7 +401,6 @@ func TestValidate(t *testing.T) {
 				},
 				Connector: ConnectorConfig{
 					Type:        "google",
-					ClientID:    "test-client",
 					RedirectURL: "https://auth.example.com/callback",
 				},
 				DefaultRedirectURIs: []string{"http://localhost:8000"},
@@ -505,7 +486,6 @@ func TestValidate(t *testing.T) {
 				},
 				Connector: ConnectorConfig{
 					Type:        "google",
-					ClientID:    "test",
 					RedirectURL: "https://auth.example.com/callback",
 				},
 				Clients: map[string]ClientConfig{},

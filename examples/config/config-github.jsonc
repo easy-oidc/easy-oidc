@@ -14,7 +14,6 @@
   // Upstream connector
   "connector": {
     "type": "github",
-    "client_id": "Iv1.abc123def456",
     "redirect_url": "https://auth.example.com/callback/github",
     "scopes": ["user:email"],
     

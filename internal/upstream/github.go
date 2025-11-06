@@ -29,14 +29,14 @@ type githubEmail struct {
 
 // NewGitHubConnector creates a new GitHub OAuth2 connector with the provided configuration.
 // It supports both github.com and GitHub Enterprise instances.
-func NewGitHubConnector(cfg config.ConnectorConfig, clientSecret string) *GitHubConnector {
+func NewGitHubConnector(cfg config.ConnectorConfig, clientID, clientSecret string) *GitHubConnector {
 	scopes := cfg.Scopes
 	if len(scopes) == 0 {
 		scopes = []string{"user:email"}
 	}
 
 	oauth2Config := &oauth2.Config{
-		ClientID:     cfg.ClientID,
+		ClientID:     clientID,
 		ClientSecret: clientSecret,
 		RedirectURL:  cfg.RedirectURL,
 		Scopes:       scopes,

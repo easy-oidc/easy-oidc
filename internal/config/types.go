@@ -35,7 +35,6 @@ type SecretsConfig struct {
 // Supports Google, GitHub, and generic OAuth2/OIDC providers.
 type ConnectorConfig struct {
 	Type        string         `json:"type"`
-	ClientID    string         `json:"client_id"`
 	RedirectURL string         `json:"redirect_url"`
 	Scopes      []string       `json:"scopes"`
 	Google      *GoogleConfig  `json:"google,omitempty"`

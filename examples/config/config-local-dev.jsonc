@@ -14,7 +14,6 @@
   
   "connector": {
     "type": "google",
-    "client_id": "your-oauth-client-id",
     "redirect_url": "http://localhost:8080/callback/google",
     "scopes": ["openid", "email", "profile"]
   },

@@ -15,7 +15,6 @@
   // Upstream connector - Generic OAuth2/OIDC provider
   "connector": {
     "type": "generic",
-    "client_id": "your-oauth-client-id",
     "redirect_url": "https://auth.example.com/callback/generic",
     "scopes": ["openid", "email", "profile"],
 

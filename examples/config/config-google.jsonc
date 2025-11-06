@@ -6,7 +6,7 @@
   
   // Secrets configuration
   "secrets": {
-    "provider": "aws",  // "aws", "gcp", or "env" for local dev
+    "provider": "aws",  // "aws", "gcp", "azure", or "env" for local dev
     "signing_key_name": "easy-oidc-signing-key",
     "connector_secret_name": "easy-oidc-connector-secret"
   },
@@ -14,7 +14,6 @@
   // Upstream connector
   "connector": {
     "type": "google",
-    "client_id": "123456789.apps.googleusercontent.com",
     "redirect_url": "https://auth.example.com/callback/google",
     "scopes": ["openid", "email", "profile"],
     

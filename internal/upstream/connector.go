@@ -22,14 +22,14 @@ type Connector interface {
 
 // NewConnector creates a new upstream connector based on the configuration.
 // Supported types are "google", "github", and "generic".
-func NewConnector(cfg config.ConnectorConfig, clientSecret string) (Connector, error) {
+func NewConnector(cfg config.ConnectorConfig, clientID, clientSecret string) (Connector, error) {
 	switch cfg.Type {
 	case "google":
-		return NewGoogleConnector(cfg, clientSecret), nil
+		return NewGoogleConnector(cfg, clientID, clientSecret), nil
 	case "github":
-		return NewGitHubConnector(cfg, clientSecret), nil
+		return NewGitHubConnector(cfg, clientID, clientSecret), nil
 	case "generic":
-		return NewGenericConnector(cfg, clientSecret), nil
+		return NewGenericConnector(cfg, clientID, clientSecret), nil
 	default:
 		return nil, fmt.Errorf("unsupported connector type: %s", cfg.Type)
 	}
