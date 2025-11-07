@@ -28,7 +28,7 @@ jobs:
       - name: Install cross-compilers
         run: |
           sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu libc6-dev-arm64-cross
 
       - name: Install Syft
         uses: anchore/sbom-action/download-syft@v0.20.9
