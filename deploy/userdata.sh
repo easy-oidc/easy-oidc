@@ -7,7 +7,9 @@ set -eo pipefail
 # Userdata script for Ubuntu LTS, which sets up easy-oidc and Caddy on a fresh instance.
 # Variables which you can set prior to invoking this script:
 # EASY_OIDC_VERSION="latest"
+# EASY_OIDC_SHA512="abc123..."
 # CADDY_VERSION="latest"
+# CADDY_SHA512="def456..."
 # OIDC_HOSTNAME="auth.example.com"
 # EASY_OIDC_CONFIG='{"clients":{}}'
 # SSH=false
@@ -102,6 +104,16 @@ fi
 echo "Installing easy-oidc ${EASY_OIDC_VERSION}..."
 
 curl -L "https://github.com/easy-oidc/easy-oidc/releases/download/${EASY_OIDC_VERSION}/easy-oidc_${EASY_OIDC_VERSION#v}_linux_${ARCH}.tar.gz" -o /tmp/easy-oidc.tar.gz
+
+if [ -n "${EASY_OIDC_SHA512}" ]; then
+    echo "Verifying easy-oidc checksum..."
+    echo "${EASY_OIDC_SHA512}  /tmp/easy-oidc.tar.gz" | sha512sum -c -
+    if [ $? -ne 0 ]; then
+        echo "ERROR: easy-oidc checksum verification failed"
+        exit 1
+    fi
+fi
+
 tar -xzf /tmp/easy-oidc.tar.gz -C /tmp
 mv /tmp/easy-oidc /usr/local/bin/easy-oidc
 chmod +x /usr/local/bin/easy-oidc
@@ -127,6 +139,16 @@ fi
 echo "Installing Caddy ${CADDY_VERSION}..."
 
 curl -L "https://github.com/caddyserver/caddy/releases/download/${CADDY_VERSION}/caddy_${CADDY_VERSION#v}_linux_${ARCH}.tar.gz" -o /tmp/caddy.tar.gz
+
+if [ -n "${CADDY_SHA512}" ]; then
+    echo "Verifying Caddy checksum..."
+    echo "${CADDY_SHA512}  /tmp/caddy.tar.gz" | sha512sum -c -
+    if [ $? -ne 0 ]; then
+        echo "ERROR: Caddy checksum verification failed"
+        exit 1
+    fi
+fi
+
 tar -xzf /tmp/caddy.tar.gz -C /tmp caddy
 mv /tmp/caddy /usr/bin/caddy
 chmod +x /usr/bin/caddy
