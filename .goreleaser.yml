@@ -41,6 +41,7 @@ archives:
 
 checksum:
   name_template: '{{ .ProjectName }}_{{ .Version }}_checksums.txt'
+  algorithm: sha512
 
 sboms:
   - id: archive
