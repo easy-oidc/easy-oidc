@@ -18,6 +18,11 @@ builds:
     goarch:
       - amd64
       - arm64
+    overrides:
+      - goos: linux
+        goarch: arm64
+        env:
+          - CC=aarch64-linux-gnu-gcc
     ldflags:
       - -s -w
       - -X github.com/easy-oidc/easy-oidc/internal/buildvars.buildVersion={{.Version}}
