@@ -5,6 +5,7 @@ package oidc
 
 import (
 	"fmt"
+	"html/template"
 	"net/http"
 	"net/url"
 )
@@ -61,6 +62,20 @@ func (s *Server) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	client, exists := s.config.Clients[state.ClientID]
+	if !exists {
+		s.logger.Error("unknown client in state", "client_id", state.ClientID)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	groups := s.groupResolver.ResolveGroups(client.GroupsOverride, email)
+	if client.ShouldRequireGroups(s.config.RequireGroups) && len(groups) == 0 {
+		s.logger.Warn("authentication rejected: user has no groups", "email", email, "client_id", state.ClientID)
+		s.renderErrorPage(w, "Login Failed", "Your account was unable to be authorised.")
+		return
+	}
+
 	authCode, err := s.authCodeMgr.GenerateCode(AuthCodePayload{
 		ClientID:      state.ClientID,
 		RedirectURI:   state.RedirectURI,
@@ -89,4 +104,28 @@ func (s *Server) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	redirectURL.RawQuery = q.Encode()
 
 	http.Redirect(w, r, redirectURL.String(), http.StatusFound)
+}
+
+func (s *Server) renderErrorPage(w http.ResponseWriter, title string, message string) {
+	tmpl, err := template.New("error").Parse(errorPageTemplate)
+	if err != nil {
+		s.logger.Error("failed to parse error template", "error", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusForbidden)
+
+	data := struct {
+		Title   string
+		Message string
+	}{
+		Title:   title,
+		Message: message,
+	}
+
+	if err := tmpl.Execute(w, data); err != nil {
+		s.logger.Error("failed to render error template", "error", err)
+	}
 }
