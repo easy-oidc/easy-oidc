@@ -5,6 +5,10 @@
   "http_listen_addr": "127.0.0.1:8080",
   "data_dir": "temp",
   
+  // Require users to have groups assigned (default: true)
+  // Set to false to allow authentication without groups
+  "require_groups": true,
+  
   "secrets": {
     "provider": "env",
     "env_signing_key": "EASYOIDC_SIGNING_KEY",
@@ -28,6 +32,8 @@
   "clients": {
     "kubelogin-local": {
       "groups_override": "local-groups"
+      // Optional: override require_groups per-client
+      // "require_groups": false
     }
   }
 }

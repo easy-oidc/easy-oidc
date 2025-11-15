@@ -60,6 +60,20 @@ func (s *Server) HandleToken(w http.ResponseWriter, r *http.Request) {
 
 	groups := s.groupResolver.ResolveGroups(client.GroupsOverride, payload.Email)
 
+	if client.ShouldRequireGroups(s.config.RequireGroups) && len(groups) == 0 {
+		s.logger.Warn("authentication rejected: user has no groups", "email", payload.Email, "client_id", payload.ClientID)
+		w.Header().Set("Content-Type", "application/json")
+		response := map[string]interface{}{
+			"error":             "access_denied",
+			"error_description": "user has no groups assigned",
+		}
+		w.WriteHeader(http.StatusForbidden)
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			s.logger.Error("failed to encode error response", "error", err)
+		}
+		return
+	}
+
 	idToken, err := s.signer.SignIDToken(payload.Email, payload.ClientID, groups, payload.Nonce)
 	if err != nil {
 		s.logger.Error("failed to sign ID token", "error", err)

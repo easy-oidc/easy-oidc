@@ -38,6 +38,11 @@ func Load(path string) (*Config, error) {
 		cfg.TokenTTLSeconds = 3600
 	}
 
+	if cfg.RequireGroups == nil {
+		defaultRequireGroups := true
+		cfg.RequireGroups = &defaultRequireGroups
+	}
+
 	if err := validate(&cfg); err != nil {
 		return nil, fmt.Errorf("config validation failed: %w", err)
 	}

@@ -43,6 +43,8 @@
     "kubelogin-prod": {
       "redirect_uris": ["http://localhost:8000"],
       "groups_override": "prod-groups"
+      // Optional: override require_groups per-client
+      // "require_groups": false
     },
     "kubelogin-dev": {
       "groups_override": "dev-groups"
@@ -51,4 +53,8 @@
   
   // Optional: Token TTL in seconds (default: 3600 = 1 hour)
   // "token_ttl_seconds": 3600,
+  
+  // Optional: Require users to have groups (default: true)
+  // Set to false to allow authentication without groups
+  // "require_groups": true,
 }

@@ -12,6 +12,7 @@ type Config struct {
 	DataDir             string                         `json:"data_dir"`
 	JWKSKID             string                         `json:"jwks_kid,omitempty"`
 	TokenTTLSeconds     int                            `json:"token_ttl_seconds,omitempty"`
+	RequireGroups       *bool                          `json:"require_groups,omitempty"`
 	Secrets             SecretsConfig                  `json:"secrets"`
 	Connector           ConnectorConfig                `json:"connector"`
 	DefaultRedirectURIs []string                       `json:"default_redirect_uris"`
@@ -66,4 +67,18 @@ type GenericConfig struct {
 type ClientConfig struct {
 	RedirectURIs   []string `json:"redirect_uris"`
 	GroupsOverride string   `json:"groups_override"`
+	RequireGroups  *bool    `json:"require_groups,omitempty"`
+}
+
+// ShouldRequireGroups returns whether groups are required for authentication.
+// It checks the client-specific setting first, falling back to the global setting.
+// If neither is set, it defaults to true.
+func (c *ClientConfig) ShouldRequireGroups(globalRequireGroups *bool) bool {
+	if c.RequireGroups != nil {
+		return *c.RequireGroups
+	}
+	if globalRequireGroups != nil {
+		return *globalRequireGroups
+	}
+	return true
 }
