@@ -39,6 +39,11 @@ archives:
       - README.md
       - examples/**/*
 
+signs:
+  - artifacts: checksum
+    cmd: cosign
+    args: ["sign-blob", "--yes", "--output-signature=${signature}", "${artifact}"]
+
 checksum:
   name_template: '{{ .ProjectName }}_{{ .Version }}_checksums.txt'
   algorithm: sha512
