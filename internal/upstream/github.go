@@ -19,6 +19,9 @@ import (
 type GitHubConnector struct {
 	config   *oauth2.Config
 	hostname string
+
+	// apiURLOverride is used in tests to redirect API calls to a test server.
+	apiURLOverride string
 }
 
 type githubEmail struct {
@@ -35,17 +38,25 @@ func NewGitHubConnector(cfg config.ConnectorConfig, redirectURL, clientID, clien
 		scopes = []string{"user:email"}
 	}
 
+	hostname := "github.com"
+	if cfg.GitHub != nil && cfg.GitHub.Hostname != "" {
+		hostname = cfg.GitHub.Hostname
+	}
+
+	endpoint := github.Endpoint
+	if hostname != "github.com" {
+		endpoint = oauth2.Endpoint{
+			AuthURL:  fmt.Sprintf("https://%s/login/oauth/authorize", hostname),
+			TokenURL: fmt.Sprintf("https://%s/login/oauth/access_token", hostname),
+		}
+	}
+
 	oauth2Config := &oauth2.Config{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
 		RedirectURL:  redirectURL,
 		Scopes:       scopes,
-		Endpoint:     github.Endpoint,
-	}
-
-	hostname := "github.com"
-	if cfg.GitHub != nil && cfg.GitHub.Hostname != "" {
-		hostname = cfg.GitHub.Hostname
+		Endpoint:     endpoint,
 	}
 
 	return &GitHubConnector{
@@ -69,9 +80,12 @@ func (c *GitHubConnector) Exchange(ctx context.Context, code string) (*oauth2.To
 func (c *GitHubConnector) GetUserEmail(ctx context.Context, token *oauth2.Token) (string, bool, error) {
 	client := c.config.Client(ctx, token)
 
-	apiURL := fmt.Sprintf("https://api.%s/user/emails", c.hostname)
-	if c.hostname != "github.com" {
-		apiURL = fmt.Sprintf("https://%s/api/v3/user/emails", c.hostname)
+	apiURL := c.apiURLOverride
+	if apiURL == "" {
+		apiURL = fmt.Sprintf("https://api.%s/user/emails", c.hostname)
+		if c.hostname != "github.com" {
+			apiURL = fmt.Sprintf("https://%s/api/v3/user/emails", c.hostname)
+		}
 	}
 
 	resp, err := client.Get(apiURL)
