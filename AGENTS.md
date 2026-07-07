@@ -1,3 +1,9 @@
+<!--
+Easy OIDC <https://easy-oidc.dev>
+Copyright The Easy OIDC Authors
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # AGENTS.md
 
 This file contains guidance for AI coding agents working on the easy-oidc project.

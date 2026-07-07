@@ -1,4 +1,5 @@
-# Copyright 2025 Nadrama Pty Ltd
+# Easy OIDC <https://easy-oidc.dev>
+# Copyright The Easy OIDC Authors
 # SPDX-License-Identifier: Apache-2.0
 
 issuer: http://127.0.0.1:5556/dex

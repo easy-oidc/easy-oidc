@@ -1,5 +1,6 @@
 #!/bin/bash
-# Copyright 2025 Nadrama Pty Ltd
+# Easy OIDC <https://easy-oidc.dev>
+# Copyright The Easy OIDC Authors
 # SPDX-License-Identifier: Apache-2.0
 
 set -eo pipefail

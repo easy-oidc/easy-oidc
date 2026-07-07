@@ -1,3 +1,9 @@
+<!--
+Easy OIDC <https://easy-oidc.dev>
+Copyright The Easy OIDC Authors
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Easy OIDC
 
 Minimal OIDC server designed for use with Kubernetes, with Google/GitHub/Generic federation, and support for static group overrides.
@@ -60,5 +66,5 @@ See [AWS Terraform Module](https://github.com/easy-oidc/terraform-aws-easy-oidc?
 ## License
 
 Easy OIDC is licensed under the Apache License, Version 2.0.
-Copyright 2025 Nadrama Pty Ltd.
+Copyright The Easy OIDC Authors.
 See the [LICENSE](./LICENSE) file for details.
