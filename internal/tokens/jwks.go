@@ -12,8 +12,8 @@ import (
 
 // GenerateJWKS generates a JSON Web Key Set from a key pair and key ID.
 // The resulting JWKS can be served at the /jwks endpoint for token verification.
-func GenerateJWKS(keyPair *KeyPair, kid string) ([]byte, error) {
-	key, err := jwk.FromRaw(keyPair.PublicKey)
+func GenerateJWKS(signingKey *SigningKey, kid string) ([]byte, error) {
+	key, err := jwk.FromRaw(signingKey.PublicKey)
 	if err != nil {
 		return nil, err
 	}
@@ -22,7 +22,7 @@ func GenerateJWKS(keyPair *KeyPair, kid string) ([]byte, error) {
 		return nil, err
 	}
 
-	if err := key.Set(jwk.AlgorithmKey, "EdDSA"); err != nil {
+	if err := key.Set(jwk.AlgorithmKey, signingKey.Algorithm); err != nil {
 		return nil, err
 	}
 

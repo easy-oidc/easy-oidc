@@ -21,6 +21,7 @@ import (
 	"github.com/easy-oidc/easy-oidc/internal/config"
 	"github.com/easy-oidc/easy-oidc/internal/storage"
 	"github.com/easy-oidc/easy-oidc/internal/tokens"
+	"github.com/lestrrat-go/jwx/v2/jwa"
 )
 
 func TestHandleToken_RequireGroups(t *testing.T) {
@@ -29,12 +30,13 @@ func TestHandleToken_RequireGroups(t *testing.T) {
 		t.Fatalf("failed to generate keys: %v", err)
 	}
 
-	keyPair := &tokens.KeyPair{
+	signingKey := &tokens.SigningKey{
+		Algorithm:  jwa.EdDSA,
 		PrivateKey: privKey,
 		PublicKey:  pubKey,
 	}
 
-	signer := tokens.NewSigner(keyPair, "test-kid", "https://test.example.com", time.Hour)
+	signer := tokens.NewSigner(signingKey, "test-kid", "https://test.example.com", time.Hour)
 
 	tests := []struct {
 		name                string

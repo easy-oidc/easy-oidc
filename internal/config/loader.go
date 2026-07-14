@@ -15,6 +15,15 @@ import (
 	"github.com/tidwall/jsonc"
 )
 
+const DefaultSigningAlgorithm = "RS256"
+
+var supportedSigningAlgorithms = map[string]struct{}{
+	"RS256": {}, "RS384": {}, "RS512": {},
+	"ES256": {}, "ES384": {}, "ES512": {},
+	"PS256": {}, "PS384": {}, "PS512": {},
+	"EdDSA": {},
+}
+
 // Load reads and parses a JSONC configuration file from the given path.
 // It validates the configuration and returns an error if validation fails.
 // The path parameter must be non-empty.
@@ -37,6 +46,9 @@ func Load(path string) (*Config, error) {
 
 	if cfg.TokenTTLSeconds == 0 {
 		cfg.TokenTTLSeconds = 3600
+	}
+	if cfg.SigningAlgorithm == "" {
+		cfg.SigningAlgorithm = DefaultSigningAlgorithm
 	}
 
 	if cfg.RequireGroups == nil {
@@ -62,6 +74,10 @@ func validate(cfg *Config) error {
 
 	if cfg.DataDir == "" {
 		return fmt.Errorf("data_dir is required")
+	}
+
+	if _, ok := supportedSigningAlgorithms[cfg.SigningAlgorithm]; !ok {
+		return fmt.Errorf("signing_algorithm must be one of RS256, RS384, RS512, ES256, ES384, ES512, PS256, PS384, PS512, or EdDSA")
 	}
 
 	if err := validateSecretsProvider(cfg.Secrets.Provider); err != nil {

@@ -72,7 +72,7 @@ make check          # Run fmt, lint, and test
 
 ## Key Design Decisions
 
-- **Ed25519 signing only**: State-of-the-art, fast signing for ID tokens
+- **Kubernetes-compatible signing**: RS256 by default; all Kubernetes-supported asymmetric algorithms plus EdDSA are available
 - **Stateless auth codes**: Signed JWTs with ephemeral secret
 - **No sessions or cookies**: OAuth state and auth codes are self-contained
 - **Ephemeral secrets**: Generated at startup for state/auth codes

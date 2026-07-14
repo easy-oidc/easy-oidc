@@ -6,6 +6,7 @@
   "issuer_url": "http://127.0.0.1:8080",
   "http_listen_addr": "127.0.0.1:8080",
   "data_dir": "./temp",
+  "signing_algorithm": "RS256",
 
   "secrets": {
     "provider": "env",

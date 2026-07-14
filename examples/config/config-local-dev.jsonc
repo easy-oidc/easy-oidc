@@ -8,6 +8,7 @@
   "issuer_url": "http://localhost:8080",
   "http_listen_addr": "127.0.0.1:8080",
   "data_dir": "temp",
+  "signing_algorithm": "RS256",
   
   // Require users to have groups assigned (default: true)
   // Set to false to allow authentication without groups

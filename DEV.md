@@ -14,10 +14,10 @@ SPDX-License-Identifier: Apache-2.0
 cp .env.example .env
 ```
 
-### 2. Generate an Ed25519 signing key
+### 2. Generate an RSA signing key
 
 ```bash
-scripts/generate-ed25519-key.sh > pbcopy
+scripts/generate-signing-key.sh | pbcopy
 ```
 
 Paste the output (copied to clipboard by `pbcopy` above) in `.env`:
@@ -65,7 +65,7 @@ kubectl oidc-login setup \
 
 The `.env` file should contain:
 
-- `EASYOIDC_SIGNING_KEY` - Ed25519 private key in PEM format
+- `EASYOIDC_SIGNING_KEY` - PKCS8 PEM private key compatible with `signing_algorithm` (RSA-3072 for the default RS256 algorithm)
 - `EASYOIDC_OAUTH_CLIENT_ID` - OAuth client ID from Google/GitHub
 - `EASYOIDC_OAUTH_CLIENT_SECRET` - OAuth client secret from Google/GitHub
 

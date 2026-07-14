@@ -11,6 +11,7 @@ type Config struct {
 	IssuerURL           string                         `json:"issuer_url"`
 	HTTPListenAddr      string                         `json:"http_listen_addr"`
 	DataDir             string                         `json:"data_dir"`
+	SigningAlgorithm    string                         `json:"signing_algorithm,omitempty"`
 	JWKSKID             string                         `json:"jwks_kid,omitempty"`
 	TokenTTLSeconds     int                            `json:"token_ttl_seconds,omitempty"`
 	RequireGroups       *bool                          `json:"require_groups,omitempty"`

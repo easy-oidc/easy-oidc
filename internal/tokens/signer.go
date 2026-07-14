@@ -9,26 +9,25 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lestrrat-go/jwx/v2/jwa"
 	"github.com/lestrrat-go/jwx/v2/jws"
 	"github.com/lestrrat-go/jwx/v2/jwt"
 )
 
-// Signer signs OpenID Connect ID tokens using Ed25519.
+// Signer signs OpenID Connect ID tokens.
 type Signer struct {
-	keyPair   *KeyPair
-	kid       string
-	issuerURL string
-	tokenTTL  time.Duration
+	signingKey *SigningKey
+	kid        string
+	issuerURL  string
+	tokenTTL   time.Duration
 }
 
-// NewSigner creates a new token signer with the provided key pair, key ID, issuer URL, and token TTL.
-func NewSigner(keyPair *KeyPair, kid, issuerURL string, tokenTTL time.Duration) *Signer {
+// NewSigner creates a new token signer with the provided signing key, key ID, issuer URL, and token TTL.
+func NewSigner(signingKey *SigningKey, kid, issuerURL string, tokenTTL time.Duration) *Signer {
 	return &Signer{
-		keyPair:   keyPair,
-		kid:       kid,
-		issuerURL: issuerURL,
-		tokenTTL:  tokenTTL,
+		signingKey: signingKey,
+		kid:        kid,
+		issuerURL:  issuerURL,
+		tokenTTL:   tokenTTL,
 	}
 }
 
@@ -79,7 +78,7 @@ func (s *Signer) SignIDToken(email, clientID string, groups []string, nonce stri
 		return "", err
 	}
 
-	signed, err := jwt.Sign(token, jwt.WithKey(jwa.EdDSA, s.keyPair.PrivateKey, jws.WithProtectedHeaders(hdrs)))
+	signed, err := jwt.Sign(token, jwt.WithKey(s.signingKey.Algorithm, s.signingKey.PrivateKey, jws.WithProtectedHeaders(hdrs)))
 	if err != nil {
 		return "", fmt.Errorf("failed to sign token: %w", err)
 	}

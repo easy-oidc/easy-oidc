@@ -49,9 +49,12 @@ func TestLoad(t *testing.T) {
 				defer cleanupTestConfig(t)
 			}
 
-			_, err := Load(tt.path)
+			cfg, err := Load(tt.path)
 			if (err != nil) != tt.expectError {
 				t.Errorf("expected error: %v, got: %v", tt.expectError, err)
+			}
+			if tt.name == "valid config" && cfg.SigningAlgorithm != DefaultSigningAlgorithm {
+				t.Errorf("signing algorithm = %q, want %q", cfg.SigningAlgorithm, DefaultSigningAlgorithm)
 			}
 		})
 	}
@@ -374,10 +377,11 @@ func TestValidate(t *testing.T) {
 		{
 			name: "valid minimal config",
 			config: Config{
-				IssuerURL:      "https://auth.example.com",
-				HTTPListenAddr: "127.0.0.1:8080",
-				JWKSKID:        "key-1",
-				DataDir:        "temp",
+				IssuerURL:        "https://auth.example.com",
+				HTTPListenAddr:   "127.0.0.1:8080",
+				SigningAlgorithm: DefaultSigningAlgorithm,
+				JWKSKID:          "key-1",
+				DataDir:          "temp",
 				Secrets: SecretsConfig{
 					Provider:             "env",
 					EnvSigningKey:        "SIGNING_KEY",
@@ -393,6 +397,16 @@ func TestValidate(t *testing.T) {
 				},
 			},
 			expectError: false,
+		},
+		{
+			name: "invalid signing algorithm",
+			config: Config{
+				IssuerURL:        "https://auth.example.com",
+				HTTPListenAddr:   "127.0.0.1:8080",
+				DataDir:          "temp",
+				SigningAlgorithm: "HS256",
+			},
+			expectError: true,
 		},
 		{
 			name: "missing issuer_url",

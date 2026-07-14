@@ -24,7 +24,7 @@ Easy OIDC was created by [Nadrama](https://nadrama.com). Nadrama is an Open Sour
 - **Zero password management** - Delegates to GitHub, Google, or any OAuth2+UserInfo/OIDC provider
 - **Static group overrides** - Map a list of emails to groups in the JSONC config
 - **PKCE-only** - Secure public client flow (no client secrets to leak)
-- **Ed25519 signing** - State-of-the-art cryptography
+- **Kubernetes-compatible signing** - RS256 by default, with all Kubernetes-supported algorithms plus EdDSA
 - **Single binary** - Embedded SQLite (no external database), no external dependencies
 - **Multi-cloud support** - Terraform modules for your cloud (AWS [here](https://github.com/easy-oidc/terraform-aws-easy-oidc), GCP/Azure planned)
 

@@ -117,7 +117,7 @@ func run(cmd *cobra.Command, args []string) error {
 		logger.Error("failed to get signing key", "error", err)
 		return err
 	}
-	keyPair, err := tokens.ParseEd25519PrivateKey(signingKeyPEM)
+	signingKey, err := tokens.ParsePrivateKey(signingKeyPEM, cfg.SigningAlgorithm)
 	if err != nil {
 		logger.Error("failed to parse signing key", "error", err)
 		return err
@@ -125,7 +125,11 @@ func run(cmd *cobra.Command, args []string) error {
 
 	// generate key ID if not provided
 	if cfg.JWKSKID == "" {
-		cfg.JWKSKID = tokens.GenerateKeyID(keyPair)
+		cfg.JWKSKID, err = tokens.GenerateKeyID(signingKey)
+		if err != nil {
+			logger.Error("failed to generate signing key ID", "error", err)
+			return err
+		}
 		logger.Info("generated jwks_kid from key fingerprint", "kid", cfg.JWKSKID)
 	}
 
@@ -155,10 +159,10 @@ func run(cmd *cobra.Command, args []string) error {
 
 	// set up token signer
 	tokenTTL := time.Duration(cfg.TokenTTLSeconds) * time.Second
-	signer := tokens.NewSigner(keyPair, cfg.JWKSKID, cfg.IssuerURL, tokenTTL)
+	signer := tokens.NewSigner(signingKey, cfg.JWKSKID, cfg.IssuerURL, tokenTTL)
 
 	// generate JWKS
-	jwksData, err := tokens.GenerateJWKS(keyPair, cfg.JWKSKID)
+	jwksData, err := tokens.GenerateJWKS(signingKey, cfg.JWKSKID)
 	if err != nil {
 		logger.Error("failed to generate JWKS", "error", err)
 		return err

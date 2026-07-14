@@ -20,7 +20,7 @@ func (s *Server) HandleDiscovery(w http.ResponseWriter, r *http.Request) {
 		"jwks_uri":                              s.config.IssuerURL + "/jwks",
 		"response_types_supported":              []string{"code"},
 		"subject_types_supported":               []string{"public"},
-		"id_token_signing_alg_values_supported": []string{"EdDSA"},
+		"id_token_signing_alg_values_supported": []string{s.config.SigningAlgorithm},
 		"scopes_supported":                      []string{"openid", "email", "profile", "groups"},
 		"claims_supported":                      []string{"sub", "email", "email_verified", "preferred_username", "groups"},
 		"code_challenge_methods_supported":      []string{"S256"},
