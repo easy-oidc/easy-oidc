@@ -2,11 +2,15 @@
 # Copyright The Easy OIDC Authors
 # SPDX-License-Identifier: Apache-2.0
 
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+
 version: 2
+
+project_name: easy-oidc
 
 before:
   hooks:
-    - go mod tidy
+    - make precommit
 
 builds:
   - id: easy-oidc
@@ -23,17 +27,19 @@ builds:
       - goos: linux
         goarch: arm64
         env:
-          - CC=aarch64-linux-gnu-gcc
+          - CC=aarch64-linux-gnu-gcc-13
     ldflags:
       - -s -w
-      - -X github.com/easy-oidc/easy-oidc/internal/buildvars.buildVersion={{.Version}}
-      - -X github.com/easy-oidc/easy-oidc/internal/buildvars.buildDate={{.Date}}
-      - -X github.com/easy-oidc/easy-oidc/internal/buildvars.commitHash={{.ShortCommit}}
-      - -X github.com/easy-oidc/easy-oidc/internal/buildvars.commitDate={{.CommitDate}}
-      - -X github.com/easy-oidc/easy-oidc/internal/buildvars.commitBranch={{.Branch}}
+      - -X github.com/easy-oidc/easy-oidc/internal/buildvars.buildVersion={{ .Tag }}
+      - -X github.com/easy-oidc/easy-oidc/internal/buildvars.buildDate={{ .Date }}
+      - -X github.com/easy-oidc/easy-oidc/internal/buildvars.commitHash={{ .FullCommit }}
+      - -X github.com/easy-oidc/easy-oidc/internal/buildvars.commitDate={{ .Env.COMMIT_DATE }}
+      - -X github.com/easy-oidc/easy-oidc/internal/buildvars.commitBranch=unknown
+    mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
   - id: easy-oidc
+    formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       - LICENSE
@@ -43,7 +49,9 @@ archives:
 signs:
   - artifacts: checksum
     cmd: cosign
-    args: ["sign-blob", "--yes", "--output-signature=${signature}", "${artifact}"]
+    signature: "${artifact}.bundle"
+    args: ["sign-blob", "--yes", "--bundle=${signature}", "${artifact}"]
+    output: true
 
 checksum:
   name_template: '{{ .ProjectName }}_{{ .Version }}_checksums.txt'
@@ -53,7 +61,7 @@ sboms:
   - id: archive
     artifacts: archive
     documents:
-      - "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}.spdx.json"
+      - "{{ .ArtifactName }}.spdx.json"
   - id: binary
     artifacts: binary
     documents:
@@ -61,15 +69,18 @@ sboms:
 
 changelog:
   sort: asc
+  use: github
   filters:
     exclude:
       - '^docs:'
       - '^test:'
       - '^chore:'
+      - '^ci:'
 
 release:
   github:
     owner: easy-oidc
     name: easy-oidc
-  draft: false
+  draft: true
   prerelease: auto
+  replace_existing_artifacts: false

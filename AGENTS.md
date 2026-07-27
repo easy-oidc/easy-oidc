@@ -12,6 +12,7 @@ This file contains guidance for AI coding agents working on the easy-oidc projec
 
 ### Build
 ```bash
+make setup          # Verify tools and install Git hooks
 make build          # Build the binary
 make clean          # Clean build artifacts
 ```
@@ -28,6 +29,7 @@ make e2e            # Run E2E test with Dex container as upstream
 ```bash
 make fmt            # Format code
 make lint           # Run linter
+make precommit      # Check formatting and lint without modifying files
 make check          # Run fmt, lint, and test
 ```
 
@@ -54,11 +56,16 @@ make check          # Run fmt, lint, and test
 │   ├── config/             # Configuration loading and validation
 │   ├── secrets/            # Secrets providers (AWS, GCP, Azure, env)
 │   ├── oidc/               # OIDC server and handlers
+│   ├── storage/            # SQLite-backed OAuth state and auth codes
 │   ├── upstream/           # Google/GitHub connectors
 │   └── tokens/             # Token signing, JWKS, groups
 ├── examples/               # Example configs and deployment files
-└── scripts/                # Helper scripts
+└── scripts/                # Helper scripts, automation, and Git hooks
 ```
+
+## Generated Files
+
+The repository does not currently commit generated source files. Go module sums are maintained by Go module commands and must remain committed. Build output, coverage, and temporary SQLite data belong under ignored paths and are removed by `make clean`.
 
 ## Code Conventions
 
@@ -73,11 +80,10 @@ make check          # Run fmt, lint, and test
 ## Key Design Decisions
 
 - **Kubernetes-compatible signing**: RS256 by default; all Kubernetes-supported asymmetric algorithms plus EdDSA are available
-- **Stateless auth codes**: Signed JWTs with ephemeral secret
-- **No sessions or cookies**: OAuth state and auth codes are self-contained
-- **Ephemeral secrets**: Generated at startup for state/auth codes
+- **Opaque auth codes**: Cryptographically random, single-use values stored in SQLite
+- **No sessions or cookies**: Browser state and authorization codes are persisted in SQLite, not client sessions
 - **Email as `sub` claim**: Human-readable, stable across IdP changes
-- **Single-use auth codes**: In-memory cache with expiry
+- **Single-use auth codes**: Atomically consumed from SQLite with expiry
 
 ## Upstream Connectors
 
@@ -91,7 +97,7 @@ easy-oidc supports multiple upstream OAuth2/OIDC providers:
 
 - `github.com/lestrrat-go/jwx/v2` - JWT/JWK/JWKS handling
 - `golang.org/x/oauth2` - OAuth2 client for Google/GitHub
-- `github.com/tidwall/jsonc` - JSONC config parsing
+- `github.com/tailscale/hujson` - JSONC config parsing
 - `github.com/spf13/cobra` - CLI framework
 - Cloud SDKs for secrets management (AWS, GCP, Azure)
 

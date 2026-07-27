@@ -8,13 +8,21 @@ SPDX-License-Identifier: Apache-2.0
 
 ## Quick Start
 
-### 1. Copy the example environment file
+### 1. Set up the repository
+
+Verify the required tools and install the Git hooks:
+
+```bash
+make setup
+```
+
+### 2. Copy the example environment file
 
 ```bash
 cp .env.example .env
 ```
 
-### 2. Generate an RSA signing key
+### 3. Generate an RSA signing key
 
 ```bash
 scripts/generate-signing-key.sh | pbcopy
@@ -28,7 +36,7 @@ MC4CAQAwBQYDK2VwBCIEI...
 -----END PRIVATE KEY-----'
 ```
 
-### 3. Create a Google OAuth App
+### 4. Create a Google OAuth App
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
 2. Create OAuth 2.0 Client ID
@@ -40,17 +48,18 @@ EASYOIDC_OAUTH_CLIENT_ID=123456789.apps.googleusercontent.com
 EASYOIDC_OAUTH_CLIENT_SECRET=GOCSPX-xxxxxxxxxxxxxxxxxxxxx
 ```
 
-### 4. Run easy-oidc
+### 5. Build and run Easy OIDC
 
 ```bash
 # Load environment variables (if using direnv or similar)
 export $(cat .env | xargs)
 
-# Run the server with the example local development config
+# Build and run the server with the example local development config
+make build
 ./bin/easy-oidc --config examples/config/config-local-dev.jsonc --debug
 ```
 
-### 5. Test with kubelogin
+### 6. Test with kubelogin
 
 ```bash
 # In another terminal

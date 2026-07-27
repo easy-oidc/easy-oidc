@@ -8,8 +8,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
-
-	"github.com/lestrrat-go/jwx/v2/jwt"
 )
 
 // HandleUserInfo handles the OIDC userinfo endpoint (/userinfo).
@@ -29,9 +27,9 @@ func (s *Server) HandleUserInfo(w http.ResponseWriter, r *http.Request) {
 
 	tokenString := parts[1]
 
-	token, err := jwt.Parse([]byte(tokenString), jwt.WithValidate(false))
+	token, err := s.signer.VerifyToken(tokenString)
 	if err != nil {
-		s.logger.Error("failed to parse token", "error", err)
+		s.logger.Error("failed to verify token", "error", err)
 		http.Error(w, "invalid token", http.StatusUnauthorized)
 		return
 	}

@@ -12,7 +12,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/tidwall/jsonc"
+	"github.com/tailscale/hujson"
 )
 
 const DefaultSigningAlgorithm = "RS256"
@@ -37,7 +37,10 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	data = jsonc.ToJSON(data)
+	data, err = hujson.Standardize(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse config: %w", err)
+	}
 
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {

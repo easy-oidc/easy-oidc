@@ -86,6 +86,20 @@ func (s *Signer) SignIDToken(email, clientID string, groups []string, nonce stri
 	return string(signed), nil
 }
 
+// VerifyToken verifies a token signed by this signer and validates its issuer and expiry.
+func (s *Signer) VerifyToken(token string) (jwt.Token, error) {
+	verified, err := jwt.Parse(
+		[]byte(token),
+		jwt.WithKey(s.signingKey.Algorithm, s.signingKey.PublicKey),
+		jwt.WithIssuer(s.issuerURL),
+		jwt.WithRequiredClaim(jwt.ExpirationKey),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to verify token: %w", err)
+	}
+	return verified, nil
+}
+
 // NormalizeEmail normalizes an email address to lowercase and trims whitespace.
 func NormalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))

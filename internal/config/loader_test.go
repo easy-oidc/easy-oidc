@@ -511,6 +511,7 @@ func setupTestConfig(t *testing.T) {
 	}
 
 	configContent := `{
+		// JSONC comments and trailing commas are supported.
 		"issuer_url": "https://auth.example.com",
 		"http_listen_addr": "127.0.0.1:8080",
 		"jwks_kid": "test-key",
@@ -526,8 +527,8 @@ func setupTestConfig(t *testing.T) {
 		},
 		"default_redirect_uris": ["http://localhost:8000"],
 		"clients": {
-			"test-client": {}
-		}
+			"test-client": {},
+		},
 	}`
 
 	if err := os.WriteFile(filepath.Join(testDir, "valid-config.jsonc"), []byte(configContent), 0644); err != nil {

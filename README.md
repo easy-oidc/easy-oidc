@@ -34,7 +34,8 @@ See [AWS Terraform Module](https://github.com/easy-oidc/terraform-aws-easy-oidc?
 
 ## Documentation
 
-- **[SPEC.md](SPEC.md)** - Full specification, architecture, and configuration reference
+- **[Local development](DEV.md)** - Set up dependencies and run Easy OIDC locally
+- **[Example configurations](examples/config/)** - AWS, Azure, GCP, GitHub, Google, and generic connector examples
 - **[Terraform Module](https://github.com/easy-oidc/terraform-aws-easy-oidc)** - AWS infrastructure module
 
 ## Architecture
@@ -62,6 +63,28 @@ See [AWS Terraform Module](https://github.com/easy-oidc/terraform-aws-easy-oidc?
 - Caddy handles automatic TLS (via Let's Encrypt)
 - Embedded SQLite for OAuth state and authorization code storage with replay protection
 - Secrets from cloud-native stores (AWS/GCP/Azure)
+
+## Development
+
+Install the pinned development tools and Git hooks, then build and validate the project:
+
+```console
+make setup
+make build
+make precommit
+make test
+```
+
+`make precommit` is the fast, read-only check used by the pre-commit hook and CI. Contributor commits must include a [Developer Certificate of Origin](https://developercertificate.org/) sign-off; use `git commit -s` to add it. See [DEV.md](DEV.md) for local OAuth configuration and end-to-end testing.
+
+## Releases
+
+Releases are built from semantic-version tags such as `v1.4.0`. The release workflow validates the source and uses GoReleaser to publish Linux AMD64 and ARM64 archives. Each release includes SHA-512 checksums, SPDX JSON SBOMs, a keyless Cosign bundle for the checksum file, and GitHub build provenance. Create a release tag with:
+
+```console
+make tag VERSION=v1.5.0
+git push origin v1.5.0
+```
 
 ## License
 
