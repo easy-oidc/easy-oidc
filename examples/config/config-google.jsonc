@@ -62,7 +62,8 @@
   },
 
   // Optional: Token TTL in seconds (default: 3600 = 1 hour)
-  // "token_ttl_seconds": 3600,
+  // "access_token_ttl": "15m",
+  // "id_token_ttl": "15m",
 
   // Optional: Require users to have groups (default: true)
   // Set to false to allow authentication without groups

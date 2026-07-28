@@ -20,6 +20,86 @@ import (
 	"github.com/lestrrat-go/jwx/v2/jwt"
 )
 
+// TestSignTokenPairIssuesPurposeSpecificClaims verifies refreshed token-pair semantics.
+func TestSignTokenPairIssuesPurposeSpecificClaims(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signingKey, err := ParsePrivateKey(privateKeyPEM(t, key), "RS256")
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer := NewSigner(signingKey, "test-kid", "https://auth.example.com", time.Hour)
+	now := time.Now().Truncate(time.Second)
+	context := TokenContext{
+		Email:         "Alice@Example.COM",
+		EmailVerified: true,
+		ClientID:      "test-client",
+		Groups:        []string{"admins"},
+		Nonce:         "initial-nonce",
+		SID:           "session-id",
+		Scopes:        "openid email",
+		AuthTime:      now.Add(-time.Minute),
+		IDExpiry:      now.Add(10 * time.Minute),
+		AccessExpiry:  now.Add(5 * time.Minute),
+	}
+
+	idRaw, accessRaw, err := signer.SignTokenPair(context)
+	if err != nil {
+		t.Fatalf("SignTokenPair() error = %v", err)
+	}
+	if idRaw == accessRaw {
+		t.Fatal("ID and access tokens are identical")
+	}
+	idToken, err := signer.VerifyToken(idRaw)
+	if err != nil {
+		t.Fatalf("verify ID token: %v", err)
+	}
+	accessToken, err := signer.VerifyAccessToken(accessRaw, context.ClientID)
+	if err != nil {
+		t.Fatalf("verify access token: %v", err)
+	}
+
+	assertTokenClaim(t, idToken, "sid", context.SID)
+	assertTokenClaim(t, idToken, "nonce", context.Nonce)
+	assertTokenClaim(t, idToken, "auth_time", float64(context.AuthTime.Unix()))
+	assertTokenClaim(t, accessToken, "sid", context.SID)
+	assertTokenClaim(t, accessToken, "scope", context.Scopes)
+	if _, ok := idToken.Get("scope"); ok {
+		t.Fatal("ID token contains access-token scope claim")
+	}
+	if _, ok := accessToken.Get("nonce"); ok {
+		t.Fatal("access token contains nonce")
+	}
+	if idToken.Subject() != "alice@example.com" || accessToken.Subject() != "alice@example.com" {
+		t.Fatalf("subjects = %q, %q", idToken.Subject(), accessToken.Subject())
+	}
+	if idToken.Expiration().Unix() != context.IDExpiry.Unix() || accessToken.Expiration().Unix() != context.AccessExpiry.Unix() {
+		t.Fatalf("expiries = %v, %v", idToken.Expiration(), accessToken.Expiration())
+	}
+	idJTI, idOK := idToken.Get(jwt.JwtIDKey)
+	accessJTI, accessOK := accessToken.Get(jwt.JwtIDKey)
+	if !idOK || !accessOK || idJTI == "" || accessJTI == "" || idJTI == accessJTI {
+		t.Fatalf("token JTIs are missing or not distinct: %v, %v", idJTI, accessJTI)
+	}
+	if _, err := signer.VerifyAccessToken(idRaw, context.ClientID); err == nil {
+		t.Fatal("VerifyAccessToken() accepted an ID token")
+	}
+	if _, err := signer.VerifyAccessToken(accessRaw, "other-client"); err == nil {
+		t.Fatal("VerifyAccessToken() accepted the wrong audience")
+	}
+}
+
+// assertTokenClaim checks one parsed JWT claim.
+func assertTokenClaim(t *testing.T, token jwt.Token, name string, expected any) {
+	t.Helper()
+	actual, ok := token.Get(name)
+	if !ok || actual != expected {
+		t.Errorf("claim %q = %#v, want %#v", name, actual, expected)
+	}
+}
+
 func TestSupportedSigningAlgorithms(t *testing.T) {
 	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {

@@ -12,6 +12,8 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"strings"
+	"time"
 
 	"github.com/easy-oidc/easy-oidc/internal/templates"
 	"github.com/tailscale/hujson"
@@ -51,9 +53,8 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 
-	if cfg.TokenTTLSeconds == 0 {
-		cfg.TokenTTLSeconds = 3600
-	}
+	applyDurationDefault(&cfg.AccessTokenTTL, 15*time.Minute)
+	applyDurationDefault(&cfg.IDTokenTTL, 15*time.Minute)
 	if cfg.SigningAlgorithm == "" {
 		cfg.SigningAlgorithm = DefaultSigningAlgorithm
 	}
@@ -68,14 +69,18 @@ func Load(path string) (*Config, error) {
 	if cfg.Email != nil && cfg.Email.VerificationMode == "" {
 		cfg.Email.VerificationMode = "disabled"
 	}
-	if cfg.Email != nil && cfg.Email.OTPTTLSeconds == 0 {
-		cfg.Email.OTPTTLSeconds = 300
+	if cfg.Email != nil {
+		applyDurationDefault(&cfg.Email.OTPTTL, 5*time.Minute)
 	}
 	for id, connector := range cfg.Connectors {
 		if connector.Generic != nil && connector.Generic.SubjectField == "" {
 			connector.Generic.SubjectField = "sub"
 			cfg.Connectors[id] = connector
 		}
+	}
+	for id, client := range cfg.Clients {
+		applyRefreshDefaults(&client.RefreshTokens)
+		cfg.Clients[id] = client
 	}
 
 	if err := validate(&cfg); err != nil {
@@ -86,6 +91,21 @@ func Load(path string) (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+// applyDurationDefault applies a documented default only when the field was omitted.
+func applyDurationDefault(value *Duration, fallback time.Duration) {
+	if value.Duration() == 0 {
+		*value = Duration(fallback)
+	}
+}
+
+// applyRefreshDefaults fills omitted refresh lifetime fields.
+func applyRefreshDefaults(policy *RefreshTokenConfig) {
+	applyDurationDefault(&policy.SessionIdleTTL, 30*time.Minute)
+	applyDurationDefault(&policy.SessionAbsoluteTTL, 10*time.Hour)
+	applyDurationDefault(&policy.OfflineIdleTTL, 30*24*time.Hour)
+	applyDurationDefault(&policy.OfflineAbsoluteTTL, 90*24*time.Hour)
 }
 
 func validate(cfg *Config) error {
@@ -139,9 +159,12 @@ func validate(cfg *Config) error {
 			return fmt.Errorf("connector %q: credentials_secret is required", id)
 		}
 		needsEncryption = needsEncryption || connector.Type == "github"
+		for _, client := range cfg.Clients {
+			needsEncryption = needsEncryption || (client.RefreshTokens.Enabled && connector.Type != "email")
+		}
 	}
 	if needsEncryption && cfg.Secrets.EncryptionKeyName == "" {
-		return fmt.Errorf("secrets.encryption_key_name is required when a GitHub connector is configured")
+		return fmt.Errorf("secrets.encryption_key_name is required when a refresh-enabled client can use a non-email connector")
 	}
 	if cfg.Email == nil {
 		if hasEmailConnector {
@@ -158,8 +181,9 @@ func validate(cfg *Config) error {
 		if needsEmailDelivery && cfg.Email.SMTP == nil {
 			return fmt.Errorf("complete email.smtp configuration is required")
 		}
-		if needsEmailDelivery && (cfg.Email.OTPTTLSeconds < 60 || cfg.Email.OTPTTLSeconds > 600 || cfg.Email.OTPTTLSeconds%60 != 0) {
-			return fmt.Errorf("email.otp_ttl_seconds must be a whole number of minutes between 60 and 600 seconds")
+		otpTTL := cfg.Email.OTPTTL.Duration()
+		if needsEmailDelivery && (otpTTL < time.Minute || otpTTL > 10*time.Minute || otpTTL%time.Minute != 0) {
+			return fmt.Errorf("email.otp_ttl must be a whole number of minutes from 1m through 10m")
 		}
 		if cfg.Email.SMTP != nil {
 			smtp := cfg.Email.SMTP
@@ -190,6 +214,15 @@ func validate(cfg *Config) error {
 	}
 
 	for clientID, client := range cfg.Clients {
+		if client.RefreshTokens.AllowOfflineAccess && !client.RefreshTokens.Enabled {
+			return fmt.Errorf("client %q: refresh_tokens.allow_offline_access requires refresh_tokens.enabled", clientID)
+		}
+		if client.RefreshTokens.SessionIdleTTL.Duration() > client.RefreshTokens.SessionAbsoluteTTL.Duration() {
+			return fmt.Errorf("client %q: refresh_tokens.session_idle_ttl must not exceed session_absolute_ttl", clientID)
+		}
+		if client.RefreshTokens.OfflineIdleTTL.Duration() > client.RefreshTokens.OfflineAbsoluteTTL.Duration() {
+			return fmt.Errorf("client %q: refresh_tokens.offline_idle_ttl must not exceed offline_absolute_ttl", clientID)
+		}
 		if err := validateClient(clientID, client, cfg.DefaultRedirectURIs, cfg.GroupsOverrides); err != nil {
 			return fmt.Errorf("client %q: %w", clientID, err)
 		}
@@ -257,6 +290,22 @@ func validateConnector(c *ConnectorConfig) error {
 		}
 		if _, err := url.Parse(c.Generic.UserinfoURL); err != nil {
 			return fmt.Errorf("generic.userinfo_url is not a valid URL: %w", err)
+		}
+		if c.Generic.Refresh != nil {
+			owned := map[string]bool{"client_id": true, "redirect_uri": true, "response_type": true, "scope": true, "state": true, "nonce": true, "code_challenge": true, "code_challenge_method": true}
+			for key := range c.Generic.Refresh.AuthorizationParams {
+				if owned[key] {
+					return fmt.Errorf("generic.refresh.authorization_params may not set Easy OIDC-owned parameter %q", key)
+				}
+				if key == "" {
+					return fmt.Errorf("generic.refresh.authorization_params keys must not be empty")
+				}
+			}
+			for _, scope := range c.Generic.Refresh.Scopes {
+				if strings.TrimSpace(scope) == "" || strings.ContainsAny(scope, " \t\r\n") {
+					return fmt.Errorf("generic.refresh.scopes must contain nonempty individual scope values")
+				}
+			}
 		}
 	}
 

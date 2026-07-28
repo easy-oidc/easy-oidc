@@ -168,9 +168,10 @@ contexts:
 
 When you run `kubectl` commands, kubelogin will:
 1. Check for a cached token
-2. If expired or missing, open a browser for authentication
-3. Exchange the auth code for an ID token
-4. Return the token to kubectl
+2. Refresh an expired token when the client has refresh enabled
+3. If missing or no longer refreshable, open a browser for authentication
+4. Exchange the auth code for an ID token
+5. Return the token to kubectl
 
 See the [kubelogin guide](/docs/kubelogin/) for detailed setup.
 
@@ -190,9 +191,10 @@ If this is your first time, kubelogin will open a browser for authentication. Af
 
 ## Token Expiry and Refresh
 
-ID tokens issued by Easy OIDC expire after 1 hour (configurable). kubelogin handles re-authentication automatically:
+ID tokens issued by Easy OIDC are short-lived and configurable. kubelogin handles renewal automatically:
 - Tokens are cached locally
-- When expired, kubelogin triggers a new browser-based login
+- When expired, kubelogin uses a cached refresh token for refresh-enabled clients
+- If refresh is unavailable or rejected, kubelogin starts a new browser login
 - No manual intervention required
 
 ## Multi-Cluster Setup

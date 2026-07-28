@@ -80,8 +80,8 @@ func (s *Server) beginOTP(w http.ResponseWriter, r *http.Request, state OAuthSta
 		http.Error(w, "internal error", 500)
 		return
 	}
-	flow := storage.OTPFlow{ConnectorID: id, Subject: subject, Email: email, ClientID: state.ClientID, RedirectURI: state.RedirectURI, CodeChallenge: state.CodeChallenge, Nonce: state.Nonce, OIDCState: state.OIDCState}
-	otpTTL := time.Duration(s.config.Email.OTPTTLSeconds) * time.Second
+	flow := storage.OTPFlow{FlowID: state.FlowID, ConnectorID: id, Subject: subject, Email: email, ClientID: state.ClientID, RedirectURI: state.RedirectURI, CodeChallenge: state.CodeChallenge, Nonce: state.Nonce, OIDCState: state.OIDCState, Scopes: state.Scopes, RefreshMode: state.RefreshMode, AuthTime: state.AuthTime, OfflineConsent: state.OfflineConsent, Purpose: state.Purpose}
+	otpTTL := s.config.Email.OTPTTL.Duration()
 	expiresAt, err := s.store.CreateOTP(challenge, email, code, flow, s.otpSecret, time.Now(), otpTTL)
 	if err != nil {
 		http.Error(w, "unable to send code", http.StatusTooManyRequests)
@@ -109,7 +109,7 @@ func (s *Server) HandleEmailVerify(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", 500)
 		return
 	}
-	s.complete(w, r, OAuthState{ConnectorID: flow.ConnectorID, ClientID: flow.ClientID, RedirectURI: flow.RedirectURI, CodeChallenge: flow.CodeChallenge, Nonce: flow.Nonce, OIDCState: flow.OIDCState}, flow.Email, true)
+	s.complete(w, r, OAuthState{FlowID: flow.FlowID, ConnectorID: flow.ConnectorID, ClientID: flow.ClientID, RedirectURI: flow.RedirectURI, CodeChallenge: flow.CodeChallenge, Nonce: flow.Nonce, OIDCState: flow.OIDCState, Scopes: flow.Scopes, RefreshMode: flow.RefreshMode, AuthTime: flow.AuthTime, OfflineConsent: flow.OfflineConsent, Purpose: flow.Purpose}, flow.Subject, flow.Email, true)
 }
 
 // HandleEmailResend replaces and sends the code for an active challenge.
@@ -123,7 +123,7 @@ func (s *Server) HandleEmailResend(w http.ResponseWriter, r *http.Request) {
 	var flow storage.OTPFlow
 	var expiresAt time.Time
 	if err == nil {
-		otpTTL := time.Duration(s.config.Email.OTPTTLSeconds) * time.Second
+		otpTTL := s.config.Email.OTPTTL.Duration()
 		flow, expiresAt, err = s.store.ResendOTP(id, code, s.otpSecret, time.Now(), otpTTL)
 	}
 	if err == nil {

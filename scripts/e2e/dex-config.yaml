@@ -18,10 +18,10 @@ oauth2:
 
 staticClients:
 - id: easy-oidc-e2e
+  secret: easy-oidc-e2e-secret
   redirectURIs:
   - 'http://127.0.0.1:8080/callback/generic'
   name: 'Easy OIDC E2E Test'
-  public: true
 
 connectors:
 - type: mockCallback

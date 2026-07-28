@@ -29,7 +29,7 @@ func TestHandleUserInfoVerifiesToken(t *testing.T) {
 		})),
 	}
 
-	validToken, err := signer.SignIDToken("user@example.com", false, "test-client", []string{"users"}, "")
+	_, validToken, err := signer.SignTokenPair(tokens.TokenContext{Email: "user@example.com", EmailVerified: false, ClientID: "test-client", Groups: []string{"users"}, Scopes: "openid email", AuthTime: time.Now(), IDExpiry: time.Now().Add(time.Hour), AccessExpiry: time.Now().Add(time.Hour)})
 	if err != nil {
 		t.Fatalf("failed to sign valid token: %v", err)
 	}

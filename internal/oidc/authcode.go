@@ -19,12 +19,18 @@ type AuthCodeManager struct {
 
 // AuthCodePayload contains the information embedded in an authorization code.
 type AuthCodePayload struct {
-	ClientID      string
-	RedirectURI   string
-	CodeChallenge string
-	Email         string
-	EmailVerified bool
-	Nonce         string
+	ClientID        string
+	RedirectURI     string
+	CodeChallenge   string
+	Email           string
+	EmailVerified   bool
+	Nonce           string
+	Scopes          string
+	RefreshMode     string
+	AuthTime        time.Time
+	ConnectorID     string
+	UpstreamSubject string
+	OfflineConsent  bool
 }
 
 // NewAuthCodeManager creates and initializes a new authorization code manager with SQLite storage.
@@ -55,6 +61,9 @@ func (m *AuthCodeManager) GenerateCode(payload AuthCodePayload) (string, error) 
 		Nonce:         payload.Nonce,
 		CreatedAt:     now,
 		ExpiresAt:     now.Add(5 * time.Minute),
+		Scopes:        payload.Scopes, RefreshMode: payload.RefreshMode, AuthTime: payload.AuthTime,
+		ConnectorID: payload.ConnectorID, UpstreamSubject: payload.UpstreamSubject,
+		OfflineConsent: payload.OfflineConsent,
 	}
 
 	if err := m.store.SaveAuthCode(authCode); err != nil {
@@ -62,6 +71,11 @@ func (m *AuthCodeManager) GenerateCode(payload AuthCodePayload) (string, error) 
 	}
 
 	return code, nil
+}
+
+// Peek validates an authorization code without consuming it.
+func (m *AuthCodeManager) Peek(code string) (*storage.AuthCode, error) {
+	return m.store.PeekAuthCode(code, time.Now())
 }
 
 // ValidateAndExtract validates an authorization code and extracts its payload.
@@ -79,6 +93,9 @@ func (m *AuthCodeManager) ValidateAndExtract(code string) (*AuthCodePayload, err
 		Email:         authCode.Email,
 		EmailVerified: authCode.EmailVerified,
 		Nonce:         authCode.Nonce,
+		Scopes:        authCode.Scopes, RefreshMode: authCode.RefreshMode, AuthTime: authCode.AuthTime,
+		ConnectorID: authCode.ConnectorID, UpstreamSubject: authCode.UpstreamSubject,
+		OfflineConsent: authCode.OfflineConsent,
 	}
 
 	return payload, nil

@@ -23,7 +23,11 @@ This design assumes:
 - Easy OIDC issues access and rotating refresh tokens with a stable session identifier (`sid`), and supports refresh-token revocation
 - Refresh re-evaluates whether the user is still permitted by current Easy OIDC & upstream provider policy
 
-> **Important:** Easy OIDC does not currently issue refresh tokens. Refresh tokens, a stable `sid`, and refresh-token revocation are prerequisites for implementing this design as written.
+Easy OIDC issues rotating refresh tokens with a stable `sid` for clients that explicitly enable `refresh_tokens`. Applications should revoke the family at `/revoke` during logout.
+
+`POST /revoke` implements RFC 7009 for public clients. Send an URL-encoded `token` and the registered `client_id`; refresh tokens and signed access/ID tokens carrying `sid` revoke the whole grant family. Applications must delete local credentials even when this best-effort request fails.
+
+Users can visit `GET /grants` to authenticate in a dedicated management flow that issues no tokens and creates no refresh grant. The resulting page lists only their active, unexpired grants. Each revoke button submits a five-minute, one-use action token in a POST body; no Easy OIDC cookie or persistent browser session is used. Self-service revocation prevents future refreshes, while already-issued stateless access and ID tokens remain valid until expiry.
 
 ## Architecture
 

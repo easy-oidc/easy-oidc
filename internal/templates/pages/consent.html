@@ -1,0 +1,12 @@
+{{define "content"}}
+<h1>{{.Title}}</h1>
+<p>
+  <strong>{{.ClientID}}</strong> is requesting continued/offline access when you are not
+  present.
+</p>
+<form method="post" action="/consent">
+  <input type="hidden" name="state" value="{{.State}}" />
+  <button type="submit" name="decision" value="accept">Allow</button>
+  <button type="submit" name="decision" value="deny">Deny</button>
+</form>
+{{end}}

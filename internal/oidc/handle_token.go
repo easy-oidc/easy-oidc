@@ -6,91 +6,314 @@ package oidc
 
 import (
 	"encoding/json"
+	"errors"
+	"mime"
+	"net"
 	"net/http"
+	"time"
+
+	refreshdomain "github.com/easy-oidc/easy-oidc/internal/refresh"
+	"github.com/easy-oidc/easy-oidc/internal/storage"
+	"github.com/easy-oidc/easy-oidc/internal/tokens"
+	"github.com/easy-oidc/easy-oidc/internal/upstream"
 )
 
-// HandleToken handles the OAuth2 token endpoint (/token).
-// It validates the authorization code, verifies PKCE, and issues an ID token.
+const (
+	maxTokenFormBytes          = 16 << 10
+	maxRefreshMaterialAttempts = 3
+)
+
+// auditResponseWriter records the final HTTP status for refresh audit logging.
+type auditResponseWriter struct {
+	http.ResponseWriter
+	status int
+	sid    string
+}
+
+// WriteHeader records and forwards an HTTP status.
+func (w *auditResponseWriter) WriteHeader(status int) {
+	if w.status == 0 {
+		w.status = status
+	}
+	w.ResponseWriter.WriteHeader(status)
+}
+
+// Write records an implicit success status and forwards the body.
+func (w *auditResponseWriter) Write(p []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	return w.ResponseWriter.Write(p)
+}
+
+// HandleToken handles the OAuth 2.0 token endpoint (/token).
+// It exchanges authorization codes using PKCE or rotates refresh tokens, then issues access and ID tokens.
 func (s *Server) HandleToken(w http.ResponseWriter, r *http.Request) {
+	setOAuthNoStore(w)
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		oauthError(w, http.StatusMethodNotAllowed, "invalid_request", "POST is required")
 		return
 	}
-
+	if r.URL.RawQuery != "" {
+		oauthError(w, http.StatusBadRequest, "invalid_request", "OAuth parameters are not accepted in the query")
+		return
+	}
+	media, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || media != "application/x-www-form-urlencoded" {
+		oauthError(w, http.StatusBadRequest, "invalid_request", "form content type is required")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxTokenFormBytes)
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form data", http.StatusBadRequest)
+		oauthError(w, http.StatusBadRequest, "invalid_request", "invalid form")
 		return
 	}
-
-	grantType := r.FormValue("grant_type")
-	if grantType != "authorization_code" {
-		http.Error(w, "unsupported grant_type", http.StatusBadRequest)
+	for _, name := range []string{"grant_type", "code", "client_id", "client_secret", "redirect_uri", "code_verifier", "refresh_token", "scope"} {
+		if len(r.PostForm[name]) > 1 {
+			oauthError(w, http.StatusBadRequest, "invalid_request", "duplicate parameter")
+			return
+		}
+	}
+	if _, hasClientSecret := r.PostForm["client_secret"]; r.Header.Get("Authorization") != "" || hasClientSecret {
+		oauthError(w, http.StatusBadRequest, "invalid_request", "client authentication is not supported")
 		return
 	}
-
-	code := r.FormValue("code")
-	if code == "" {
-		http.Error(w, "code is required", http.StatusBadRequest)
-		return
+	switch r.PostForm.Get("grant_type") {
+	case "":
+		oauthError(w, http.StatusBadRequest, "invalid_request", "grant_type is required")
+	case "authorization_code":
+		if r.PostForm.Get("refresh_token") != "" {
+			oauthError(w, http.StatusBadRequest, "invalid_request", "refresh_token is not valid for this grant type")
+			return
+		}
+		s.exchangeCode(w, r)
+	case "refresh_token":
+		if r.PostForm.Get("code") != "" || r.PostForm.Get("redirect_uri") != "" || r.PostForm.Get("code_verifier") != "" {
+			oauthError(w, http.StatusBadRequest, "invalid_request", "authorization code parameters are not valid for this grant type")
+			return
+		}
+		audit := &auditResponseWriter{ResponseWriter: w}
+		host, _, _ := net.SplitHostPort(r.RemoteAddr)
+		if host == "" {
+			host = r.RemoteAddr
+		}
+		defer func() {
+			s.logger.Info("refresh attempt", "result", audit.status, "client_id", r.PostForm.Get("client_id"), "remote_ip", host, "user_agent", r.UserAgent(), "sid", audit.sid)
+		}()
+		if r.PostForm.Get("refresh_token") == "" || r.PostForm.Get("client_id") == "" {
+			oauthError(audit, http.StatusBadRequest, "invalid_request", "refresh_token and client_id are required")
+			return
+		}
+		result, exchangeErr := s.refresh.Exchange(r.Context(), refreshdomain.Request{Token: r.PostForm.Get("refresh_token"), ClientID: r.PostForm.Get("client_id"), Scope: r.PostForm.Get("scope")})
+		audit.sid = result.SID
+		if exchangeErr != nil {
+			if exchangeErr.RetryAfter != "" {
+				audit.Header().Set("Retry-After", exchangeErr.RetryAfter)
+			}
+			status := http.StatusBadRequest
+			if exchangeErr.Code == refreshdomain.Temporary {
+				status = http.StatusServiceUnavailable
+			}
+			oauthError(audit, status, exchangeErr.Code, exchangeErr.Description)
+			return
+		}
+		response := map[string]any{"access_token": result.AccessToken, "id_token": result.IDToken, "refresh_token": result.RefreshToken, "token_type": "Bearer", "expires_in": int64(time.Until(result.AccessExpiry).Seconds())}
+		if result.Scope != "" {
+			response["scope"] = result.Scope
+		}
+		oauthJSON(audit, http.StatusOK, response)
+	default:
+		oauthError(w, http.StatusBadRequest, "unsupported_grant_type", "unsupported grant type")
 	}
+}
 
-	codeVerifier := r.FormValue("code_verifier")
-	if codeVerifier == "" {
-		http.Error(w, "code_verifier is required (PKCE)", http.StatusBadRequest)
-		return
+// exchangeCode validates and exchanges one authorization code.
+func (s *Server) exchangeCode(w http.ResponseWriter, r *http.Request) {
+	for _, field := range []string{"code", "client_id", "redirect_uri", "code_verifier"} {
+		if r.PostForm.Get(field) == "" {
+			oauthError(w, http.StatusBadRequest, "invalid_request", "required parameter missing")
+			return
+		}
 	}
-
-	payload, err := s.authCodeMgr.ValidateAndExtract(code)
+	stored, err := s.authCodeMgr.Peek(r.PostForm.Get("code"))
 	if err != nil {
-		s.logger.Error("failed to validate authorization code", "error", err)
-		http.Error(w, "invalid authorization code", http.StatusBadRequest)
+		if errors.Is(err, storage.ErrInvalidGrant) {
+			oauthError(w, http.StatusBadRequest, "invalid_grant", "authorization code is invalid")
+		} else {
+			oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable", "storage unavailable")
+		}
 		return
 	}
-
-	if err := ValidatePKCE(codeVerifier, payload.CodeChallenge); err != nil {
-		s.logger.Error("PKCE validation failed", "error", err)
-		http.Error(w, "invalid code_verifier", http.StatusBadRequest)
+	if stored.ClientID != r.PostForm.Get("client_id") || stored.RedirectURI != r.PostForm.Get("redirect_uri") || ValidatePKCE(r.PostForm.Get("code_verifier"), stored.CodeChallenge) != nil {
+		oauthError(w, http.StatusBadRequest, "invalid_grant", "authorization code is invalid")
 		return
 	}
-
+	codeChallenge, _ := pkceChallenge(r.PostForm.Get("code_verifier"))
+	binding := storage.AuthCodeBinding{ClientID: r.PostForm.Get("client_id"), RedirectURI: r.PostForm.Get("redirect_uri"), CodeChallenge: codeChallenge}
+	payload := AuthCodePayload{ClientID: stored.ClientID, RedirectURI: stored.RedirectURI, CodeChallenge: stored.CodeChallenge, Email: stored.Email, EmailVerified: stored.EmailVerified, Nonce: stored.Nonce, Scopes: stored.Scopes, RefreshMode: stored.RefreshMode, AuthTime: stored.AuthTime, ConnectorID: stored.ConnectorID, UpstreamSubject: stored.UpstreamSubject, OfflineConsent: stored.OfflineConsent}
 	client, exists := s.config.Clients[payload.ClientID]
 	if !exists {
-		http.Error(w, "unknown client", http.StatusBadRequest)
+		oauthError(w, http.StatusBadRequest, "invalid_grant", "authorization code is invalid")
 		return
 	}
-
+	connectorConfig, connectorExists := s.config.Connectors[payload.ConnectorID]
+	if payload.RefreshMode != "" && (!client.RefreshTokens.Enabled || !connectorExists || (payload.RefreshMode == "offline" && (!client.RefreshTokens.AllowOfflineAccess || !payload.OfflineConsent))) {
+		oauthError(w, http.StatusBadRequest, "invalid_grant", "authorization code is invalid")
+		return
+	}
+	if payload.RefreshMode != "" && connectorConfig.Type != "email" {
+		if _, ok := s.connectors[payload.ConnectorID]; !ok {
+			oauthError(w, http.StatusBadRequest, "invalid_grant", "authorization code is invalid")
+			return
+		}
+	}
 	groups := s.groupResolver.ResolveGroups(client.GroupsOverride, payload.Email)
-
 	if client.ShouldRequireGroups(s.config.RequireGroups) && len(groups) == 0 {
-		s.logger.Warn("authentication rejected: user has no groups", "email", payload.Email, "client_id", payload.ClientID)
-		w.Header().Set("Content-Type", "application/json")
-		response := map[string]interface{}{
-			"error":             "access_denied",
-			"error_description": "user has no groups assigned",
-		}
-		w.WriteHeader(http.StatusForbidden)
-		if err := json.NewEncoder(w).Encode(response); err != nil {
-			s.logger.Error("failed to encode error response", "error", err)
-		}
+		oauthError(w, http.StatusForbidden, "access_denied", "user has no groups assigned")
 		return
 	}
-
-	idToken, err := s.signer.SignIDToken(payload.Email, payload.EmailVerified, payload.ClientID, groups, payload.Nonce)
+	now := time.Now().UTC()
+	sid, refresh := "", ""
+	accessExpiry, idExpiry := now.Add(s.config.AccessTokenTTL.Duration()), now.Add(s.config.IDTokenTTL.Duration())
+	var initialGrant *storage.RefreshGrant
+	var material storage.RefreshMaterial
+	var credentialPlain []byte
+	if payload.RefreshMode != "" && client.RefreshTokens.Enabled && connectorExists {
+		credentialNonce, credentialCiphertext, credentialErr := s.store.LoadFlowCredential(stored.Code, payload.ClientID, payload.ConnectorID, now)
+		credentialBacked := credentialErr == nil
+		if credentialErr != nil && !errors.Is(credentialErr, storage.ErrInvalidGrant) {
+			oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable", "storage unavailable")
+			return
+		}
+		if credentialBacked == (connectorConfig.Type == "email") {
+			oauthError(w, http.StatusBadRequest, "invalid_grant", "authorization code is invalid")
+			return
+		}
+		sid, err = storage.GenerateStateToken()
+		if err != nil {
+			oauthError(w, http.StatusInternalServerError, "server_error", "token generation failed")
+			return
+		}
+		material, err = storage.GenerateRefreshMaterial()
+		if err != nil {
+			oauthError(w, http.StatusInternalServerError, "server_error", "token generation failed")
+			return
+		}
+		policy := client.RefreshTokens
+		idle, absolute := policy.SessionIdleTTL.Duration(), policy.SessionAbsoluteTTL.Duration()
+		if payload.RefreshMode == "offline" {
+			idle, absolute = policy.OfflineIdleTTL.Duration(), policy.OfflineAbsoluteTTL.Duration()
+		}
+		absoluteExpiry := payload.AuthTime.Add(absolute)
+		grant := storage.RefreshGrant{SID: sid, ClientID: payload.ClientID, Email: payload.Email, EmailVerified: payload.EmailVerified, Scopes: payload.Scopes, ConnectorID: payload.ConnectorID, UpstreamSubject: payload.UpstreamSubject, Mode: payload.RefreshMode, AuthTime: payload.AuthTime, IdleTTL: idle, AbsoluteExpiry: absoluteExpiry}
+		if credentialBacked {
+			plain, loadErr := storage.DecryptTemporaryCredential(s.encryptionKey, stored.Code, payload.ClientID, payload.ConnectorID, credentialNonce, credentialCiphertext)
+			if loadErr != nil {
+				oauthError(w, http.StatusBadRequest, "invalid_grant", "authorization code is invalid")
+				return
+			}
+			credentialPlain = plain
+			var credential upstream.Credential
+			if loadErr = json.Unmarshal(plain, &credential); loadErr != nil || credential.RefreshToken == "" && credential.AccessExpiry.IsZero() && !credential.AccessNonExpiring {
+				oauthError(w, http.StatusBadRequest, "invalid_grant", "authorization code is invalid")
+				return
+			}
+			if !credential.AccessExpiry.IsZero() && credential.RefreshToken == "" && absoluteExpiry.After(credential.AccessExpiry) {
+				grant.AbsoluteExpiry = credential.AccessExpiry
+			}
+			if !credential.RefreshExpiry.IsZero() && grant.AbsoluteExpiry.After(credential.RefreshExpiry) {
+				grant.AbsoluteExpiry = credential.RefreshExpiry
+			}
+			grant.UpstreamAccessExpiry, grant.UpstreamRefreshExpiry, grant.UpstreamAccessNonExpiring = credential.AccessExpiry, credential.RefreshExpiry, credential.AccessNonExpiring
+			if !credential.AccessExpiry.IsZero() {
+				if accessExpiry.After(credential.AccessExpiry) {
+					accessExpiry = credential.AccessExpiry
+				}
+				if idExpiry.After(credential.AccessExpiry) {
+					idExpiry = credential.AccessExpiry
+				}
+			}
+			nonce, ciphertext, loadErr := storage.EncryptCredential(material.Secret, sid, payload.ClientID, payload.ConnectorID, plain)
+			if loadErr != nil {
+				oauthError(w, http.StatusInternalServerError, "server_error", "credential encryption failed")
+				return
+			}
+			grant.CredentialNonce, grant.CredentialCiphertext = nonce, ciphertext
+		}
+		refreshExpiry := now.Add(idle)
+		if refreshExpiry.After(grant.AbsoluteExpiry) {
+			refreshExpiry = grant.AbsoluteExpiry
+		}
+		if accessExpiry.After(refreshExpiry) {
+			accessExpiry = refreshExpiry
+		}
+		if idExpiry.After(refreshExpiry) {
+			idExpiry = refreshExpiry
+		}
+		if !refreshExpiry.After(now) || !accessExpiry.After(now) || !idExpiry.After(now) {
+			oauthError(w, http.StatusBadRequest, "invalid_grant", "authorization code is invalid")
+			return
+		}
+		initialGrant = &grant
+		refresh = material.Token
+	}
+	context := tokens.TokenContext{Email: payload.Email, EmailVerified: payload.EmailVerified, ClientID: payload.ClientID, Groups: groups, Nonce: payload.Nonce, SID: sid, Scopes: payload.Scopes, AuthTime: payload.AuthTime, IDExpiry: idExpiry, AccessExpiry: accessExpiry}
+	idToken, accessToken, err := s.signer.SignTokenPair(context)
 	if err != nil {
-		s.logger.Error("failed to sign ID token", "error", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		oauthError(w, http.StatusInternalServerError, "server_error", "token signing failed")
 		return
 	}
-
-	response := map[string]interface{}{
-		"access_token": idToken,
-		"id_token":     idToken,
-		"token_type":   "Bearer",
-		"expires_in":   s.config.TokenTTLSeconds,
+	for attempt := 0; ; attempt++ {
+		completion := time.Now().UTC()
+		if !accessExpiry.After(completion) || !idExpiry.After(completion) {
+			oauthError(w, http.StatusBadRequest, "invalid_grant", "authorization code is invalid")
+			return
+		}
+		err = s.store.ConsumeAuthCode(*stored, binding, initialGrant, material, completion)
+		if !errors.Is(err, storage.ErrRefreshCollision) || attempt+1 == maxRefreshMaterialAttempts {
+			break
+		}
+		material, err = storage.GenerateRefreshMaterial()
+		if err != nil {
+			break
+		}
+		if initialGrant != nil && len(credentialPlain) != 0 {
+			initialGrant.CredentialNonce, initialGrant.CredentialCiphertext, err = storage.EncryptCredential(material.Secret, sid, payload.ClientID, payload.ConnectorID, credentialPlain)
+			if err != nil {
+				break
+			}
+		}
+		refresh = material.Token
 	}
+	if err != nil {
+		if errors.Is(err, storage.ErrInvalidGrant) {
+			oauthError(w, http.StatusBadRequest, "invalid_grant", "authorization code is invalid")
+		} else {
+			oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable", "storage unavailable")
+		}
+		return
+	}
+	response := map[string]any{"access_token": accessToken, "id_token": idToken, "token_type": "Bearer", "expires_in": int64(time.Until(accessExpiry).Seconds())}
+	if refresh != "" {
+		response["refresh_token"] = refresh
+	}
+	oauthJSON(w, http.StatusOK, response)
+}
 
+// setOAuthNoStore applies mandatory OAuth response cache controls.
+func setOAuthNoStore(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
+}
+
+// oauthError writes a non-sensitive OAuth JSON error.
+func oauthError(w http.ResponseWriter, status int, code, description string) {
+	oauthJSON(w, status, map[string]any{"error": code, "error_description": description})
+}
+
+// oauthJSON writes an OAuth JSON object.
+func oauthJSON(w http.ResponseWriter, status int, value map[string]any) {
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		s.logger.Error("failed to encode token response", "error", err)
-	}
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(value)
 }

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestLoad(t *testing.T) {
@@ -552,7 +553,7 @@ func validEmailConfig() *EmailConfig {
 	return &EmailConfig{
 		VerificationMode: "provider",
 		OTPSecretName:    "EASYOIDC_OTP_SECRET",
-		OTPTTLSeconds:    300,
+		OTPTTL:           Duration(5 * time.Minute),
 		SMTP: &SMTPConfig{
 			Host:              "smtp.example.com",
 			Port:              587,
@@ -591,11 +592,11 @@ func TestValidateEmailConfiguration(t *testing.T) {
 		t.Fatal("invalid SMTP TLS mode accepted")
 	}
 	cfg.Email.SMTP.TLSMode = "starttls"
-	cfg.Email.OTPTTLSeconds = 30
+	cfg.Email.OTPTTL = Duration(30 * time.Second)
 	if err := validate(&cfg); err == nil {
 		t.Fatal("unsafe OTP validity accepted")
 	}
-	cfg.Email.OTPTTLSeconds = 300
+	cfg.Email.OTPTTL = Duration(5 * time.Minute)
 	cfg.Email.Turnstile = &TurnstileConfig{SiteKey: "site-only"}
 	if err := validate(&cfg); err == nil {
 		t.Fatal("partial Turnstile configuration accepted")
@@ -612,7 +613,7 @@ func TestValidateEmailConfiguration(t *testing.T) {
 	}
 
 	provider := validTestConfig()
-	provider.Email = &EmailConfig{VerificationMode: "provider", OTPTTLSeconds: 300}
+	provider.Email = &EmailConfig{VerificationMode: "provider", OTPTTL: Duration(5 * time.Minute)}
 	if err := validate(&provider); err == nil {
 		t.Fatal("provider verification accepted without OTP and SMTP configuration")
 	}

@@ -14,12 +14,18 @@ import (
 // OAuthState represents the OAuth2 state parameter data.
 // It contains client information and PKCE details that need to be preserved across the OAuth flow.
 type OAuthState struct {
-	ConnectorID   string
-	ClientID      string
-	RedirectURI   string
-	CodeChallenge string
-	Nonce         string
-	OIDCState     string
+	FlowID         string
+	ConnectorID    string
+	ClientID       string
+	RedirectURI    string
+	CodeChallenge  string
+	Nonce          string
+	OIDCState      string
+	Scopes         string
+	RefreshMode    string
+	AuthTime       time.Time
+	OfflineConsent bool
+	Purpose        string
 }
 
 // EncodeState creates a new random state token and stores the OAuth state data.
@@ -41,6 +47,9 @@ func (m *AuthCodeManager) EncodeState(state OAuthState) (string, error) {
 		CreatedAt:     now,
 		ExpiresAt:     now.Add(10 * time.Minute),
 		ConnectorID:   state.ConnectorID,
+		Scopes:        state.Scopes, RefreshMode: state.RefreshMode, AuthTime: state.AuthTime,
+		OfflineConsent: state.OfflineConsent,
+		Purpose:        state.Purpose,
 	}
 
 	if err := m.store.SaveState(oauthState); err != nil {
@@ -71,5 +80,5 @@ func (m *AuthCodeManager) PeekState(stateToken string) (*OAuthState, error) {
 
 // oauthStateFromStored converts a persisted state to its OIDC representation.
 func oauthStateFromStored(storedState *storage.OAuthState) *OAuthState {
-	return &OAuthState{ClientID: storedState.ClientID, RedirectURI: storedState.RedirectURI, CodeChallenge: storedState.CodeChallenge, Nonce: storedState.Nonce, OIDCState: storedState.OIDCState, ConnectorID: storedState.ConnectorID}
+	return &OAuthState{FlowID: storedState.StateToken, ClientID: storedState.ClientID, RedirectURI: storedState.RedirectURI, CodeChallenge: storedState.CodeChallenge, Nonce: storedState.Nonce, OIDCState: storedState.OIDCState, ConnectorID: storedState.ConnectorID, Scopes: storedState.Scopes, RefreshMode: storedState.RefreshMode, AuthTime: storedState.AuthTime, OfflineConsent: storedState.OfflineConsent, Purpose: storedState.Purpose}
 }

@@ -55,12 +55,8 @@
       "minLength": 1,
       "description": "Optional signing-key ID. By default it is derived from the signing key."
     },
-    "token_ttl_seconds": {
-      "type": "integer",
-      "minimum": 1,
-      "default": 3600,
-      "description": "Lifetime of issued ID tokens in seconds."
-    },
+	"access_token_ttl": { "$ref": "#/$defs/duration", "default": "15m" },
+	"id_token_ttl": { "$ref": "#/$defs/duration", "default": "15m" },
     "require_groups": {
       "type": "boolean",
       "default": true,
@@ -265,6 +261,11 @@
         }
       ]
     },
+    "duration": {
+      "type": "string",
+      "minLength": 2,
+      "description": "A positive duration using Go time.ParseDuration syntax, such as 5m, 1h30m, or 720h."
+    },
     "secrets": {
       "type": "object",
       "additionalProperties": false,
@@ -424,6 +425,18 @@
               "minLength": 1,
               "default": "email_verified",
               "description": "Userinfo field reporting whether the provider verified the email address."
+            },
+            "refresh": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "scopes": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+                "authorization_params": {
+                  "type": "object",
+                  "propertyNames": { "not": { "enum": ["client_id", "redirect_uri", "response_type", "scope", "state", "nonce", "code_challenge", "code_challenge_method"] } },
+                  "additionalProperties": { "type": "string" }
+                }
+              }
             }
           }
         }
@@ -454,14 +467,7 @@
           "minLength": 1,
           "description": "Secret used to derive typed one-time email verification codes."
         },
-        "otp_ttl_seconds": {
-          "type": "integer",
-          "minimum": 60,
-          "maximum": 600,
-          "multipleOf": 60,
-          "default": 300,
-          "description": "One-time code lifetime as a whole number of minutes."
-        },
+        "otp_ttl": { "$ref": "#/$defs/duration", "default": "5m" },
         "smtp": {
           "$ref": "#/$defs/smtp"
         },
@@ -560,7 +566,19 @@
         "require_groups": {
           "type": "boolean",
           "description": "Client-specific override for the global require_groups setting."
-        }
+        },
+		"refresh_tokens": {
+		  "type": "object",
+		  "additionalProperties": false,
+		  "properties": {
+			"enabled": { "type": "boolean", "default": false },
+			"allow_offline_access": { "type": "boolean", "default": false },
+			"session_idle_ttl": { "$ref": "#/$defs/duration", "default": "30m" },
+			"session_absolute_ttl": { "$ref": "#/$defs/duration", "default": "10h" },
+			"offline_idle_ttl": { "$ref": "#/$defs/duration", "default": "720h" },
+			"offline_absolute_ttl": { "$ref": "#/$defs/duration", "default": "2160h" }
+		  }
+		}
       }
     }
   }

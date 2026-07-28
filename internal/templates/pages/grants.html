@@ -1,0 +1,18 @@
+{{define "content"}}
+<h1>{{.Title}}</h1>
+{{if .Message}}
+<p>{{.Message}}</p>
+{{end}} {{if .Grants}}{{range .Grants}}
+<section>
+  <h2>{{.ClientID}}</h2>
+  <p>Mode: {{.Mode}}. Last used: {{.LastUsedAt}}. Expires: {{.ExpiresAt}}.</p>
+  <form method="post" action="/grants/revoke">
+    <input type="hidden" name="action_token" value="{{.ActionToken}}" />
+    <input type="hidden" name="email" value="{{.Email}}" />
+    <input type="hidden" name="sid" value="{{.SID}}" />
+    <button type="submit">Revoke</button>
+  </form>
+</section>
+{{end}}{{else}}
+<p>No active grants.</p>
+{{end}} {{end}}

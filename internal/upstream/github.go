@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/easy-oidc/easy-oidc/internal/config"
 	"golang.org/x/oauth2"
@@ -71,8 +72,30 @@ func (c *GitHubConnector) AuthCodeURL(state string, opts ...oauth2.AuthCodeOptio
 }
 
 // Exchange exchanges an authorization code for an access token from GitHub.
-func (c *GitHubConnector) Exchange(ctx context.Context, code string) (*oauth2.Token, error) {
-	return c.config.Exchange(ctx, code)
+func (c *GitHubConnector) Exchange(ctx context.Context, code string) (*Credential, error) {
+	token, err := c.config.Exchange(ctx, code)
+	if err != nil {
+		return nil, ClassifyError("code exchange", err)
+	}
+	return NormalizeCredential(token, time.Now(), token.RefreshToken == ""), nil
+}
+
+// Refresh renews a GitHub OAuth credential when GitHub supplied a refresh token.
+func (c *GitHubConnector) Refresh(ctx context.Context, credential *Credential) (*Credential, error) {
+	if credential.RefreshToken == "" {
+		return credential, nil
+	}
+	forced := *credential.OAuthToken()
+	forced.AccessToken = ""
+	forced.Expiry = time.Time{}
+	refreshed, err := c.config.TokenSource(ctx, &forced).Token()
+	if err != nil {
+		return nil, ClassifyError("credential refresh", err)
+	}
+	if refreshed.RefreshToken == "" {
+		refreshed.RefreshToken = credential.RefreshToken
+	}
+	return NormalizeCredential(refreshed, time.Now(), false), nil
 }
 
 // GetIdentity retrieves the stable user ID and every email assertion from GitHub.
@@ -85,11 +108,11 @@ func (c *GitHubConnector) GetIdentity(ctx context.Context, token *oauth2.Token) 
 	}
 	userResp, err := client.Get(apiBase + "/user")
 	if err != nil {
-		return Identity{}, fmt.Errorf("failed to get user: %w", err)
+		return Identity{}, ClassifyError("user", err)
 	}
 	defer func() { _ = userResp.Body.Close() }()
 	if userResp.StatusCode != http.StatusOK {
-		return Identity{}, fmt.Errorf("user request failed with status %d", userResp.StatusCode)
+		return Identity{}, classifyGitHubStatus("user", userResp)
 	}
 	var user githubUser
 	if err := json.NewDecoder(userResp.Body).Decode(&user); err != nil || user.ID == 0 {
@@ -98,7 +121,7 @@ func (c *GitHubConnector) GetIdentity(ctx context.Context, token *oauth2.Token) 
 
 	resp, err := client.Get(apiBase + "/user/emails")
 	if err != nil {
-		return Identity{}, fmt.Errorf("failed to get user emails: %w", err)
+		return Identity{}, ClassifyError("emails", err)
 	}
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {
@@ -107,8 +130,8 @@ func (c *GitHubConnector) GetIdentity(ctx context.Context, token *oauth2.Token) 
 	}()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return Identity{}, fmt.Errorf("user emails request failed with status %d: %s", resp.StatusCode, body)
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return Identity{}, classifyGitHubStatus("emails", resp)
 	}
 
 	var emails []githubEmail
@@ -127,4 +150,13 @@ func (c *GitHubConnector) GetIdentity(ctx context.Context, token *oauth2.Token) 
 		return Identity{}, fmt.Errorf("no email found")
 	}
 	return identity, nil
+}
+
+// classifyGitHubStatus recognizes GitHub's 403 secondary and primary rate limits.
+func classifyGitHubStatus(operation string, response *http.Response) error {
+	retry := response.Header.Get("Retry-After")
+	if response.StatusCode == http.StatusForbidden && (retry != "" || response.Header.Get("X-RateLimit-Remaining") == "0" || response.Header.Get("X-RateLimit-Reset") != "") {
+		return &ConnectorError{Kind: ErrorRateLimit, RetryAfter: retry, Operation: operation}
+	}
+	return ClassifyHTTPStatus(operation, response.StatusCode, retry)
 }

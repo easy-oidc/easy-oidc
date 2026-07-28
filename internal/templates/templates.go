@@ -52,6 +52,8 @@ func Load(dir string) (*Manager, error) {
 		"otp":      OTPData{"Verify email", "opaque", ""},
 		"error":    ErrorData{"Login failed", "Unable to sign in."},
 		"identity": IdentityData{Title: "Choose an email", Token: "opaque", Emails: []EmailData{{Address: "primary@example.com", Verified: true, Primary: true}, {Address: "other@example.com"}}},
+		"consent":  ConsentData{Title: "Allow offline access", State: "opaque", ClientID: "client"},
+		"grants":   GrantsData{Title: "Active grants", Email: "user@example.com", Grants: []GrantData{{SID: "sid", ClientID: "client", Mode: "session", ActionToken: "opaque", Email: "user@example.com", CreatedAt: time.Now(), LastUsedAt: time.Now(), ExpiresAt: time.Now()}}},
 	}
 	for name, data := range pageData {
 		page, readErr := effective(dir, "pages/"+name+".html")

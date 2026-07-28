@@ -232,7 +232,7 @@ An issued ID token has claims equivalent to:
 | `email_verified` | Provider assertion in disabled mode; true after accepted provider or local verification in provider/strict modes. |
 | `preferred_username` | Local part of the email address. |
 | `groups` | Sorted static groups resolved for the downstream client. |
-| `iat`, `exp` | Issue and expiry times; lifetime is controlled by `token_ttl_seconds`. |
+| `iat`, `exp` | Issue and expiry times; lifetimes are controlled independently by `access_token_ttl` and `id_token_ttl`. |
 | `nonce` | Included only when supplied in the authorization request. |
 
 ### PKCE enforcement

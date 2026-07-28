@@ -5,11 +5,14 @@
 package oidc
 
 import (
+	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
+	"github.com/easy-oidc/easy-oidc/internal/storage"
 	"github.com/easy-oidc/easy-oidc/internal/templates"
 	"github.com/easy-oidc/easy-oidc/internal/upstream"
 )
@@ -38,10 +41,23 @@ func (s *Server) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	token, err := connector.Exchange(r.Context(), r.URL.Query().Get("code"))
 	if err != nil {
+		s.logger.Error("authorization exchange failed", "connector_id", id, "error", err)
 		http.Error(w, "authorization exchange failed", http.StatusBadGateway)
 		return
 	}
-	identity, err := connector.GetIdentity(r.Context(), token)
+	if state.RefreshMode != "" {
+		credential, marshalErr := json.Marshal(token)
+		if marshalErr != nil || len(s.encryptionKey) != 32 {
+			http.Error(w, "credential persistence unavailable", http.StatusInternalServerError)
+			return
+		}
+		nonce, ciphertext, encryptErr := storage.EncryptTemporaryCredential(s.encryptionKey, stateToken, state.ClientID, id, credential)
+		if encryptErr != nil || s.store.SaveFlowCredential("", stateToken, state.ClientID, id, nonce, ciphertext, time.Now().Add(10*time.Minute)) != nil {
+			http.Error(w, "credential persistence unavailable", http.StatusInternalServerError)
+			return
+		}
+	}
+	identity, err := connector.GetIdentity(r.Context(), token.OAuthToken())
 	if err != nil {
 		http.Error(w, "identity lookup failed", http.StatusBadGateway)
 		return
@@ -90,7 +106,7 @@ func (s *Server) acceptOrChallenge(w http.ResponseWriter, r *http.Request, state
 				return
 			}
 		}
-		s.complete(w, r, state, email, local || emailAssertion.Verified)
+		s.complete(w, r, state, subject, email, local || emailAssertion.Verified)
 		return
 	}
 	if s.config.Email == nil || s.mailer == nil {
@@ -106,7 +122,11 @@ func verificationAccepted(mode string, providerVerified, localVerified bool) boo
 }
 
 // complete issues an authorization code and redirects to the client.
-func (s *Server) complete(w http.ResponseWriter, r *http.Request, state OAuthState, email string, emailVerified bool) {
+func (s *Server) complete(w http.ResponseWriter, r *http.Request, state OAuthState, subject, email string, emailVerified bool) {
+	if state.Purpose == "manage_grants" {
+		s.renderGrants(w, email)
+		return
+	}
 	client, ok := s.config.Clients[state.ClientID]
 	if !ok {
 		http.Error(w, "internal error", 500)
@@ -117,10 +137,35 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request, state OAuthSta
 		s.renderErrorPage(w, "Login Failed", "Your account was unable to be authorised.")
 		return
 	}
-	code, err := s.authCodeMgr.GenerateCode(AuthCodePayload{ClientID: state.ClientID, RedirectURI: state.RedirectURI, CodeChallenge: state.CodeChallenge, Email: email, EmailVerified: emailVerified, Nonce: state.Nonce})
+	connectorConfig, connectorConfigured := s.config.Connectors[state.ConnectorID]
+	credentialBacked := false
+	var credential []byte
+	if state.RefreshMode != "" && state.FlowID != "" {
+		nonce, ciphertext, loadErr := s.store.LoadFlowCredential(state.FlowID, state.ClientID, state.ConnectorID, time.Now().UTC())
+		if loadErr == nil {
+			credentialBacked = true
+			credential, loadErr = storage.DecryptTemporaryCredential(s.encryptionKey, state.FlowID, state.ClientID, state.ConnectorID, nonce, ciphertext)
+		}
+		if loadErr != nil && !errors.Is(loadErr, storage.ErrInvalidGrant) {
+			http.Error(w, "internal error", 500)
+			return
+		}
+	}
+	if state.RefreshMode != "" && (!connectorConfigured || credentialBacked == (connectorConfig.Type == "email")) {
+		http.Error(w, "authorization flow is invalid", http.StatusBadRequest)
+		return
+	}
+	code, err := s.authCodeMgr.GenerateCode(AuthCodePayload{ClientID: state.ClientID, RedirectURI: state.RedirectURI, CodeChallenge: state.CodeChallenge, Email: email, EmailVerified: emailVerified, Nonce: state.Nonce, Scopes: state.Scopes, RefreshMode: state.RefreshMode, AuthTime: state.AuthTime, ConnectorID: state.ConnectorID, UpstreamSubject: subject, OfflineConsent: state.OfflineConsent})
 	if err != nil {
 		http.Error(w, "internal error", 500)
 		return
+	}
+	if credentialBacked {
+		nonce, ciphertext, saveErr := storage.EncryptTemporaryCredential(s.encryptionKey, code, state.ClientID, state.ConnectorID, credential)
+		if saveErr != nil || s.store.SaveFlowCredential(state.FlowID, code, state.ClientID, state.ConnectorID, nonce, ciphertext, time.Now().UTC().Add(5*time.Minute)) != nil {
+			http.Error(w, "internal error", 500)
+			return
+		}
 	}
 	u, _ := url.Parse(state.RedirectURI)
 	q := u.Query()

@@ -141,13 +141,14 @@ func run(ctx context.Context, output io.Writer, configPath string, debug bool) e
 	}
 
 	// Derive the identity-selection key from the generic encryption master key.
-	var selectionKey []byte
+	var selectionKey, encryptionKey []byte
 	if cfg.Secrets.EncryptionKeyName != "" {
 		rawEncryptionKey, getErr := secretsProvider.GetSecret(ctx, cfg.Secrets.EncryptionKeyName)
 		if getErr != nil {
 			return fmt.Errorf("get encryption key: %w", getErr)
 		}
-		encryptionKey, decodeErr := hex.DecodeString(rawEncryptionKey)
+		var decodeErr error
+		encryptionKey, decodeErr = hex.DecodeString(rawEncryptionKey)
 		if decodeErr != nil || len(encryptionKey) != 32 {
 			return fmt.Errorf("encryption key must be a 64-character hex-encoded 32-byte key (generate with: openssl rand -hex 32)")
 		}
@@ -196,7 +197,7 @@ func run(ctx context.Context, output io.Writer, configPath string, debug bool) e
 			}
 			if needsEmailDelivery {
 				smtpMailer := email.NewSMTPMailer(*cfg.Email.SMTP, smtpCredentials)
-				mailer = email.NewOTPMailer(smtpMailer, templateManager, time.Duration(cfg.Email.OTPTTLSeconds)*time.Second)
+				mailer = email.NewOTPMailer(smtpMailer, templateManager, cfg.Email.OTPTTL.Duration())
 			}
 		}
 		if cfg.Email.Turnstile != nil && cfg.Email.Turnstile.SecretName != "" {
@@ -211,7 +212,7 @@ func run(ctx context.Context, output io.Writer, configPath string, debug bool) e
 	}
 
 	// Set up the downstream token signer and public JWKS document.
-	signer := tokens.NewSigner(signingKey, cfg.JWKSKID, cfg.IssuerURL, time.Duration(cfg.TokenTTLSeconds)*time.Second)
+	signer := tokens.NewSigner(signingKey, cfg.JWKSKID, cfg.IssuerURL, cfg.IDTokenTTL.Duration())
 	jwksData, err := tokens.GenerateJWKS(signingKey, cfg.JWKSKID)
 	if err != nil {
 		logger.Error("failed to generate JWKS", "error", err)
@@ -242,12 +243,16 @@ func run(ctx context.Context, output io.Writer, configPath string, debug bool) e
 	}
 
 	// Set up the OIDC server and HTTP routes.
-	server := oidc.NewServer(cfg, connectors, authCodeManager, signer, tokens.NewGroupResolver(cfg.GroupsOverrides), jwksData, logger, store, templateManager, mailer, challengeVerifier, otpSecret, selectionKey)
+	server := oidc.NewServer(cfg, connectors, authCodeManager, signer, tokens.NewGroupResolver(cfg.GroupsOverrides), jwksData, logger, store, templateManager, mailer, challengeVerifier, otpSecret, selectionKey, encryptionKey)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/openid-configuration", server.HandleDiscovery)
 	mux.HandleFunc("/jwks", server.HandleJWKS)
 	mux.HandleFunc("/authorize", server.HandleAuthorize)
 	mux.HandleFunc("/token", server.HandleToken)
+	mux.HandleFunc("/revoke", server.HandleRevoke)
+	mux.HandleFunc("GET /grants", server.HandleGrants)
+	mux.HandleFunc("POST /grants/revoke", server.HandleGrantRevoke)
+	mux.HandleFunc("POST /consent", server.HandleConsent)
 	mux.HandleFunc("/userinfo", server.HandleUserInfo)
 	mux.HandleFunc("/healthz", server.HandleHealth)
 	mux.HandleFunc("/callback/", server.HandleCallback)

@@ -5,73 +5,21 @@
 package oidc
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
-	"encoding/base64"
-	"encoding/json"
-	"fmt"
 	"net/http"
 	"strconv"
 	"time"
 
+	"github.com/easy-oidc/easy-oidc/internal/storage"
 	"github.com/easy-oidc/easy-oidc/internal/templates"
 	"github.com/easy-oidc/easy-oidc/internal/upstream"
 )
 
-// selectionPayload authenticates all identity-selection browser state.
-type selectionPayload struct {
-	State, ConnectorID, Subject string
-	Emails                      []upstream.Email
-	ExpiresAt                   time.Time
-}
-
-// selectionAEAD creates an AES-GCM cipher that owns random nonce generation.
-// The selection key must not encrypt more than 2^32 tokens across all processes.
-func (s *Server) selectionAEAD() (cipher.AEAD, error) {
-	block, err := aes.NewCipher(s.selectionKey)
-	if err != nil {
-		return nil, fmt.Errorf("create selection cipher: %w", err)
-	}
-	return cipher.NewGCMWithRandomNonce(block)
-}
-
-// encryptSelection encrypts and authenticates an identity-selection payload.
-func (s *Server) encryptSelection(payload selectionPayload) (string, error) {
-	aead, err := s.selectionAEAD()
-	if err != nil {
-		return "", err
-	}
-	plain, err := json.Marshal(payload)
-	if err != nil {
-		return "", fmt.Errorf("encode selection: %w", err)
-	}
-	return base64.RawURLEncoding.EncodeToString(aead.Seal(nil, nil, plain, nil)), nil
-}
-
-// decryptSelection decrypts and authenticates an identity-selection payload.
-func (s *Server) decryptSelection(token string) (selectionPayload, error) {
-	var payload selectionPayload
-	aead, err := s.selectionAEAD()
-	if err != nil {
-		return payload, err
-	}
-	sealed, err := base64.RawURLEncoding.DecodeString(token)
-	if err != nil {
-		return payload, fmt.Errorf("invalid selection token")
-	}
-	plain, err := aead.Open(nil, nil, sealed, nil)
-	if err != nil {
-		return payload, fmt.Errorf("invalid selection token")
-	}
-	if err = json.Unmarshal(plain, &payload); err != nil || time.Now().After(payload.ExpiresAt) {
-		return payload, fmt.Errorf("invalid or expired selection token")
-	}
-	return payload, nil
-}
-
 // renderIdentitySelection renders all authenticated upstream email candidates.
 func (s *Server) renderIdentitySelection(w http.ResponseWriter, stateToken, connectorID string, identity upstream.Identity) {
-	token, err := s.encryptSelection(selectionPayload{State: stateToken, ConnectorID: connectorID, Subject: identity.Subject, Emails: identity.Emails, ExpiresAt: time.Now().Add(5 * time.Minute)})
+	token, err := storage.GenerateStateToken()
+	if err == nil {
+		err = s.store.CreateIdentitySelection(token, stateToken, connectorID, identity.Subject, identity.Emails, time.Now().Add(5*time.Minute))
+	}
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -92,20 +40,20 @@ func (s *Server) HandleIdentitySelect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid selection", http.StatusBadRequest)
 		return
 	}
-	payload, err := s.decryptSelection(r.FormValue("token"))
+	stateToken, connectorID, subject, emails, err := s.store.ConsumeIdentitySelection(r.FormValue("token"), time.Now())
 	index, indexErr := strconv.Atoi(r.FormValue("index"))
-	if err != nil || indexErr != nil || index < 0 || index >= len(payload.Emails) {
+	if err != nil || indexErr != nil || index < 0 || index >= len(emails) {
 		http.Error(w, "invalid selection", http.StatusBadRequest)
 		return
 	}
-	state, err := s.authCodeMgr.DecodeState(payload.State)
+	state, err := s.authCodeMgr.DecodeState(stateToken)
 	if err != nil {
 		http.Error(w, "invalid state", http.StatusBadRequest)
 		return
 	}
-	if state.ConnectorID != payload.ConnectorID {
+	if state.ConnectorID != connectorID {
 		http.Error(w, "connector does not match state", http.StatusBadRequest)
 		return
 	}
-	s.acceptOrChallenge(w, r, *state, payload.ConnectorID, payload.Subject, payload.Emails[index])
+	s.acceptOrChallenge(w, r, *state, connectorID, subject, emails[index])
 }

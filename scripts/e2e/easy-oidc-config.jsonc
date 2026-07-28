@@ -7,10 +7,13 @@
   "http_listen_addr": "127.0.0.1:8080",
   "data_dir": "./temp",
   "signing_algorithm": "RS256",
+  "access_token_ttl": "5s",
+  "id_token_ttl": "5s",
 
   "secrets": {
     "provider": "env",
     "signing_key_name": "EASYOIDC_SIGNING_KEY",
+    "encryption_key_name": "EASYOIDC_ENCRYPTION_KEY",
   },
 
   "connectors": {
@@ -27,6 +30,9 @@
         "subject_field": "sub",
         "email_field": "email",
         "email_verified_field": "email_verified",
+        "refresh": {
+          "scopes": ["offline_access"],
+        },
       },
     },
   },
@@ -42,6 +48,9 @@
   "clients": {
     "e2e-test-client": {
       "groups_override": "local-groups",
+      "refresh_tokens": {
+        "enabled": true,
+      },
     },
   },
 }

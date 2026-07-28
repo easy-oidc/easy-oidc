@@ -27,7 +27,7 @@
   "email": {
     "verification_mode": "disabled",
     "otp_secret_name": "EASYOIDC_OTP_SECRET",
-    "otp_ttl_seconds": 300,
+    "otp_ttl": "5m",
     "smtp": {
       "host": "localhost",
       "port": 1025,

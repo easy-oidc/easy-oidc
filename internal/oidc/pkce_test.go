@@ -85,12 +85,24 @@ func TestValidatePKCE(t *testing.T) {
 		},
 		{
 			name:     "verifier with special characters",
-			verifier: "abc-._~123",
+			verifier: strings.Repeat("a", 39) + "-._~",
 			challenge: func() string {
-				h := sha256.Sum256([]byte("abc-._~123"))
+				h := sha256.Sum256([]byte(strings.Repeat("a", 39) + "-._~"))
 				return base64.RawURLEncoding.EncodeToString(h[:])
 			}(),
 			expectError: false,
+		},
+		{
+			name:        "verifier longer than maximum",
+			verifier:    strings.Repeat("a", 129),
+			challenge:   computeChallenge(strings.Repeat("a", 129)),
+			expectError: true,
+		},
+		{
+			name:        "verifier with invalid characters",
+			verifier:    strings.Repeat("a", 42) + "/",
+			challenge:   computeChallenge(strings.Repeat("a", 42) + "/"),
+			expectError: true,
 		},
 		{
 			name:        "challenge is just random string",
@@ -166,17 +178,17 @@ func TestValidatePKCE_ErrorMessages(t *testing.T) {
 			name:            "empty verifier error message",
 			verifier:        "",
 			challenge:       "some-challenge",
-			expectedErrText: "code_verifier is required",
+			expectedErrText: "43 to 128",
 		},
 		{
 			name:            "empty challenge error message",
-			verifier:        "some-verifier",
+			verifier:        strings.Repeat("a", 43),
 			challenge:       "",
 			expectedErrText: "code_challenge is required",
 		},
 		{
 			name:            "mismatch error message",
-			verifier:        "wrong",
+			verifier:        strings.Repeat("a", 43),
 			challenge:       computeChallenge("correct"),
 			expectedErrText: "does not match",
 		},

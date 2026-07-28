@@ -14,13 +14,15 @@ kubelogin is a kubectl plugin that handles OIDC authentication automatically. In
 - Handles the OIDC authentication flow (Authorization Code + PKCE)
 - Caches tokens locally to avoid repeated logins
 - Automatically refreshes expired tokens
+- Add `--oidc-extra-scope=offline_access` only for clients explicitly configured to allow offline grants.
 
 When you run `kubectl get pods`, kubelogin:
 1. Checks for a cached, valid token
-2. If the token is missing or expired, opens a browser for authentication
-3. Handles the OAuth2/OIDC flow with Easy OIDC
-4. Returns the ID token to kubectl
-5. kubectl includes the token in API requests
+2. Refreshes an expired token when the client has refresh enabled
+3. If no usable token remains, opens a browser for authentication
+4. Handles the OAuth2/OIDC flow with Easy OIDC
+5. Returns the ID token to kubectl
+6. kubectl includes the token in API requests
 
 ## Installation
 
@@ -143,7 +145,7 @@ kubectl get nodes
 kubectl apply -f deployment.yaml
 ```
 
-**On first use**, kubelogin will open a browser for authentication. Subsequent commands use the cached token until it expires (default 1 hour).
+**On first use**, kubelogin will open a browser for authentication. Subsequent commands use the cached token and refresh it when necessary.
 
 ## Token Caching
 
@@ -163,7 +165,8 @@ Tokens are cached in `~/.kube/cache/oidc-login/` directory. Each issuer and clie
 
 kubelogin automatically handles token expiry:
 - Before each kubectl command, kubelogin checks if the token is still valid
-- If expired, it triggers a new authentication flow (opens browser)
+- If expired, it uses a cached refresh token when the client has refresh enabled
+- If refresh is unavailable or no longer valid, it opens a browser to authenticate again
 - If valid, it returns the cached token immediately
 
 No manual intervention required.

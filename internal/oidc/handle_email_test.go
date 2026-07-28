@@ -43,7 +43,7 @@ func TestBeginOTPDoesNotExposeSMTPFailure(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		server := &Server{config: &config.Config{Email: &config.EmailConfig{OTPTTLSeconds: 300}}, store: store, templates: manager, mailer: fakeMailer{mailErr}, otpSecret: []byte("01234567890123456789012345678901"), logger: logger}
+		server := &Server{config: &config.Config{Email: &config.EmailConfig{OTPTTL: config.Duration(5 * time.Minute)}}, store: store, templates: manager, mailer: fakeMailer{mailErr}, otpSecret: []byte("01234567890123456789012345678901"), logger: logger}
 		response := httptest.NewRecorder()
 		request := httptest.NewRequest("POST", "/email/start", nil)
 		server.beginOTP(response, request, OAuthState{ClientID: "client", RedirectURI: "https://client.example/callback", CodeChallenge: "challenge"}, "email", "user@example.com", "user@example.com")
@@ -68,7 +68,7 @@ func TestHandleEmailStartUsesConnectorFromSelector(t *testing.T) {
 	server.challenge = challenge.Noop{}
 	server.mailer = fakeMailer{}
 	server.otpSecret = []byte("01234567890123456789012345678901")
-	server.config.Email = &config.EmailConfig{OTPTTLSeconds: 300}
+	server.config.Email = &config.EmailConfig{OTPTTL: config.Duration(5 * time.Minute)}
 
 	selector := httptest.NewRecorder()
 	server.HandleAuthorize(selector, authorizationRequest())

@@ -4,6 +4,55 @@
 
 package config
 
+import (
+	"encoding/json"
+	"fmt"
+	"time"
+)
+
+// Duration is a positive configuration duration.
+// Its JSON representation uses the Go standard library duration syntax.
+type Duration time.Duration
+
+// UnmarshalJSON parses a canonical human duration and records its presence.
+func (d *Duration) UnmarshalJSON(data []byte) error {
+	var value string
+	if err := json.Unmarshal(data, &value); err != nil {
+		return fmt.Errorf("duration must be a string: %w", err)
+	}
+	parsed, err := ParseDuration(value)
+	if err != nil {
+		return err
+	}
+	*d = Duration(parsed)
+	return nil
+}
+
+// MarshalJSON emits a canonical duration string, or null for an absent duration.
+func (d Duration) MarshalJSON() ([]byte, error) {
+	if d == 0 {
+		return []byte("null"), nil
+	}
+	return json.Marshal(d.Duration().String())
+}
+
+// Duration returns the standard-library duration value.
+func (d Duration) Duration() time.Duration {
+	return time.Duration(d)
+}
+
+// ParseDuration parses a positive Go duration string.
+func ParseDuration(value string) (time.Duration, error) {
+	parsed, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("invalid duration %q: %w", value, err)
+	}
+	if parsed <= 0 {
+		return 0, fmt.Errorf("duration must be positive")
+	}
+	return parsed, nil
+}
+
 // Config represents the top-level configuration structure for easy-oidc.
 type Config struct {
 	Schema              string                         `json:"$schema,omitempty"`
@@ -12,7 +61,8 @@ type Config struct {
 	DataDir             string                         `json:"data_dir"`
 	SigningAlgorithm    string                         `json:"signing_algorithm,omitempty"`
 	JWKSKID             string                         `json:"jwks_kid,omitempty"`
-	TokenTTLSeconds     int                            `json:"token_ttl_seconds,omitempty"`
+	AccessTokenTTL      Duration                       `json:"access_token_ttl,omitempty"`
+	IDTokenTTL          Duration                       `json:"id_token_ttl,omitempty"`
 	RequireGroups       *bool                          `json:"require_groups,omitempty"`
 	Secrets             SecretsConfig                  `json:"secrets"`
 	Connectors          map[string]ConnectorConfig     `json:"connectors"`
@@ -59,19 +109,26 @@ type GitHubConfig struct {
 
 // GenericConfig contains generic OAuth2/OIDC provider configuration options.
 type GenericConfig struct {
-	AuthorizationURL   string `json:"authorization_url"`
-	TokenURL           string `json:"token_url"`
-	UserinfoURL        string `json:"userinfo_url"`
-	EmailField         string `json:"email_field,omitempty"`          // JSON field name for email in userinfo response
-	EmailVerifiedField string `json:"email_verified_field,omitempty"` // JSON field name for email verification status
-	SubjectField       string `json:"subject_field,omitempty"`
+	AuthorizationURL   string                `json:"authorization_url"`
+	TokenURL           string                `json:"token_url"`
+	UserinfoURL        string                `json:"userinfo_url"`
+	EmailField         string                `json:"email_field,omitempty"`          // JSON field name for email in userinfo response
+	EmailVerifiedField string                `json:"email_verified_field,omitempty"` // JSON field name for email verification status
+	SubjectField       string                `json:"subject_field,omitempty"`
+	Refresh            *GenericRefreshConfig `json:"refresh,omitempty"`
+}
+
+// GenericRefreshConfig configures renewable upstream credential acquisition.
+type GenericRefreshConfig struct {
+	Scopes              []string          `json:"scopes,omitempty"`
+	AuthorizationParams map[string]string `json:"authorization_params,omitempty"`
 }
 
 // EmailConfig controls optional email verification and direct email authentication.
 type EmailConfig struct {
 	VerificationMode string           `json:"verification_mode"`
 	OTPSecretName    string           `json:"otp_secret_name"`
-	OTPTTLSeconds    int              `json:"otp_ttl_seconds,omitempty"`
+	OTPTTL           Duration         `json:"otp_ttl,omitempty"`
 	SMTP             *SMTPConfig      `json:"smtp,omitempty"`
 	Turnstile        *TurnstileConfig `json:"turnstile,omitempty"`
 }
@@ -95,9 +152,20 @@ type TurnstileConfig struct {
 // ClientConfig defines OIDC client-specific configuration.
 // Each client can have custom redirect URIs and group override mappings.
 type ClientConfig struct {
-	RedirectURIs   []string `json:"redirect_uris"`
-	GroupsOverride string   `json:"groups_override"`
-	RequireGroups  *bool    `json:"require_groups,omitempty"`
+	RedirectURIs   []string           `json:"redirect_uris"`
+	GroupsOverride string             `json:"groups_override"`
+	RequireGroups  *bool              `json:"require_groups,omitempty"`
+	RefreshTokens  RefreshTokenConfig `json:"refresh_tokens,omitempty"`
+}
+
+// RefreshTokenConfig controls refresh issuance and snapshotted grant lifetimes.
+type RefreshTokenConfig struct {
+	Enabled            bool     `json:"enabled,omitempty"`
+	AllowOfflineAccess bool     `json:"allow_offline_access,omitempty"`
+	SessionIdleTTL     Duration `json:"session_idle_ttl,omitempty"`
+	SessionAbsoluteTTL Duration `json:"session_absolute_ttl,omitempty"`
+	OfflineIdleTTL     Duration `json:"offline_idle_ttl,omitempty"`
+	OfflineAbsoluteTTL Duration `json:"offline_absolute_ttl,omitempty"`
 }
 
 // ShouldRequireGroups returns whether groups are required for authentication.

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strings"
 
 	"github.com/easy-oidc/easy-oidc/internal/templates"
 	"golang.org/x/oauth2"
@@ -91,5 +92,38 @@ func (s *Server) selectConnector(w http.ResponseWriter, r *http.Request, id stri
 		http.Error(w, "connector unavailable", 500)
 		return
 	}
-	http.Redirect(w, r, connector.AuthCodeURL(token, oauth2.AccessTypeOffline), http.StatusFound)
+	var options []oauth2.AuthCodeOption
+	if state.RefreshMode != "" {
+		switch cfg.Type {
+		case "google":
+			options = append(options, oauth2.AccessTypeOffline, oauth2.ApprovalForce)
+		case "generic":
+			if cfg.Generic != nil && cfg.Generic.Refresh != nil {
+				for key, value := range cfg.Generic.Refresh.AuthorizationParams {
+					options = append(options, oauth2.SetAuthURLParam(key, value))
+				}
+				if len(cfg.Generic.Refresh.Scopes) > 0 {
+					normalScopes := cfg.Scopes
+					if len(normalScopes) == 0 {
+						normalScopes = []string{"openid", "email"}
+					}
+					options = append(options, oauth2.SetAuthURLParam("scope", strings.Join(mergeScopes(normalScopes, cfg.Generic.Refresh.Scopes), " ")))
+				}
+			}
+		}
+	}
+	http.Redirect(w, r, connector.AuthCodeURL(token, options...), http.StatusFound)
+}
+
+// mergeScopes returns stable de-duplicated configured scopes.
+func mergeScopes(left, right []string) []string {
+	seen := make(map[string]bool)
+	result := make([]string, 0, len(left)+len(right))
+	for _, scope := range append(append([]string(nil), left...), right...) {
+		if !seen[scope] {
+			seen[scope] = true
+			result = append(result, scope)
+		}
+	}
+	return result
 }

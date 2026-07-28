@@ -4,7 +4,30 @@
 
 package config
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
+
+// TestParseDurationUsesStandardSyntax verifies configuration durations follow time.ParseDuration.
+func TestParseDurationUsesStandardSyntax(t *testing.T) {
+	for input, expected := range map[string]time.Duration{
+		"5m":     5 * time.Minute,
+		"1h30m":  90 * time.Minute,
+		"720h":   30 * 24 * time.Hour,
+		"1500ms": 1500 * time.Millisecond,
+	} {
+		actual, err := ParseDuration(input)
+		if err != nil || actual != expected {
+			t.Errorf("ParseDuration(%q) = %v, %v; want %v", input, actual, err, expected)
+		}
+	}
+	for _, input := range []string{"", "0s", "-1s", "30d", "forever"} {
+		if _, err := ParseDuration(input); err == nil {
+			t.Errorf("ParseDuration(%q) unexpectedly succeeded", input)
+		}
+	}
+}
 
 func TestClientConfig_ShouldRequireGroups(t *testing.T) {
 	tests := []struct {

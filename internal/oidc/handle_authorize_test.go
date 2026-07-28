@@ -23,19 +23,25 @@ import (
 
 // captureConnector records the state passed to its authorization URL.
 type captureConnector struct {
-	state    string
-	identity upstream.Identity
+	state, authorizationURL string
+	identity                upstream.Identity
 }
 
 // AuthCodeURL records state and returns a fixed provider URL.
-func (c *captureConnector) AuthCodeURL(state string, _ ...oauth2.AuthCodeOption) string {
+func (c *captureConnector) AuthCodeURL(state string, options ...oauth2.AuthCodeOption) string {
 	c.state = state
-	return "https://provider.example/authorize"
+	c.authorizationURL = (&oauth2.Config{Endpoint: oauth2.Endpoint{AuthURL: "https://provider.example/authorize"}}).AuthCodeURL(state, options...)
+	return c.authorizationURL
 }
 
 // Exchange satisfies upstream.Connector for authorization tests.
-func (*captureConnector) Exchange(context.Context, string) (*oauth2.Token, error) {
-	return nil, nil
+func (*captureConnector) Exchange(context.Context, string) (*upstream.Credential, error) {
+	return &upstream.Credential{}, nil
+}
+
+// Refresh satisfies upstream.Connector for authorization tests.
+func (*captureConnector) Refresh(context.Context, *upstream.Credential) (*upstream.Credential, error) {
+	return &upstream.Credential{}, nil
 }
 
 // GetIdentity returns the configured test identity.
@@ -77,13 +83,15 @@ func authorizeServer(t *testing.T, connectors map[string]config.ConnectorConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewServer(cfg, registry, managerAuth, nil, tokens.NewGroupResolver(nil), nil, logger, store, manager, nil, nil, nil, []byte("01234567890123456789012345678901")), captures
+	return NewServer(cfg, registry, managerAuth, nil, tokens.NewGroupResolver(nil), nil, logger, store, manager, nil, nil, nil, []byte("01234567890123456789012345678901"), nil), captures
 }
 
 // authorizationRequest creates a valid downstream authorization request.
 func authorizationRequest() *http.Request {
 	values := url.Values{
 		"client_id":             {"client"},
+		"response_type":         {"code"},
+		"scope":                 {"openid"},
 		"redirect_uri":          {"https://client.example/callback"},
 		"code_challenge":        {"challenge"},
 		"code_challenge_method": {"S256"},

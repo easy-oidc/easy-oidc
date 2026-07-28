@@ -41,6 +41,9 @@ cleanup() {
     if [ -n "${EASY_OIDC_PID:-}" ]; then
         kill "$EASY_OIDC_PID" 2>/dev/null || true
     fi
+    if [ -n "${E2E_TEMP_DIR:-}" ]; then
+        rm -rf "$E2E_TEMP_DIR"
+    fi
 }
 
 trap cleanup EXIT INT TERM
@@ -74,9 +77,25 @@ make build
 
 echo "==> Starting easy-oidc..."
 export EASYOIDC_SIGNING_KEY="$(openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 2>/dev/null)"
-export EASYOIDC_DEX_CREDENTIALS='{"client_id":"easy-oidc-e2e","client_secret":"unused-e2e-secret"}'
+export EASYOIDC_ENCRYPTION_KEY="$(openssl rand -hex 32)"
+export EASYOIDC_DEX_CREDENTIALS='{"client_id":"easy-oidc-e2e","client_secret":"easy-oidc-e2e-secret"}'
+E2E_TEMP_DIR="$(mktemp -d)"
+EASY_OIDC_LOG="$E2E_TEMP_DIR/easy-oidc.log"
+TOKEN_CACHE_DIR="$E2E_TEMP_DIR/cache"
+BROWSER_COMMAND="$E2E_TEMP_DIR/open-browser"
+mkdir -p "$TOKEN_CACHE_DIR"
+cat > "$BROWSER_COMMAND" <<'EOF'
+#!/usr/bin/env bash
+echo "Open this URL to complete the E2E login:"
+echo "$1"
+open "$1"
+EOF
+chmod +x "$BROWSER_COMMAND"
 
-./bin/easy-oidc --config "$SCRIPT_DIR/easy-oidc-config.jsonc" --debug &
+(
+    cd "$E2E_TEMP_DIR"
+    exec "$PROJECT_ROOT/bin/easy-oidc" --config "$SCRIPT_DIR/easy-oidc-config.jsonc" --debug
+) > "$EASY_OIDC_LOG" 2>&1 &
 EASY_OIDC_PID=$!
 
 echo "==> Waiting for easy-oidc to be ready..."
@@ -87,6 +106,7 @@ for i in {1..30}; do
     fi
     if ! kill -0 "$EASY_OIDC_PID" 2>/dev/null; then
         wait "$EASY_OIDC_PID" 2>/dev/null || true
+        cat "$EASY_OIDC_LOG"
         echo "ERROR: easy-oidc exited before becoming ready"
         exit 1
     fi
@@ -109,19 +129,47 @@ if ! curl -sf http://127.0.0.1:8080/jwks | jq . > /dev/null; then
     exit 1
 fi
 
-echo "==> Testing OIDC flow with kubelogin..."
+echo "==> Testing OIDC login and refresh with kubelogin..."
 echo ""
 echo "Opening browser for OIDC authentication..."
 echo "Please complete the login in your browser (use Dex mock login)"
 echo ""
 
-kubectl oidc-login setup \
+FIRST_TOKEN="$E2E_TEMP_DIR/first.json"
+SECOND_TOKEN="$E2E_TEMP_DIR/second.json"
+kubectl oidc-login get-token \
     --oidc-issuer-url=http://127.0.0.1:8080 \
     --oidc-client-id=e2e-test-client \
     --oidc-use-pkce \
-    --listen-address=127.0.0.1:18000
+    --listen-address=127.0.0.1:18000 \
+    --browser-command="$BROWSER_COMMAND" \
+    --authentication-timeout-sec=300 \
+    --token-cache-dir="$TOKEN_CACHE_DIR" > "$FIRST_TOKEN"
+
+echo "==> Waiting for the initial ID token to expire..."
+sleep 6
+
+echo "==> Refreshing without opening a browser..."
+kubectl oidc-login get-token \
+    --oidc-issuer-url=http://127.0.0.1:8080 \
+    --oidc-client-id=e2e-test-client \
+    --oidc-use-pkce \
+    --listen-address=127.0.0.1:18000 \
+    --token-cache-dir="$TOKEN_CACHE_DIR" \
+    --skip-open-browser \
+    --authentication-timeout-sec=10 > "$SECOND_TOKEN"
+
+if [ "$(jq -r '.status.token // empty' "$FIRST_TOKEN")" = "$(jq -r '.status.token // empty' "$SECOND_TOKEN")" ]; then
+    echo "ERROR: kubelogin did not return a fresh ID token"
+    exit 1
+fi
+if ! jq -s -e 'any(.[]; .msg == "refresh attempt" and .result == 200 and .client_id == "e2e-test-client")' "$EASY_OIDC_LOG" > /dev/null; then
+    cat "$EASY_OIDC_LOG"
+    echo "ERROR: no successful kubelogin refresh exchange was logged"
+    exit 1
+fi
 
 echo ""
-echo "✅ ID token received and validated by kubelogin. The decoded claims are shown above."
+echo "✅ ID token received and refreshed by kubelogin without another browser login."
 echo ""
 echo "✅ E2E Test PASSED!"

@@ -49,7 +49,8 @@ in each deployment module.
 | `data_dir` | yes | Directory containing the SQLite database. |
 | `signing_algorithm` | no | Defaults to `RS256`. Supports the asymmetric algorithms advertised by Easy OIDC. |
 | `jwks_kid` | no | Signing key ID. Derived from the public key when omitted. |
-| `token_ttl_seconds` | no | Downstream token lifetime; defaults to 3600 seconds. |
+| `access_token_ttl` | no | Access-token lifetime using Go duration syntax; defaults to `15m`. |
+| `id_token_ttl` | no | ID-token lifetime using Go duration syntax; defaults to `15m`. |
 | `require_groups` | no | Require a non-empty group result; defaults to `true`. |
 | `templates_dir` | no | Directory containing template overrides. `EASYOIDC_TEMPLATES_DIR` takes precedence. |
 
@@ -68,9 +69,9 @@ is the exact environment variable to read.
 }
 ```
 
-`signing_key_name` is always required. `encryption_key_name` is currently
-required for GitHub connectors because GitHub can return several email identities.
-Its value must be a 64-character hex-encoded 32-byte master key:
+`signing_key_name` is always required. `encryption_key_name` is required for GitHub
+connectors and whenever a refresh-enabled client can use a non-email connector. Its
+value must be a 64-character hex-encoded 32-byte master key:
 
 ```console
 openssl rand -hex 32
@@ -143,7 +144,7 @@ disabled and Easy OIDC accepts the provider's chosen email and preserves its
 "email": {
   "verification_mode": "provider",
   "otp_secret_name": "EASYOIDC_OTP_SECRET",
-  "otp_ttl_seconds": 300,
+  "otp_ttl": "5m",
   "smtp": {
     "host": "smtp.example.com",
     "port": 587,

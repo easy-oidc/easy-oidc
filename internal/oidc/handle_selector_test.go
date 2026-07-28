@@ -8,6 +8,7 @@ import (
 	"html"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"regexp"
 	"strings"
 	"testing"
@@ -80,5 +81,24 @@ func TestConnectorSelectorRendersEmailAndTurnstile(t *testing.T) {
 	body := response.Body.String()
 	if response.Code != http.StatusOK || !strings.Contains(body, "/select/google") || !strings.Contains(body, `action="/email/start"`) || !strings.Contains(body, `data-sitekey="turnstile-site-key"`) {
 		t.Fatalf("unexpected combined selector response: %d %s", response.Code, body)
+	}
+}
+
+// TestGenericRefreshScopesIncludeConnectorDefaults verifies renewable scopes augment normal defaults.
+func TestGenericRefreshScopesIncludeConnectorDefaults(t *testing.T) {
+	server, captures := authorizeServer(t, map[string]config.ConnectorConfig{
+		"generic": {Type: "generic", DisplayName: "Generic", Generic: &config.GenericConfig{Refresh: &config.GenericRefreshConfig{Scopes: []string{"offline_access"}}}},
+	})
+	response := httptest.NewRecorder()
+	server.selectConnector(response, httptest.NewRequest(http.MethodGet, "/", nil), "generic", OAuthState{RefreshMode: "session"})
+	if response.Code != http.StatusFound {
+		t.Fatalf("selection status = %d", response.Code)
+	}
+	u, err := url.Parse(captures["generic"].authorizationURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := u.Query().Get("scope"); got != "openid email offline_access" {
+		t.Fatalf("scope = %q", got)
 	}
 }

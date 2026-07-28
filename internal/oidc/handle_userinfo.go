@@ -6,6 +6,7 @@ package oidc
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 )
@@ -28,6 +29,19 @@ func (s *Server) HandleUserInfo(w http.ResponseWriter, r *http.Request) {
 	tokenString := parts[1]
 
 	token, err := s.signer.VerifyToken(tokenString)
+	if err == nil {
+		if scope, ok := token.Get("scope"); !ok || strings.TrimSpace(fmt.Sprint(scope)) == "" {
+			err = fmt.Errorf("not an access token")
+		}
+		if len(token.Audience()) != 1 {
+			err = fmt.Errorf("invalid audience")
+		}
+		if s.config != nil {
+			if _, ok := s.config.Clients[token.Audience()[0]]; !ok {
+				err = fmt.Errorf("invalid audience")
+			}
+		}
+	}
 	if err != nil {
 		s.logger.Error("failed to verify token", "error", err)
 		http.Error(w, "invalid token", http.StatusUnauthorized)

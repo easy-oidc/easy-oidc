@@ -5,6 +5,8 @@
 package tokens
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"strings"
 	"time"
@@ -12,6 +14,77 @@ import (
 	"github.com/lestrrat-go/jwx/v2/jws"
 	"github.com/lestrrat-go/jwx/v2/jwt"
 )
+
+// TokenContext contains claims shared by separately signed ID and access tokens.
+type TokenContext struct {
+	Email         string
+	EmailVerified bool
+	ClientID      string
+	Groups        []string
+	Nonce         string
+	SID           string
+	Scopes        string
+	AuthTime      time.Time
+	IDExpiry      time.Time
+	AccessExpiry  time.Time
+}
+
+// SignTokenPair issues distinct ID and access JWTs with independent claims and expiries.
+func (s *Signer) SignTokenPair(context TokenContext) (string, string, error) {
+	id, err := s.signContext(context, true)
+	if err != nil {
+		return "", "", err
+	}
+	access, err := s.signContext(context, false)
+	if err != nil {
+		return "", "", err
+	}
+	return id, access, nil
+}
+
+// signContext signs one token from a grant context.
+func (s *Signer) signContext(context TokenContext, identity bool) (string, error) {
+	now := time.Now()
+	token := jwt.New()
+	claims := map[string]any{jwt.IssuerKey: s.issuerURL, jwt.AudienceKey: context.ClientID, jwt.SubjectKey: NormalizeEmail(context.Email), jwt.IssuedAtKey: now}
+	expiry := context.AccessExpiry
+	if identity {
+		expiry = context.IDExpiry
+	}
+	claims[jwt.ExpirationKey] = expiry
+	jti := make([]byte, 16)
+	if _, err := rand.Read(jti); err != nil {
+		return "", fmt.Errorf("generate jti: %w", err)
+	}
+	claims[jwt.JwtIDKey] = base64.RawURLEncoding.EncodeToString(jti)
+	if context.SID != "" {
+		claims["sid"] = context.SID
+	}
+	if identity {
+		claims["email"], claims["email_verified"], claims["preferred_username"], claims["groups"] = context.Email, context.EmailVerified, ExtractUsername(context.Email), context.Groups
+		claims["auth_time"] = context.AuthTime.Unix()
+		if context.Nonce != "" {
+			claims["nonce"] = context.Nonce
+		}
+	} else {
+		claims["scope"] = context.Scopes
+		claims["email"], claims["email_verified"], claims["preferred_username"], claims["groups"] = context.Email, context.EmailVerified, ExtractUsername(context.Email), context.Groups
+	}
+	for key, value := range claims {
+		if err := token.Set(key, value); err != nil {
+			return "", fmt.Errorf("set %s claim: %w", key, err)
+		}
+	}
+	hdrs := jws.NewHeaders()
+	if err := hdrs.Set(jws.KeyIDKey, s.kid); err != nil {
+		return "", err
+	}
+	signed, err := jwt.Sign(token, jwt.WithKey(s.signingKey.Algorithm, s.signingKey.PrivateKey, jws.WithProtectedHeaders(hdrs)))
+	if err != nil {
+		return "", fmt.Errorf("failed to sign token: %w", err)
+	}
+	return string(signed), nil
+}
 
 // Signer signs OpenID Connect ID tokens.
 type Signer struct {
@@ -98,6 +171,31 @@ func (s *Signer) VerifyToken(token string) (jwt.Token, error) {
 		return nil, fmt.Errorf("failed to verify token: %w", err)
 	}
 	return verified, nil
+}
+
+// HasAudience reports whether a verified token has exactly the required audience among its audiences.
+func HasAudience(token jwt.Token, required string) bool {
+	for _, audience := range token.Audience() {
+		if audience == required {
+			return true
+		}
+	}
+	return false
+}
+
+// VerifyAccessToken verifies signature, issuer, expiry, audience, and access-token purpose.
+func (s *Signer) VerifyAccessToken(raw, audience string) (jwt.Token, error) {
+	token, err := s.VerifyToken(raw)
+	if err != nil {
+		return nil, err
+	}
+	if !HasAudience(token, audience) {
+		return nil, fmt.Errorf("required audience is missing")
+	}
+	if scope, ok := token.Get("scope"); !ok || strings.TrimSpace(fmt.Sprint(scope)) == "" {
+		return nil, fmt.Errorf("token is not an access token")
+	}
+	return token, nil
 }
 
 // NormalizeEmail normalizes an email address to lowercase and trims whitespace.
