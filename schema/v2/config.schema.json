@@ -1,0 +1,567 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://easy-oidc.dev/schema/v2/config.schema.json",
+  "$comment": "Easy OIDC <https://easy-oidc.dev>; Copyright The Easy OIDC Authors; SPDX-License-Identifier: Apache-2.0",
+  "title": "Easy OIDC v2 configuration",
+  "description": "Configuration for an Easy OIDC v2 server.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "issuer_url",
+    "http_listen_addr",
+    "data_dir",
+    "secrets",
+    "connectors",
+    "clients"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema used by editors to validate this configuration."
+    },
+    "issuer_url": {
+      "$ref": "#/$defs/publicURI",
+      "description": "Public issuer URL advertised to downstream OIDC clients. Production URLs must use HTTPS."
+    },
+    "http_listen_addr": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Address and port on which Easy OIDC listens for HTTP requests."
+    },
+    "data_dir": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Directory containing Easy OIDC's persistent SQLite data."
+    },
+    "signing_algorithm": {
+      "type": "string",
+      "enum": [
+        "RS256",
+        "RS384",
+        "RS512",
+        "ES256",
+        "ES384",
+        "ES512",
+        "PS256",
+        "PS384",
+        "PS512",
+        "EdDSA"
+      ],
+      "default": "RS256",
+      "description": "Asymmetric algorithm used to sign downstream ID tokens."
+    },
+    "jwks_kid": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional signing-key ID. By default it is derived from the signing key."
+    },
+    "token_ttl_seconds": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 3600,
+      "description": "Lifetime of issued ID tokens in seconds."
+    },
+    "require_groups": {
+      "type": "boolean",
+      "default": true,
+      "description": "Require authenticated users to resolve to at least one group unless overridden by a client."
+    },
+    "templates_dir": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional directory of page and email template overrides."
+    },
+    "secrets": {
+      "$ref": "#/$defs/secrets"
+    },
+    "connectors": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+      },
+      "additionalProperties": {
+        "oneOf": [
+          { "$ref": "#/$defs/googleConnector" },
+          { "$ref": "#/$defs/githubConnector" },
+          { "$ref": "#/$defs/genericConnector" },
+          { "$ref": "#/$defs/emailConnector" }
+        ]
+      },
+      "description": "Sign-in methods keyed by stable, path-safe connector IDs."
+    },
+    "email": {
+      "$ref": "#/$defs/email"
+    },
+    "default_redirect_uris": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/publicURI"
+      },
+      "description": "Redirect URIs inherited by clients that do not define their own list."
+    },
+    "groups_overrides": {
+      "type": "object",
+      "propertyNames": {
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "type": "object",
+        "propertyNames": {
+          "format": "email",
+          "pattern": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+        },
+        "additionalProperties": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "Named mappings from normalized email addresses to downstream groups."
+    },
+    "clients": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/client"
+      },
+      "description": "Downstream public OIDC clients keyed by client ID."
+    }
+  },
+  "allOf": [
+    {
+      "anyOf": [
+        {
+          "properties": {
+            "default_redirect_uris": {
+              "minItems": 1
+            }
+          },
+          "required": ["default_redirect_uris"]
+        },
+        {
+          "properties": {
+            "clients": {
+              "additionalProperties": {
+                "properties": {
+                  "redirect_uris": {
+                    "minItems": 1
+                  }
+                },
+                "required": ["redirect_uris"]
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "if": {
+        "properties": {
+          "secrets": {
+            "properties": {
+              "provider": { "const": "azure" }
+            },
+            "required": ["provider"]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "secrets": {
+            "required": ["azure_keyvault_url"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "connectors": {
+            "not": {
+              "additionalProperties": {
+                "not": {
+                  "properties": {
+                    "type": { "const": "github" }
+                  },
+                  "required": ["type"]
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "secrets": {
+            "required": ["encryption_key_name"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "connectors": {
+            "not": {
+              "additionalProperties": {
+                "not": {
+                  "properties": {
+                    "type": { "const": "email" }
+                  },
+                  "required": ["type"]
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "required": ["email"],
+        "properties": {
+          "email": {
+            "required": ["otp_secret_name", "smtp"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "email": {
+            "properties": {
+              "verification_mode": {
+                "enum": ["provider", "strict"]
+              }
+            },
+            "required": ["verification_mode"]
+          }
+        },
+        "required": ["email"]
+      },
+      "then": {
+        "properties": {
+          "email": {
+            "required": ["otp_secret_name", "smtp"]
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "publicURI": {
+      "type": "string",
+      "format": "uri",
+      "anyOf": [
+        {
+          "pattern": "^https://"
+        },
+        {
+          "pattern": "^http://(?:localhost|127\\.0\\.0\\.1)(?::[0-9]+)?(?:[/?#]|$)"
+        }
+      ]
+    },
+    "secrets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "signing_key_name"],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "enum": [
+            "aws-secrets-manager",
+            "aws-parameter-store",
+            "google-secret-manager",
+            "azure",
+            "env"
+          ],
+          "description": "Backend from which secret values are loaded once during startup."
+        },
+        "signing_key_name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Secret containing the private downstream token-signing key."
+        },
+        "encryption_key_name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Secret containing a 64-character hex-encoded 32-byte encryption master key. Required for GitHub connectors."
+        },
+        "aws_region": {
+          "type": "string",
+          "minLength": 1,
+          "description": "AWS region override. Standard AWS SDK region resolution is used when omitted."
+        },
+        "azure_keyvault_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Azure Key Vault URL. Required when provider is azure."
+        }
+      }
+    },
+    "connectorCommonProperties": {
+      "type": "object",
+      "properties": {
+        "display_name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable sign-in method shown on the selector page."
+        },
+        "order": {
+          "type": "integer",
+          "description": "Optional selector-page sort order."
+        },
+        "credentials_secret": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Secret containing a JSON object with client_id and client_secret."
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "OAuth scopes. Provider defaults are used when omitted."
+        }
+      }
+    },
+    "googleConnector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "display_name", "credentials_secret"],
+      "properties": {
+        "type": { "const": "google" },
+        "display_name": { "$ref": "#/$defs/connectorCommonProperties/properties/display_name" },
+        "order": { "$ref": "#/$defs/connectorCommonProperties/properties/order" },
+        "credentials_secret": { "$ref": "#/$defs/connectorCommonProperties/properties/credentials_secret" },
+        "scopes": { "$ref": "#/$defs/connectorCommonProperties/properties/scopes" },
+        "google": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "hd": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Google Workspace hosted-domain hint."
+            }
+          }
+        }
+      }
+    },
+    "githubConnector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "display_name", "credentials_secret"],
+      "properties": {
+        "type": { "const": "github" },
+        "display_name": { "$ref": "#/$defs/connectorCommonProperties/properties/display_name" },
+        "order": { "$ref": "#/$defs/connectorCommonProperties/properties/order" },
+        "credentials_secret": { "$ref": "#/$defs/connectorCommonProperties/properties/credentials_secret" },
+        "scopes": { "$ref": "#/$defs/connectorCommonProperties/properties/scopes" },
+        "github": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "hostname": {
+              "type": "string",
+              "minLength": 1,
+              "default": "github.com",
+              "description": "GitHub Enterprise hostname, or github.com for GitHub.com."
+            }
+          }
+        }
+      }
+    },
+    "genericConnector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "display_name", "credentials_secret", "generic"],
+      "properties": {
+        "type": { "const": "generic" },
+        "display_name": { "$ref": "#/$defs/connectorCommonProperties/properties/display_name" },
+        "order": { "$ref": "#/$defs/connectorCommonProperties/properties/order" },
+        "credentials_secret": { "$ref": "#/$defs/connectorCommonProperties/properties/credentials_secret" },
+        "scopes": { "$ref": "#/$defs/connectorCommonProperties/properties/scopes" },
+        "generic": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["authorization_url", "token_url", "userinfo_url"],
+          "properties": {
+            "authorization_url": {
+              "type": "string",
+              "format": "uri",
+              "description": "Upstream OAuth authorization endpoint."
+            },
+            "token_url": {
+              "type": "string",
+              "format": "uri",
+              "description": "Upstream OAuth token endpoint."
+            },
+            "userinfo_url": {
+              "type": "string",
+              "format": "uri",
+              "description": "Upstream userinfo endpoint."
+            },
+            "subject_field": {
+              "type": "string",
+              "minLength": 1,
+              "default": "sub",
+              "description": "Userinfo field containing the provider's stable subject identifier."
+            },
+            "email_field": {
+              "type": "string",
+              "minLength": 1,
+              "default": "email",
+              "description": "Userinfo field containing the email address."
+            },
+            "email_verified_field": {
+              "type": "string",
+              "minLength": 1,
+              "default": "email_verified",
+              "description": "Userinfo field reporting whether the provider verified the email address."
+            }
+          }
+        }
+      }
+    },
+    "emailConnector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "display_name"],
+      "properties": {
+        "type": { "const": "email" },
+        "display_name": { "$ref": "#/$defs/connectorCommonProperties/properties/display_name" },
+        "order": { "$ref": "#/$defs/connectorCommonProperties/properties/order" }
+      }
+    },
+    "email": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "verification_mode": {
+          "type": "string",
+          "enum": ["disabled", "provider", "strict"],
+          "default": "disabled",
+          "description": "Whether to trust provider verification, verify unverified provider emails, or always verify."
+        },
+        "otp_secret_name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Secret used to derive typed one-time email verification codes."
+        },
+        "otp_ttl_seconds": {
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 600,
+          "multipleOf": 60,
+          "default": 300,
+          "description": "One-time code lifetime as a whole number of minutes."
+        },
+        "smtp": {
+          "$ref": "#/$defs/smtp"
+        },
+        "turnstile": {
+          "$ref": "#/$defs/turnstile"
+        }
+      }
+    },
+    "smtp": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host", "port", "from_address", "credentials_secret"],
+      "properties": {
+        "host": {
+          "type": "string",
+          "minLength": 1,
+          "description": "SMTP server hostname. Plaintext SMTP is permitted only for localhost."
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "SMTP server port."
+        },
+        "tls_mode": {
+          "type": "string",
+          "enum": ["starttls", "implicit", "plaintext"],
+          "default": "starttls",
+          "description": "SMTP transport security mode. Plaintext is permitted only for localhost development."
+        },
+        "from_name": {
+          "type": "string",
+          "description": "Display name used for verification email."
+        },
+        "from_address": {
+          "type": "string",
+          "format": "email",
+          "minLength": 1,
+          "description": "Bare sender email address."
+        },
+        "credentials_secret": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Secret containing SMTP username and password as JSON."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "tls_mode": { "const": "plaintext" }
+            },
+            "required": ["tls_mode"]
+          },
+          "then": {
+            "properties": {
+              "host": { "const": "localhost" }
+            }
+          }
+        }
+      ]
+    },
+    "turnstile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["site_key", "secret_name"],
+      "properties": {
+        "site_key": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Public Cloudflare Turnstile site key rendered on the selector page."
+        },
+        "secret_name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Secret containing the Cloudflare Turnstile server-side key."
+        }
+      }
+    },
+    "client": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "redirect_uris": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/publicURI"
+          },
+          "description": "Allowed redirect URIs for this public OIDC client."
+        },
+        "groups_override": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Name of the groups_overrides mapping used by this client."
+        },
+        "require_groups": {
+          "type": "boolean",
+          "description": "Client-specific override for the global require_groups setting."
+        }
+      }
+    }
+  }
+}

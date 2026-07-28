@@ -2,7 +2,6 @@
 // Copyright The Easy OIDC Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Package storage provides SQLite-backed storage for OAuth state and authorization codes.
 package storage
 
 import (
@@ -32,6 +31,7 @@ type OAuthState struct {
 	OIDCState     string
 	CreatedAt     time.Time
 	ExpiresAt     time.Time
+	ConnectorID   string
 }
 
 // AuthCode represents a stored authorization code.
@@ -41,6 +41,7 @@ type AuthCode struct {
 	RedirectURI   string
 	CodeChallenge string
 	Email         string
+	EmailVerified bool
 	Nonce         string
 	CreatedAt     time.Time
 	ExpiresAt     time.Time
@@ -104,15 +105,51 @@ func initSchema(db *sql.DB) error {
 		redirect_uri TEXT NOT NULL,
 		code_challenge TEXT NOT NULL,
 		email TEXT NOT NULL,
+		email_verified INTEGER NOT NULL,
 		nonce TEXT,
 		created_at DATETIME NOT NULL,
 		expires_at DATETIME NOT NULL
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_codes_expires_at ON auth_codes(expires_at);
+	CREATE TABLE IF NOT EXISTS upstream_credentials (
+		connector_id TEXT NOT NULL, subject TEXT NOT NULL, email TEXT NOT NULL,
+		verified_at DATETIME NOT NULL, local_verified INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(connector_id, subject, email)
+	);
+	CREATE TABLE IF NOT EXISTS otp_challenges (
+		challenge_id TEXT PRIMARY KEY, email TEXT NOT NULL, code_hmac BLOB NOT NULL,
+		context TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, sends INTEGER NOT NULL DEFAULT 1,
+		created_at DATETIME NOT NULL, sent_at DATETIME NOT NULL, expires_at DATETIME NOT NULL
+	);
+	CREATE TABLE IF NOT EXISTS otp_sends (email TEXT NOT NULL, sent_at DATETIME NOT NULL);
+	CREATE INDEX IF NOT EXISTS idx_otp_sends_email_time ON otp_sends(email, sent_at);
 	`
 
-	_, err := db.Exec(schema)
+	if _, err := db.Exec(schema); err != nil {
+		return err
+	}
+	// Additive migration for databases created before connector-bound state.
+	rows, err := db.Query("PRAGMA table_info(oauth_states)")
+	if err != nil {
+		return err
+	}
+	has := false
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, typ string
+		var def any
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &def, &pk); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		has = has || name == "connector_id"
+	}
+	_ = rows.Close()
+	if !has {
+		_, err = db.Exec("ALTER TABLE oauth_states ADD COLUMN connector_id TEXT NOT NULL DEFAULT ''")
+	}
+	// Additive credential source migration.
+	_, _ = db.Exec("ALTER TABLE upstream_credentials ADD COLUMN local_verified INTEGER NOT NULL DEFAULT 0")
 	return err
 }
 
@@ -137,8 +174,8 @@ func GenerateAuthCode() (string, error) {
 // SaveState stores an OAuth state token.
 func (s *Store) SaveState(state *OAuthState) error {
 	query := `
-		INSERT INTO oauth_states (state_token, client_id, redirect_uri, code_challenge, nonce, oidc_state, created_at, expires_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO oauth_states (state_token, client_id, redirect_uri, code_challenge, nonce, oidc_state, created_at, expires_at, connector_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	_, err := s.db.Exec(query,
 		state.StateToken,
@@ -149,6 +186,7 @@ func (s *Store) SaveState(state *OAuthState) error {
 		state.OIDCState,
 		state.CreatedAt,
 		state.ExpiresAt,
+		state.ConnectorID,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to save state: %w", err)
@@ -167,7 +205,7 @@ func (s *Store) GetAndDeleteState(stateToken string) (*OAuthState, error) {
 	// Retrieve the state
 	var state OAuthState
 	query := `
-		SELECT state_token, client_id, redirect_uri, code_challenge, nonce, oidc_state, created_at, expires_at
+		SELECT state_token, client_id, redirect_uri, code_challenge, nonce, oidc_state, created_at, expires_at, connector_id
 		FROM oauth_states
 		WHERE state_token = ?
 	`
@@ -180,6 +218,7 @@ func (s *Store) GetAndDeleteState(stateToken string) (*OAuthState, error) {
 		&state.OIDCState,
 		&state.CreatedAt,
 		&state.ExpiresAt,
+		&state.ConnectorID,
 	)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("state token not found or already used")
@@ -194,9 +233,12 @@ func (s *Store) GetAndDeleteState(stateToken string) (*OAuthState, error) {
 	}
 
 	// Delete the state (single-use)
-	_, err = tx.Exec("DELETE FROM oauth_states WHERE state_token = ?", stateToken)
+	result, err := tx.Exec("DELETE FROM oauth_states WHERE state_token = ?", stateToken)
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete state: %w", err)
+	}
+	if affected, rowsErr := result.RowsAffected(); rowsErr != nil || affected != 1 {
+		return nil, fmt.Errorf("state token not found or already used")
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -206,11 +248,48 @@ func (s *Store) GetAndDeleteState(stateToken string) (*OAuthState, error) {
 	return &state, nil
 }
 
+// PeekState retrieves a valid state token without consuming it.
+func (s *Store) PeekState(stateToken string) (*OAuthState, error) {
+	var state OAuthState
+	err := s.db.QueryRow(`SELECT state_token,client_id,redirect_uri,code_challenge,nonce,oidc_state,created_at,expires_at,connector_id FROM oauth_states WHERE state_token=?`, stateToken).Scan(
+		&state.StateToken, &state.ClientID, &state.RedirectURI, &state.CodeChallenge, &state.Nonce, &state.OIDCState, &state.CreatedAt, &state.ExpiresAt, &state.ConnectorID)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("state token not found or already used")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve state: %w", err)
+	}
+	if time.Now().After(state.ExpiresAt) {
+		return nil, fmt.Errorf("state token has expired")
+	}
+	return &state, nil
+}
+
+// SaveCredential records a credential only after its email has been accepted.
+func (s *Store) SaveCredential(connectorID, subject, email string, local bool, verifiedAt time.Time) error {
+	_, err := s.db.Exec(`INSERT INTO upstream_credentials(connector_id,subject,email,verified_at,local_verified) VALUES(?,?,?,?,?)
+		ON CONFLICT(connector_id,subject,email) DO UPDATE SET verified_at=excluded.verified_at,local_verified=MAX(local_verified,excluded.local_verified)`, connectorID, subject, email, verifiedAt, local)
+	if err != nil {
+		return fmt.Errorf("failed to save upstream credential: %w", err)
+	}
+	return nil
+}
+
+// CredentialVerified reports whether this exact connector identity and email was accepted before.
+func (s *Store) CredentialVerified(connectorID, subject, email string) (exists, local bool, err error) {
+	var value bool
+	err = s.db.QueryRow(`SELECT local_verified FROM upstream_credentials WHERE connector_id=? AND subject=? AND email=?`, connectorID, subject, email).Scan(&value)
+	if err == sql.ErrNoRows {
+		return false, false, nil
+	}
+	return err == nil, value, err
+}
+
 // SaveAuthCode stores an authorization code.
 func (s *Store) SaveAuthCode(code *AuthCode) error {
 	query := `
-		INSERT INTO auth_codes (code, client_id, redirect_uri, code_challenge, email, nonce, created_at, expires_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO auth_codes (code, client_id, redirect_uri, code_challenge, email, email_verified, nonce, created_at, expires_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	_, err := s.db.Exec(query,
 		code.Code,
@@ -218,6 +297,7 @@ func (s *Store) SaveAuthCode(code *AuthCode) error {
 		code.RedirectURI,
 		code.CodeChallenge,
 		code.Email,
+		code.EmailVerified,
 		code.Nonce,
 		code.CreatedAt,
 		code.ExpiresAt,
@@ -239,7 +319,7 @@ func (s *Store) GetAndDeleteAuthCode(codeStr string) (*AuthCode, error) {
 	// Retrieve the code
 	var code AuthCode
 	query := `
-		SELECT code, client_id, redirect_uri, code_challenge, email, nonce, created_at, expires_at
+		SELECT code, client_id, redirect_uri, code_challenge, email, email_verified, nonce, created_at, expires_at
 		FROM auth_codes
 		WHERE code = ?
 	`
@@ -249,6 +329,7 @@ func (s *Store) GetAndDeleteAuthCode(codeStr string) (*AuthCode, error) {
 		&code.RedirectURI,
 		&code.CodeChallenge,
 		&code.Email,
+		&code.EmailVerified,
 		&code.Nonce,
 		&code.CreatedAt,
 		&code.ExpiresAt,
@@ -266,9 +347,12 @@ func (s *Store) GetAndDeleteAuthCode(codeStr string) (*AuthCode, error) {
 	}
 
 	// Delete the code (single-use)
-	_, err = tx.Exec("DELETE FROM auth_codes WHERE code = ?", codeStr)
+	result, err := tx.Exec("DELETE FROM auth_codes WHERE code = ?", codeStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete auth code: %w", err)
+	}
+	if affected, rowsErr := result.RowsAffected(); rowsErr != nil || affected != 1 {
+		return nil, fmt.Errorf("authorization code not found or already used")
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -305,6 +389,8 @@ func (s *Store) cleanupExpired() {
 				s.logger.Debug("cleaned up expired auth codes", "count", count)
 			}
 		}
+		_, _ = s.db.Exec("DELETE FROM otp_challenges WHERE expires_at < ?", now)
+		_, _ = s.db.Exec("DELETE FROM otp_sends WHERE sent_at < ?", now.Add(-time.Hour))
 
 		// Vacuum database periodically (every 10 minutes might be too frequent, but it's a good start)
 		// SQLite's auto_vacuum can also be used instead

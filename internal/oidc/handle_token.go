@@ -75,7 +75,7 @@ func (s *Server) HandleToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	idToken, err := s.signer.SignIDToken(payload.Email, payload.ClientID, groups, payload.Nonce)
+	idToken, err := s.signer.SignIDToken(payload.Email, payload.EmailVerified, payload.ClientID, groups, payload.Nonce)
 	if err != nil {
 		s.logger.Error("failed to sign ID token", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)

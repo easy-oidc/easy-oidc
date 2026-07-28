@@ -6,14 +6,14 @@ SPDX-License-Identifier: Apache-2.0
 
 # Easy OIDC
 
-Minimal OIDC server designed for use with Kubernetes, with Google/GitHub/Generic federation, and support for static group overrides.
+Minimal OIDC server designed for use with Kubernetes, with Google/GitHub/Generic federation, typed email codes, and static group overrides.
 
 ## Overview
 
-`easy-oidc` is a lightweight, single-binary OIDC server designed specifically for Kubernetes clusters. Instead of managing passwords, it delegates authentication to GitHub, Google, or generic OAuth2+UserInfo or OIDC providers (including Dex, Keycloak, etc) and maps users to Kubernetes groups via simple static configuration.
+`easy-oidc` is a lightweight, single-binary OIDC server designed specifically for Kubernetes clusters. Instead of managing passwords, it delegates authentication to one or more GitHub, Google, generic OAuth2/OIDC, or email-code connectors and maps emails to Kubernetes groups through static configuration.
 
 **Perfect for:**
-- Developers already using GitHub or GMail/Google Workspace
+- Developers already using GitHub or GMail/Google Workspace or wanting email authentication
 - Simple RBAC with static group overrides
 - Running on a single EC2 instance with minimal cost
 
@@ -22,21 +22,30 @@ Easy OIDC was created by [Nadrama](https://nadrama.com). Nadrama is an Open Sour
 ## Key Features
 
 - **Zero password management** - Delegates to GitHub, Google, or any OAuth2+UserInfo/OIDC provider
+- **Multiple sign-in methods** - Configure several upstream providers and optional email codes behind one issuer
+- **Consistent email identity** - Normalise sign-in methods to one email identity downstream, with configurable verification
 - **Static group overrides** - Map a list of emails to groups in the JSONC config
-- **PKCE-only** - Secure public client flow (no client secrets to leak)
+- **PKCE-only downstream clients** - Secure public client flow with no downstream client secrets to leak
+- **Custom templates** - Overlay embedded page and email templates without rebuilding the binary
 - **Kubernetes-compatible signing** - RS256 by default, with all Kubernetes-supported algorithms plus EdDSA
-- **Single binary** - Embedded SQLite (no external database), no external dependencies
-- **Multi-cloud support** - Terraform modules for your cloud (AWS [here](https://github.com/easy-oidc/terraform-aws-easy-oidc), GCP/Azure planned)
+- **Single binary** - Embedded SQLite with no external database to operate
+- **Multi-cloud support** - OpenTofu/Terraform modules for [AWS](https://github.com/easy-oidc/terraform-aws-easy-oidc) and [Google Cloud](https://github.com/easy-oidc/terraform-google-easy-oidc); Azure is planned
 
 ## Quick Start
 
-See [AWS Terraform Module](https://github.com/easy-oidc/terraform-aws-easy-oidc?tab=readme-ov-file#prerequisites) for instructions on how to deploy to AWS.
+Deploy using the OpenTofu/Terraform module for:
+
+- [AWS](https://github.com/easy-oidc/terraform-aws-easy-oidc?tab=readme-ov-file#prerequisites)
+- [Google Cloud](https://github.com/easy-oidc/terraform-google-easy-oidc/blob/main/README.md#prerequisites)
 
 ## Documentation
 
 - **[Local development](DEV.md)** - Set up dependencies and run Easy OIDC locally
+- **[Configuration](docs/config.md)** - Connectors, email verification, secrets, clients, and templates
 - **[Example configurations](examples/config/)** - AWS, Azure, GCP, GitHub, Google, and generic connector examples
-- **[Terraform Module](https://github.com/easy-oidc/terraform-aws-easy-oidc)** - AWS infrastructure module
+- **[Documentation](docs/)** - Deployment, Kubernetes integration, and operational guides
+- **[AWS OpenTofu/Terraform module](https://github.com/easy-oidc/terraform-aws-easy-oidc)** - AWS infrastructure
+- **[Google Cloud OpenTofu/Terraform module](https://github.com/easy-oidc/terraform-google-easy-oidc)** - Google Cloud infrastructure
 
 ## Architecture
 
@@ -51,12 +60,12 @@ See [AWS Terraform Module](https://github.com/easy-oidc/terraform-aws-easy-oidc?
 └──────────┘  HTTPS │ (TLS)   │  :8080 │  (Go)   │
               :443  └─────────┘        └────┬────┘
                                             │
-                                  ┌─────────┼─────────┐
-                                  │         │         │
-                        ┌─────────▼─┐ ┌─────▼───┐ ┌───▼──────┐
-                        │  Google   │ │  GitHub │ │  Generic │
-                        │   OAuth   │ │   OAuth │ │   OAuth  │
-                        └───────────┘ └─────────┘ └──────────┘
+                            ┌───────┴────┬───────────┬──────────┐
+                            │            │           │          │
+                      ┌─────▼────┐  ┌────▼───┐  ┌────▼────┐ ┌───▼───┐
+                      │  Google  │  │ GitHub │  │ Generic │ │ SMTP  │
+                      │   OAuth  │  │ OAuth  │  │  OAuth  │ │ email │
+                      └──────────┘  └────────┘  └─────────┘ └───────┘
 ```
 
 - Single VM instance (minimal footprint)
@@ -79,11 +88,11 @@ make test
 
 ## Releases
 
-Releases are built from semantic-version tags such as `v1.4.0`. The release workflow validates the source and uses GoReleaser to publish Linux AMD64 and ARM64 archives. Each release includes SHA-512 checksums, SPDX JSON SBOMs, a keyless Cosign bundle for the checksum file, and GitHub build provenance. Create a release tag with:
+Releases are built from semantic-version tags such as `v2.0.0`. The release workflow validates the source and uses GoReleaser to publish Linux AMD64 and ARM64 archives. Each release includes SHA-512 checksums, SPDX JSON SBOMs, a keyless Cosign bundle for the checksum file, and GitHub build provenance. Create a release tag with:
 
 ```console
-make tag VERSION=v1.5.0
-git push origin v1.5.0
+make tag VERSION=v2.0.0
+git push origin v2.0.0
 ```
 
 ## License

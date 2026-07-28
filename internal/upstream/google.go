@@ -23,6 +23,7 @@ type GoogleConnector struct {
 }
 
 type googleUserInfo struct {
+	Subject       string `json:"sub"`
 	Email         string `json:"email"`
 	EmailVerified bool   `json:"email_verified"`
 }
@@ -67,12 +68,12 @@ func (c *GoogleConnector) Exchange(ctx context.Context, code string) (*oauth2.To
 	return c.config.Exchange(ctx, code)
 }
 
-// GetUserEmail retrieves the user's email address and verification status from Google's userinfo endpoint.
-func (c *GoogleConnector) GetUserEmail(ctx context.Context, token *oauth2.Token) (string, bool, error) {
+// GetIdentity retrieves the stable subject and email assertions from Google's userinfo endpoint.
+func (c *GoogleConnector) GetIdentity(ctx context.Context, token *oauth2.Token) (Identity, error) {
 	client := c.config.Client(ctx, token)
 	resp, err := client.Get("https://openidconnect.googleapis.com/v1/userinfo")
 	if err != nil {
-		return "", false, fmt.Errorf("failed to get user info: %w", err)
+		return Identity{}, fmt.Errorf("failed to get user info: %w", err)
 	}
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {
@@ -82,17 +83,16 @@ func (c *GoogleConnector) GetUserEmail(ctx context.Context, token *oauth2.Token)
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return "", false, fmt.Errorf("userinfo request failed with status %d: %s", resp.StatusCode, body)
+		return Identity{}, fmt.Errorf("userinfo request failed with status %d: %s", resp.StatusCode, body)
 	}
 
 	var userInfo googleUserInfo
 	if err := json.NewDecoder(resp.Body).Decode(&userInfo); err != nil {
-		return "", false, fmt.Errorf("failed to decode user info: %w", err)
+		return Identity{}, fmt.Errorf("failed to decode user info: %w", err)
 	}
 
-	if userInfo.Email == "" {
-		return "", false, fmt.Errorf("email not provided by Google")
+	if userInfo.Email == "" || userInfo.Subject == "" {
+		return Identity{}, fmt.Errorf("subject or email not provided by Google")
 	}
-
-	return userInfo.Email, userInfo.EmailVerified, nil
+	return Identity{Subject: userInfo.Subject, Emails: []Email{{Address: userInfo.Email, Verified: userInfo.EmailVerified}}}, nil
 }

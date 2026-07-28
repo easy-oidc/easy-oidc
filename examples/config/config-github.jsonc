@@ -3,49 +3,56 @@
 // SPDX-License-Identifier: Apache-2.0
 
 {
+  "$schema": "https://easy-oidc.dev/schema/v2/config.schema.json",
+
   // Core settings
   "issuer_url": "https://auth.example.com",
   "http_listen_addr": "127.0.0.1:8080",
   "data_dir": "/var/lib/easy-oidc",
   "signing_algorithm": "RS256",
-  
+
   // Secrets configuration
   "secrets": {
-    "provider": "aws",
+    "provider": "aws-secrets-manager",
     "aws_region": "us-west-2",
     "signing_key_name": "easy-oidc-signing-key",
-    "connector_secret_name": "easy-oidc-connector-secret"
+    // 64-character hex master key generated with: openssl rand -hex 32
+    "encryption_key_name": "easy-oidc-encryption-key",
   },
-  
+
   // Upstream connector
-  "connector": {
-    "type": "github",
-    "scopes": ["user:email"],
-    
-    // Optional: for GitHub Enterprise
+  "connectors": {
     "github": {
-      "hostname": "github.com"
-    }
+      "type": "github",
+      "display_name": "GitHub",
+      "credentials_secret": "easy-oidc-github-credentials",
+      "scopes": ["user:email"],
+
+      // Optional: for GitHub Enterprise
+      "github": {
+        "hostname": "github.com",
+      },
+    },
   },
-  
+
   // Default redirect URIs
   "default_redirect_uris": ["http://localhost:8000"],
-  
+
   // Groups overrides
   "groups_overrides": {
     "prod-groups": {
       "alice@example.com": ["admins", "developers"],
-      "bob@example.com": ["readonly"]
-    }
+      "bob@example.com": ["readonly"],
+    },
   },
-  
+
   // OIDC clients
   "clients": {
     "kubelogin-prod": {
-      "groups_override": "prod-groups"
-    }
-  }
-  
+      "groups_override": "prod-groups",
+    },
+  },
+
   // Optional: Token TTL in seconds (default: 3600 = 1 hour)
   // "token_ttl_seconds": 3600,
 }

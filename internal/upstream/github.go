@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/easy-oidc/easy-oidc/internal/config"
 	"golang.org/x/oauth2"
@@ -22,10 +23,16 @@ type GitHubConnector struct {
 	hostname string
 }
 
+// githubEmail contains one email assertion returned by GitHub.
 type githubEmail struct {
 	Email    string `json:"email"`
 	Primary  bool   `json:"primary"`
 	Verified bool   `json:"verified"`
+}
+
+// githubUser contains the stable identifier returned by GitHub.
+type githubUser struct {
+	ID int64 `json:"id"`
 }
 
 // NewGitHubConnector creates a new GitHub OAuth2 connector with the provided configuration.
@@ -48,6 +55,9 @@ func NewGitHubConnector(cfg config.ConnectorConfig, redirectURL, clientID, clien
 	if cfg.GitHub != nil && cfg.GitHub.Hostname != "" {
 		hostname = cfg.GitHub.Hostname
 	}
+	if hostname != "github.com" {
+		oauth2Config.Endpoint = oauth2.Endpoint{AuthURL: "https://" + hostname + "/login/oauth/authorize", TokenURL: "https://" + hostname + "/login/oauth/access_token"}
+	}
 
 	return &GitHubConnector{
 		config:   oauth2Config,
@@ -65,19 +75,30 @@ func (c *GitHubConnector) Exchange(ctx context.Context, code string) (*oauth2.To
 	return c.config.Exchange(ctx, code)
 }
 
-// GetUserEmail retrieves the user's primary verified email address from GitHub's user emails API.
-// It prefers the primary verified email, but falls back to any verified email.
-func (c *GitHubConnector) GetUserEmail(ctx context.Context, token *oauth2.Token) (string, bool, error) {
+// GetIdentity retrieves the stable user ID and every email assertion from GitHub.
+func (c *GitHubConnector) GetIdentity(ctx context.Context, token *oauth2.Token) (Identity, error) {
 	client := c.config.Client(ctx, token)
 
-	apiURL := fmt.Sprintf("https://api.%s/user/emails", c.hostname)
+	apiBase := fmt.Sprintf("https://api.%s", c.hostname)
 	if c.hostname != "github.com" {
-		apiURL = fmt.Sprintf("https://%s/api/v3/user/emails", c.hostname)
+		apiBase = fmt.Sprintf("https://%s/api/v3", c.hostname)
+	}
+	userResp, err := client.Get(apiBase + "/user")
+	if err != nil {
+		return Identity{}, fmt.Errorf("failed to get user: %w", err)
+	}
+	defer func() { _ = userResp.Body.Close() }()
+	if userResp.StatusCode != http.StatusOK {
+		return Identity{}, fmt.Errorf("user request failed with status %d", userResp.StatusCode)
+	}
+	var user githubUser
+	if err := json.NewDecoder(userResp.Body).Decode(&user); err != nil || user.ID == 0 {
+		return Identity{}, fmt.Errorf("invalid GitHub user")
 	}
 
-	resp, err := client.Get(apiURL)
+	resp, err := client.Get(apiBase + "/user/emails")
 	if err != nil {
-		return "", false, fmt.Errorf("failed to get user emails: %w", err)
+		return Identity{}, fmt.Errorf("failed to get user emails: %w", err)
 	}
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {
@@ -87,25 +108,23 @@ func (c *GitHubConnector) GetUserEmail(ctx context.Context, token *oauth2.Token)
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return "", false, fmt.Errorf("user emails request failed with status %d: %s", resp.StatusCode, body)
+		return Identity{}, fmt.Errorf("user emails request failed with status %d: %s", resp.StatusCode, body)
 	}
 
 	var emails []githubEmail
 	if err := json.NewDecoder(resp.Body).Decode(&emails); err != nil {
-		return "", false, fmt.Errorf("failed to decode emails: %w", err)
+		return Identity{}, fmt.Errorf("failed to decode emails: %w", err)
 	}
 
-	for _, e := range emails {
-		if e.Primary && e.Verified {
-			return e.Email, true, nil
+	identity := Identity{Subject: fmt.Sprint(user.ID)}
+	noreplyDomain := "@users.noreply." + strings.ToLower(c.hostname)
+	for _, email := range emails {
+		if email.Email != "" && !strings.HasSuffix(strings.ToLower(email.Email), noreplyDomain) {
+			identity.Emails = append(identity.Emails, Email{Address: email.Email, Verified: email.Verified, Primary: email.Primary})
 		}
 	}
-
-	for _, e := range emails {
-		if e.Verified {
-			return e.Email, true, nil
-		}
+	if len(identity.Emails) == 0 {
+		return Identity{}, fmt.Errorf("no email found")
 	}
-
-	return "", false, fmt.Errorf("no verified email found")
+	return identity, nil
 }

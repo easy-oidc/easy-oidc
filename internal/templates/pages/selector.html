@@ -1,0 +1,23 @@
+{{define "content"}}
+<h1>Choose a sign-in method</h1>
+{{range .Connectors}}{{if .Email}}
+<section>
+  <h2>{{.DisplayName}}</h2>
+  <form method="post" action="/email/start">
+    <input type="email" name="email" required /><input
+      type="hidden"
+      name="connector"
+      value="{{.ID}}"
+    /><input type="hidden" name="state" value="{{$.State}}" />{{if $.SiteKey}}
+    <div class="cf-turnstile" data-sitekey="{{$.SiteKey}}"></div>
+    <script
+      src="https://challenges.cloudflare.com/turnstile/v0/api.js"
+      async
+      defer
+    ></script>
+    {{end}}<button>Send code</button>
+  </form>
+</section>
+{{else}}
+<p><a href="{{.URL}}">{{.DisplayName}}</a></p>
+{{end}}{{end}}{{end}}

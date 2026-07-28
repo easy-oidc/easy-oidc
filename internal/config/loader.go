@@ -5,13 +5,15 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"net/mail"
 	"net/url"
 	"os"
 	"regexp"
-	"strings"
 
+	"github.com/easy-oidc/easy-oidc/internal/templates"
 	"github.com/tailscale/hujson"
 )
 
@@ -43,7 +45,9 @@ func Load(path string) (*Config, error) {
 	}
 
 	var cfg Config
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 
@@ -58,9 +62,27 @@ func Load(path string) (*Config, error) {
 		defaultRequireGroups := true
 		cfg.RequireGroups = &defaultRequireGroups
 	}
+	if override := os.Getenv("EASYOIDC_TEMPLATES_DIR"); override != "" {
+		cfg.TemplatesDir = override
+	}
+	if cfg.Email != nil && cfg.Email.VerificationMode == "" {
+		cfg.Email.VerificationMode = "disabled"
+	}
+	if cfg.Email != nil && cfg.Email.OTPTTLSeconds == 0 {
+		cfg.Email.OTPTTLSeconds = 300
+	}
+	for id, connector := range cfg.Connectors {
+		if connector.Generic != nil && connector.Generic.SubjectField == "" {
+			connector.Generic.SubjectField = "sub"
+			cfg.Connectors[id] = connector
+		}
+	}
 
 	if err := validate(&cfg); err != nil {
 		return nil, fmt.Errorf("config validation failed: %w", err)
+	}
+	if err := templates.Validate(cfg.TemplatesDir); err != nil {
+		return nil, fmt.Errorf("template validation failed: %w", err)
 	}
 
 	return &cfg, nil
@@ -87,31 +109,80 @@ func validate(cfg *Config) error {
 		return fmt.Errorf("secrets.provider: %w", err)
 	}
 
-	if cfg.Secrets.Provider == "env" {
-		if cfg.Secrets.EnvSigningKey == "" {
-			return fmt.Errorf("secrets.env_signing_key is required for env provider")
-		}
-		if cfg.Secrets.EnvOAuthClientID == "" {
-			return fmt.Errorf("secrets.env_oauth_client_id is required for env provider")
-		}
-		if cfg.Secrets.EnvOAuthClientSecret == "" {
-			return fmt.Errorf("secrets.env_oauth_client_secret is required for env provider")
-		}
-	} else {
-		if cfg.Secrets.SigningKeyName == "" {
-			return fmt.Errorf("secrets.signing_key_name is required for cloud providers")
-		}
-		if cfg.Secrets.ConnectorSecretName == "" {
-			return fmt.Errorf("secrets.connector_secret_name is required for cloud providers")
-		}
+	if cfg.Secrets.SigningKeyName == "" {
+		return fmt.Errorf("secrets.signing_key_name is required")
 	}
 
 	if cfg.Secrets.Provider == "azure" && cfg.Secrets.AzureKeyVaultURL == "" {
 		return fmt.Errorf("secrets.azure_keyvault_url is required for Azure provider")
 	}
 
-	if err := validateConnector(&cfg.Connector); err != nil {
-		return fmt.Errorf("connector: %w", err)
+	if len(cfg.Connectors) == 0 {
+		return fmt.Errorf("at least one connector must be configured")
+	}
+	idPattern := regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
+	hasEmailConnector := false
+	needsEncryption := false
+	for id, connector := range cfg.Connectors {
+		if !idPattern.MatchString(id) {
+			return fmt.Errorf("connector ID %q is not path-safe", id)
+		}
+		if err := validateConnector(&connector); err != nil {
+			return fmt.Errorf("connector %q: %w", id, err)
+		}
+		if connector.DisplayName == "" {
+			return fmt.Errorf("connector %q: display_name is required", id)
+		}
+		if connector.Type == "email" {
+			hasEmailConnector = true
+		} else if connector.CredentialsSecret == "" {
+			return fmt.Errorf("connector %q: credentials_secret is required", id)
+		}
+		needsEncryption = needsEncryption || connector.Type == "github"
+	}
+	if needsEncryption && cfg.Secrets.EncryptionKeyName == "" {
+		return fmt.Errorf("secrets.encryption_key_name is required when a GitHub connector is configured")
+	}
+	if cfg.Email == nil {
+		if hasEmailConnector {
+			return fmt.Errorf("email configuration is required when an email connector is configured")
+		}
+	} else {
+		if cfg.Email.VerificationMode != "disabled" && cfg.Email.VerificationMode != "provider" && cfg.Email.VerificationMode != "strict" {
+			return fmt.Errorf("email.verification_mode must be disabled, provider, or strict")
+		}
+		needsEmailDelivery := hasEmailConnector || cfg.Email.VerificationMode == "provider" || cfg.Email.VerificationMode == "strict"
+		if needsEmailDelivery && cfg.Email.OTPSecretName == "" {
+			return fmt.Errorf("email.otp_secret_name is required when email verification can occur")
+		}
+		if needsEmailDelivery && cfg.Email.SMTP == nil {
+			return fmt.Errorf("complete email.smtp configuration is required")
+		}
+		if needsEmailDelivery && (cfg.Email.OTPTTLSeconds < 60 || cfg.Email.OTPTTLSeconds > 600 || cfg.Email.OTPTTLSeconds%60 != 0) {
+			return fmt.Errorf("email.otp_ttl_seconds must be a whole number of minutes between 60 and 600 seconds")
+		}
+		if cfg.Email.SMTP != nil {
+			smtp := cfg.Email.SMTP
+			if smtp.Host == "" || smtp.Port < 1 || smtp.Port > 65535 || smtp.FromAddress == "" || smtp.CredentialsSecret == "" {
+				return fmt.Errorf("complete email.smtp configuration is required")
+			}
+			from, err := mail.ParseAddress(smtp.FromAddress)
+			if err != nil || from.Address != smtp.FromAddress {
+				return fmt.Errorf("email.smtp.from_address must be a bare email address")
+			}
+			if smtp.TLSMode == "" {
+				smtp.TLSMode = "starttls"
+			}
+			if smtp.TLSMode != "starttls" && smtp.TLSMode != "implicit" && smtp.TLSMode != "plaintext" {
+				return fmt.Errorf("email.smtp.tls_mode must be starttls, implicit, or plaintext")
+			}
+			if smtp.TLSMode == "plaintext" && smtp.Host != "localhost" {
+				return fmt.Errorf("email.smtp.tls_mode plaintext is only permitted when host is localhost")
+			}
+		}
+		if cfg.Email.Turnstile != nil && ((cfg.Email.Turnstile.SiteKey == "") != (cfg.Email.Turnstile.SecretName == "")) {
+			return fmt.Errorf("email.turnstile site_key and secret_name must be set together")
+		}
 	}
 
 	if len(cfg.Clients) == 0 {
@@ -145,7 +216,7 @@ func validateIssuerURL(issuer string) error {
 		return fmt.Errorf("scheme must be http or https")
 	}
 
-	if u.Scheme == "http" && !strings.Contains(u.Host, "localhost") && !strings.Contains(u.Host, "127.0.0.1") {
+	if u.Scheme == "http" && u.Hostname() != "localhost" && u.Hostname() != "127.0.0.1" {
 		return fmt.Errorf("http scheme only allowed for localhost in development")
 	}
 
@@ -153,16 +224,16 @@ func validateIssuerURL(issuer string) error {
 }
 
 func validateSecretsProvider(provider string) error {
-	valid := map[string]bool{"aws": true, "gcp": true, "azure": true, "env": true}
+	valid := map[string]bool{"aws-secrets-manager": true, "aws-parameter-store": true, "google-secret-manager": true, "azure": true, "env": true}
 	if !valid[provider] {
-		return fmt.Errorf("must be one of: aws, gcp, azure, env")
+		return fmt.Errorf("must be one of: aws-secrets-manager, aws-parameter-store, google-secret-manager, azure, env")
 	}
 	return nil
 }
 
 func validateConnector(c *ConnectorConfig) error {
-	if c.Type != "google" && c.Type != "github" && c.Type != "generic" {
-		return fmt.Errorf("type must be google, github, or generic")
+	if c.Type != "google" && c.Type != "github" && c.Type != "generic" && c.Type != "email" {
+		return fmt.Errorf("type must be google, github, generic, or email")
 	}
 
 	if c.Type == "generic" {
@@ -228,7 +299,7 @@ func validateRedirectURI(uri string) error {
 	}
 
 	if u.Scheme == "http" {
-		if !strings.Contains(u.Host, "localhost") && !strings.Contains(u.Host, "127.0.0.1") {
+		if u.Hostname() != "localhost" && u.Hostname() != "127.0.0.1" {
 			return fmt.Errorf("http redirect URIs only allowed for localhost")
 		}
 	} else if u.Scheme != "https" {

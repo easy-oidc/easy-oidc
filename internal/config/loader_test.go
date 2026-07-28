@@ -56,7 +56,31 @@ func TestLoad(t *testing.T) {
 			if tt.name == "valid config" && cfg.SigningAlgorithm != DefaultSigningAlgorithm {
 				t.Errorf("signing algorithm = %q, want %q", cfg.SigningAlgorithm, DefaultSigningAlgorithm)
 			}
+			if tt.name == "valid config" {
+				if cfg.Email == nil {
+					t.Error("email configuration was not loaded")
+				} else if cfg.Email.VerificationMode != "disabled" {
+					t.Errorf("email verification mode = %q, want disabled", cfg.Email.VerificationMode)
+				}
+			}
 		})
+	}
+}
+
+// TestLoadRejectsUnknownFields ensures configuration typos fail closed.
+func TestLoadRejectsUnknownFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.jsonc")
+	data := []byte(`{
+		"issuer_url": "https://auth.example.com",
+		"http_listen_addr": "127.0.0.1:8080",
+		"data_dir": "data",
+		"unknown_setting": true
+	}`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatal("configuration with unknown field was accepted")
 	}
 }
 
@@ -71,6 +95,8 @@ func TestValidateIssuerURL(t *testing.T) {
 		{"valid localhost http", "http://localhost:8080", false},
 		{"valid 127.0.0.1 http", "http://127.0.0.1:8080", false},
 		{"invalid http for production", "http://auth.example.com", true},
+		{"invalid localhost suffix", "http://localhost.example.com", true},
+		{"invalid localhost userinfo", "http://localhost@auth.example.com", true},
 		{"empty issuer", "", true},
 		{"invalid scheme", "ftp://auth.example.com", true},
 		{"no scheme", "auth.example.com", true},
@@ -99,6 +125,8 @@ func TestValidateRedirectURI(t *testing.T) {
 		{"valid localhost with path", "http://localhost:8000/callback", false},
 		{"valid 127.0.0.1 http", "http://127.0.0.1:8000", false},
 		{"invalid http for production", "http://app.example.com/callback", true},
+		{"invalid localhost suffix", "http://localhost.example.com/callback", true},
+		{"invalid localhost userinfo", "http://localhost@app.example.com/callback", true},
 		{"invalid scheme", "ftp://localhost:8000", true},
 		{"no scheme", "localhost:8000", true},
 	}
@@ -119,10 +147,13 @@ func TestValidateSecretsProvider(t *testing.T) {
 		provider    string
 		expectError bool
 	}{
-		{"valid aws", "aws", false},
-		{"valid gcp", "gcp", false},
+		{"valid AWS Secrets Manager", "aws-secrets-manager", false},
+		{"valid AWS Parameter Store", "aws-parameter-store", false},
+		{"valid Google Secret Manager", "google-secret-manager", false},
 		{"valid azure", "azure", false},
 		{"valid env", "env", false},
+		{"old aws name", "aws", true},
+		{"old gcp name", "gcp", true},
 		{"invalid provider", "vault", true},
 		{"empty provider", "", true},
 		{"uppercase", "AWS", true},
@@ -383,13 +414,11 @@ func TestValidate(t *testing.T) {
 				JWKSKID:          "key-1",
 				DataDir:          "temp",
 				Secrets: SecretsConfig{
-					Provider:             "env",
-					EnvSigningKey:        "SIGNING_KEY",
-					EnvOAuthClientID:     "OAUTH_CLIENT_ID",
-					EnvOAuthClientSecret: "OAUTH_CLIENT_SECRET",
+					Provider:       "env",
+					SigningKeyName: "SIGNING_KEY",
 				},
-				Connector: ConnectorConfig{
-					Type: "google",
+				Connectors: map[string]ConnectorConfig{
+					"google": {Type: "google", DisplayName: "Google", CredentialsSecret: "GOOGLE_CREDS"},
 				},
 				DefaultRedirectURIs: []string{"http://localhost:8000"},
 				Clients: map[string]ClientConfig{
@@ -445,13 +474,13 @@ func TestValidate(t *testing.T) {
 			expectError: true,
 		},
 		{
-			name: "aws without secret names",
+			name: "AWS Secrets Manager without secret names",
 			config: Config{
 				IssuerURL:      "https://auth.example.com",
 				HTTPListenAddr: "127.0.0.1:8080",
 				JWKSKID:        "key-1",
 				Secrets: SecretsConfig{
-					Provider: "aws",
+					Provider: "aws-secrets-manager",
 				},
 			},
 			expectError: true,
@@ -463,9 +492,8 @@ func TestValidate(t *testing.T) {
 				HTTPListenAddr: "127.0.0.1:8080",
 				JWKSKID:        "key-1",
 				Secrets: SecretsConfig{
-					Provider:            "azure",
-					SigningKeyName:      "key",
-					ConnectorSecretName: "secret",
+					Provider:       "azure",
+					SigningKeyName: "key",
 				},
 			},
 			expectError: true,
@@ -477,13 +505,11 @@ func TestValidate(t *testing.T) {
 				HTTPListenAddr: "127.0.0.1:8080",
 				JWKSKID:        "key-1",
 				Secrets: SecretsConfig{
-					Provider:             "env",
-					EnvSigningKey:        "SIGNING_KEY",
-					EnvOAuthClientID:     "OAUTH_CLIENT_ID",
-					EnvOAuthClientSecret: "OAUTH_CLIENT_SECRET",
+					Provider:       "env",
+					SigningKeyName: "SIGNING_KEY",
 				},
-				Connector: ConnectorConfig{
-					Type: "google",
+				Connectors: map[string]ConnectorConfig{
+					"google": {Type: "google", DisplayName: "Google", CredentialsSecret: "GOOGLE_CREDS"},
 				},
 				Clients: map[string]ClientConfig{},
 			},
@@ -498,6 +524,121 @@ func TestValidate(t *testing.T) {
 				t.Errorf("expected error: %v, got: %v (error: %v)", tt.expectError, err != nil, err)
 			}
 		})
+	}
+}
+
+// validTestConfig returns a minimal valid configuration.
+func validTestConfig() Config {
+	return Config{
+		IssuerURL:        "https://auth.example.com",
+		HTTPListenAddr:   "127.0.0.1:8080",
+		DataDir:          "/tmp/easy-oidc",
+		SigningAlgorithm: "RS256",
+		Secrets: SecretsConfig{
+			Provider:       "env",
+			SigningKeyName: "EASYOIDC_SIGNING_KEY",
+		},
+		Connectors: map[string]ConnectorConfig{
+			"google": {Type: "google", DisplayName: "Google", CredentialsSecret: "EASYOIDC_GOOGLE_CREDENTIALS"},
+		},
+		Clients: map[string]ClientConfig{
+			"client": {RedirectURIs: []string{"https://client.example.com/callback"}},
+		},
+	}
+}
+
+// validEmailConfig returns a complete email verification configuration.
+func validEmailConfig() *EmailConfig {
+	return &EmailConfig{
+		VerificationMode: "provider",
+		OTPSecretName:    "EASYOIDC_OTP_SECRET",
+		OTPTTLSeconds:    300,
+		SMTP: &SMTPConfig{
+			Host:              "smtp.example.com",
+			Port:              587,
+			FromAddress:       "auth@example.com",
+			CredentialsSecret: "EASYOIDC_SMTP_CREDENTIALS",
+		},
+	}
+}
+
+// TestValidateEmailConfiguration verifies email configuration validation.
+func TestValidateEmailConfiguration(t *testing.T) {
+	cfg := validTestConfig()
+	cfg.Connectors["email"] = ConnectorConfig{Type: "email", DisplayName: "Email"}
+	if err := validate(&cfg); err == nil {
+		t.Fatal("email connector accepted without email configuration")
+	}
+	cfg.Email = validEmailConfig()
+	if err := validate(&cfg); err != nil {
+		t.Fatalf("valid email configuration rejected: %v", err)
+	}
+	if cfg.Email.SMTP.TLSMode != "starttls" {
+		t.Fatalf("TLS mode = %q, want starttls", cfg.Email.SMTP.TLSMode)
+	}
+	cfg.Email.SMTP.Host = "localhost"
+	cfg.Email.SMTP.TLSMode = "plaintext"
+	if err := validate(&cfg); err != nil {
+		t.Fatalf("plaintext SMTP mode rejected: %v", err)
+	}
+	cfg.Email.SMTP.Host = "smtp.example.com"
+	if err := validate(&cfg); err == nil {
+		t.Fatal("plaintext SMTP accepted for a non-localhost server")
+	}
+	cfg.Email.SMTP.Host = "localhost"
+	cfg.Email.SMTP.TLSMode = "invalid"
+	if err := validate(&cfg); err == nil {
+		t.Fatal("invalid SMTP TLS mode accepted")
+	}
+	cfg.Email.SMTP.TLSMode = "starttls"
+	cfg.Email.OTPTTLSeconds = 30
+	if err := validate(&cfg); err == nil {
+		t.Fatal("unsafe OTP validity accepted")
+	}
+	cfg.Email.OTPTTLSeconds = 300
+	cfg.Email.Turnstile = &TurnstileConfig{SiteKey: "site-only"}
+	if err := validate(&cfg); err == nil {
+		t.Fatal("partial Turnstile configuration accepted")
+	}
+
+	disabled := validTestConfig()
+	disabled.Email = &EmailConfig{VerificationMode: "disabled"}
+	if err := validate(&disabled); err != nil {
+		t.Fatalf("disabled verification without SMTP rejected: %v", err)
+	}
+	disabled.Email.SMTP = &SMTPConfig{Host: "smtp.example.com"}
+	if err := validate(&disabled); err == nil {
+		t.Fatal("partial optional SMTP configuration accepted")
+	}
+
+	provider := validTestConfig()
+	provider.Email = &EmailConfig{VerificationMode: "provider", OTPTTLSeconds: 300}
+	if err := validate(&provider); err == nil {
+		t.Fatal("provider verification accepted without OTP and SMTP configuration")
+	}
+}
+
+// TestValidateConnectorID verifies connector IDs must be path-safe.
+func TestValidateConnectorID(t *testing.T) {
+	cfg := validTestConfig()
+	cfg.Connectors["not/safe"] = cfg.Connectors["google"]
+	delete(cfg.Connectors, "google")
+	if err := validate(&cfg); err == nil {
+		t.Fatal("unsafe connector ID accepted")
+	}
+}
+
+// TestValidateGitHubRequiresEncryptionKey verifies multi-email selection requires encryption.
+func TestValidateGitHubRequiresEncryptionKey(t *testing.T) {
+	cfg := validTestConfig()
+	cfg.Connectors["github"] = ConnectorConfig{Type: "github", DisplayName: "GitHub", CredentialsSecret: "EASYOIDC_GITHUB_CREDENTIALS"}
+	delete(cfg.Connectors, "google")
+	if err := validate(&cfg); err == nil {
+		t.Fatal("GitHub connector accepted without an encryption key")
+	}
+	cfg.Secrets.EncryptionKeyName = "EASYOIDC_ENCRYPTION_KEY"
+	if err := validate(&cfg); err != nil {
+		t.Fatalf("GitHub connector with encryption key rejected: %v", err)
 	}
 }
 
@@ -518,12 +659,11 @@ func setupTestConfig(t *testing.T) {
 		"data_dir": "temp",
 		"secrets": {
 			"provider": "env",
-			"env_signing_key": "SIGNING_KEY",
-			"env_oauth_client_id": "OAUTH_CLIENT_ID",
-			"env_oauth_client_secret": "OAUTH_CLIENT_SECRET"
+			"signing_key_name": "SIGNING_KEY"
 		},
-		"connector": {
-			"type": "google"
+		"email": {},
+		"connectors": {
+			"google": {"type": "google", "display_name": "Google", "credentials_secret": "GOOGLE_CREDS"}
 		},
 		"default_redirect_uris": ["http://localhost:8000"],
 		"clients": {

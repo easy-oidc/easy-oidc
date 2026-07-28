@@ -21,6 +21,7 @@ type GenericConnector struct {
 	userinfoURL   string
 	emailField    string
 	verifiedField string
+	subjectField  string
 }
 
 // NewGenericConnector creates a new generic OAuth2 connector with the provided configuration.
@@ -34,11 +35,11 @@ func NewGenericConnector(cfg config.ConnectorConfig, redirectURL, clientID, clie
 		scopes = []string{"openid", "email"}
 	}
 
-	// Note: clientSecret is intentionally not set for public clients (PKCE-only)
 	oauth2Config := &oauth2.Config{
-		ClientID:    clientID,
-		RedirectURL: redirectURL,
-		Scopes:      scopes,
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		RedirectURL:  redirectURL,
+		Scopes:       scopes,
 		Endpoint: oauth2.Endpoint{
 			AuthURL:  cfg.Generic.AuthorizationURL,
 			TokenURL: cfg.Generic.TokenURL,
@@ -54,12 +55,17 @@ func NewGenericConnector(cfg config.ConnectorConfig, redirectURL, clientID, clie
 	if verifiedField == "" {
 		verifiedField = "email_verified"
 	}
+	subjectField := cfg.Generic.SubjectField
+	if subjectField == "" {
+		subjectField = "sub"
+	}
 
 	return &GenericConnector{
 		config:        oauth2Config,
 		userinfoURL:   cfg.Generic.UserinfoURL,
 		emailField:    emailField,
 		verifiedField: verifiedField,
+		subjectField:  subjectField,
 	}
 }
 
@@ -73,12 +79,12 @@ func (c *GenericConnector) Exchange(ctx context.Context, code string) (*oauth2.T
 	return c.config.Exchange(ctx, code)
 }
 
-// GetUserEmail retrieves the user's email address and verification status from the userinfo endpoint.
-func (c *GenericConnector) GetUserEmail(ctx context.Context, token *oauth2.Token) (string, bool, error) {
+// GetIdentity retrieves the stable subject and email assertions from the userinfo endpoint.
+func (c *GenericConnector) GetIdentity(ctx context.Context, token *oauth2.Token) (Identity, error) {
 	client := c.config.Client(ctx, token)
 	resp, err := client.Get(c.userinfoURL)
 	if err != nil {
-		return "", false, fmt.Errorf("failed to get user info: %w", err)
+		return Identity{}, fmt.Errorf("failed to get user info: %w", err)
 	}
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {
@@ -88,26 +94,26 @@ func (c *GenericConnector) GetUserEmail(ctx context.Context, token *oauth2.Token
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return "", false, fmt.Errorf("userinfo request failed with status %d: %s", resp.StatusCode, body)
+		return Identity{}, fmt.Errorf("userinfo request failed with status %d: %s", resp.StatusCode, body)
 	}
 
 	var userInfo map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&userInfo); err != nil {
-		return "", false, fmt.Errorf("failed to decode user info: %w", err)
+		return Identity{}, fmt.Errorf("failed to decode user info: %w", err)
 	}
 
 	emailValue, ok := userInfo[c.emailField]
 	if !ok {
-		return "", false, fmt.Errorf("email field '%s' not found in userinfo response", c.emailField)
+		return Identity{}, fmt.Errorf("email field '%s' not found in userinfo response", c.emailField)
 	}
 
 	email, ok := emailValue.(string)
 	if !ok {
-		return "", false, fmt.Errorf("email field '%s' is not a string", c.emailField)
+		return Identity{}, fmt.Errorf("email field '%s' is not a string", c.emailField)
 	}
 
 	if email == "" {
-		return "", false, fmt.Errorf("email not provided by provider")
+		return Identity{}, fmt.Errorf("email not provided by provider")
 	}
 
 	verified := false
@@ -117,5 +123,9 @@ func (c *GenericConnector) GetUserEmail(ctx context.Context, token *oauth2.Token
 		}
 	}
 
-	return email, verified, nil
+	subject, ok := userInfo[c.subjectField].(string)
+	if !ok || subject == "" {
+		return Identity{}, fmt.Errorf("subject field '%s' is missing or not a nonempty string", c.subjectField)
+	}
+	return Identity{Subject: subject, Emails: []Email{{Address: email, Verified: verified}}}, nil
 }

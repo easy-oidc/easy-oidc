@@ -2,7 +2,6 @@
 // Copyright The Easy OIDC Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Package secrets provides interfaces and implementations for retrieving secrets from various providers.
 package secrets
 
 import (
@@ -25,13 +24,16 @@ type OAuthCredentials struct {
 }
 
 // NewProvider creates a new secrets provider based on the configuration.
-// It supports AWS Secrets Manager, GCP Secret Manager, Azure Key Vault, and environment variables.
+// It supports AWS Secrets Manager, AWS Systems Manager Parameter Store,
+// Google Secret Manager, Azure Key Vault, and environment variables.
 func NewProvider(ctx context.Context, cfg config.SecretsConfig) (Provider, error) {
 	switch cfg.Provider {
-	case "aws":
-		return NewAWSProvider(ctx, cfg.AWSRegion)
-	case "gcp":
-		return NewGCPProvider(ctx)
+	case "aws-secrets-manager":
+		return NewAWSSecretsManagerProvider(ctx, cfg.AWSRegion)
+	case "aws-parameter-store":
+		return NewAWSParameterStoreProvider(ctx, cfg.AWSRegion)
+	case "google-secret-manager":
+		return NewGoogleSecretManagerProvider(ctx)
 	case "azure":
 		return NewAzureProvider(ctx, cfg.AzureKeyVaultURL)
 	case "env":

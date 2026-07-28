@@ -3,42 +3,47 @@
 // SPDX-License-Identifier: Apache-2.0
 
 {
+  "$schema": "https://easy-oidc.dev/schema/v2/config.schema.json",
+
   // Local development configuration
   // Secrets are loaded from environment variables (see .env.example)
   "issuer_url": "http://localhost:8080",
   "http_listen_addr": "127.0.0.1:8080",
   "data_dir": "temp",
   "signing_algorithm": "RS256",
-  
+
   // Require users to have groups assigned (default: true)
   // Set to false to allow authentication without groups
   "require_groups": true,
-  
+
   "secrets": {
     "provider": "env",
-    "env_signing_key": "EASYOIDC_SIGNING_KEY",
-    "env_oauth_client_id": "EASYOIDC_OAUTH_CLIENT_ID",
-    "env_oauth_client_secret": "EASYOIDC_OAUTH_CLIENT_SECRET"
+    "signing_key_name": "EASYOIDC_SIGNING_KEY",
   },
-  
-  "connector": {
-    "type": "google",
-    "scopes": ["openid", "email", "profile"]
+
+  "connectors": {
+    "google": {
+      "type": "google",
+      "display_name": "Google",
+      "order": 10,
+      "credentials_secret": "EASYOIDC_GOOGLE_CREDENTIALS",
+      "scopes": ["openid", "email", "profile"],
+    },
   },
-  
+
   "default_redirect_uris": ["http://localhost:8000"],
-  
+
   "groups_overrides": {
     "local-groups": {
-      "your-email@example.com": ["admins", "developers"]
-    }
+      "your-email@example.com": ["admins", "developers"],
+    },
   },
-  
+
   "clients": {
     "kubelogin-local": {
-      "groups_override": "local-groups"
+      "groups_override": "local-groups",
       // Optional: override require_groups per-client
       // "require_groups": false
-    }
-  }
+    },
+  },
 }

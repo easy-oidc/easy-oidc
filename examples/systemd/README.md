@@ -127,6 +127,6 @@ sudo netstat -tlnp | grep ':80\|:443'
 - Check logs: `sudo journalctl -u caddy -n 50`
 
 **easy-oidc not starting:**
-- Check config: `/usr/local/bin/easy-oidc --config /etc/easy-oidc/config.jsonc --validate`
+- Check config: `/usr/local/bin/easy-oidc validate --config /etc/easy-oidc/config.jsonc`
 - Check secrets are accessible (AWS IAM role, env vars, etc.)
 - Check logs: `sudo journalctl -u easy-oidc -n 50`

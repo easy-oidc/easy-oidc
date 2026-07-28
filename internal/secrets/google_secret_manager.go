@@ -8,30 +8,30 @@ import (
 	"context"
 	"fmt"
 
-	secretmanager "cloud.google.com/go/secretmanager/apiv1"
+	"cloud.google.com/go/secretmanager/apiv1"
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 )
 
-// GCPProvider retrieves secrets from Google Cloud Secret Manager.
-type GCPProvider struct {
+// GoogleSecretManagerProvider retrieves secrets from Google Secret Manager.
+type GoogleSecretManagerProvider struct {
 	client *secretmanager.Client
 }
 
-// NewGCPProvider creates a new GCP Secret Manager provider using default credentials.
-func NewGCPProvider(ctx context.Context) (*GCPProvider, error) {
+// NewGoogleSecretManagerProvider creates a Google Secret Manager provider using default credentials.
+func NewGoogleSecretManagerProvider(ctx context.Context) (*GoogleSecretManagerProvider, error) {
 	client, err := secretmanager.NewClient(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create GCP Secret Manager client: %w", err)
+		return nil, fmt.Errorf("failed to create Google Secret Manager client: %w", err)
 	}
 
-	return &GCPProvider{
+	return &GoogleSecretManagerProvider{
 		client: client,
 	}, nil
 }
 
-// GetSecret retrieves a secret version from GCP Secret Manager.
+// GetSecret retrieves a secret version from Google Secret Manager.
 // The name should be in the format: projects/*/secrets/*/versions/*.
-func (p *GCPProvider) GetSecret(ctx context.Context, name string) (string, error) {
+func (p *GoogleSecretManagerProvider) GetSecret(ctx context.Context, name string) (string, error) {
 	req := &secretmanagerpb.AccessSecretVersionRequest{
 		Name: name,
 	}

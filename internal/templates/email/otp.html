@@ -1,0 +1,4 @@
+{{define "content"}}
+<p>Your Easy OIDC verification code is <strong>{{.Code}}</strong>.</p>
+<p>It expires at <time datetime="{{.ExpiresAt.Format "2006-01-02T15:04:05Z07:00"}}">{{.ExpiresAt.Format "15:04 UTC on 2 January 2006"}}</time> (in {{printf "%.0f" .ExpiresIn.Minutes}} minutes).</p>
+{{end}}

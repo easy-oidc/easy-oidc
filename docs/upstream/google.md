@@ -45,6 +45,7 @@ This guide shows you how to create a Google OAuth application for use with Easy 
 5. Under **Authorized redirect URIs**, click **Add URI**
 6. Add your redirect URI: `https://auth.example.com/callback/google`
    - Replace `auth.example.com` with your actual OIDC hostname
+   - Replace `google` when your configured connector ID is different
 7. Click **Create**
 
 ## Step 4: Save Client ID and Secret
@@ -62,7 +63,7 @@ Use the AWS CLI to store your Google OAuth credentials:
 
 ```bash
 aws secretsmanager create-secret \
-  --name easy-oidc-connector-secret \
+  --name easy-oidc-google-credentials \
   --secret-string '{
     "client_id": "123456789-abcdefghijklmnop.apps.googleusercontent.com",
     "client_secret": "GOCSPX-xxxxxxxxxxxxxxxxxxxx"
@@ -71,30 +72,36 @@ aws secretsmanager create-secret \
 
 Replace the `client_id` and `client_secret` values with your actual credentials from Step 4.
 
-## Optional: Restrict to Google Workspace Domain
+## Optional: Hint a Google Workspace Domain
 
-If you're using Google Workspace and want to restrict authentication to your organization's domain:
+If you're using Google Workspace, you can hint your orgs's domain in
+Google's account chooser:
 
-1. When configuring Easy OIDC via Terraform, add the `connector_hosted_domain` variable:
+1. Set `google.hd` on that connector:
 
-```hcl
-module "easy_oidc" {
-  source = "easy-oidc/easy-oidc/aws"
-  
-  # ... other config ...
-  connector_type           = "google"
-  connector_hosted_domain  = "example.com"  # Your Google Workspace domain
+```jsonc
+"connectors": {
+  "google": {
+    "type": "google",
+    "display_name": "Google",
+    "credentials_secret": "easy-oidc-google-credentials",
+    "google": {"hd": "example.com"}
+  }
 }
 ```
 
-This ensures only users with `@example.com` email addresses can authenticate.
+The `hd` parameter improves Google's sign-in experience but is not an access
+control. Use group policy with `require_groups` enabled to enforce allowed users.
 
 ## Verification
 
 To verify your OAuth app is configured correctly:
 
-1. Note your redirect URI: `https://auth.example.com/callback/google`
-2. After deploying Easy OIDC (see [Deploy to AWS](/docs/deploy/aws/)), test authentication:
+1. Note your redirect URI: `https://auth.example.com/callback/google` (replace
+   `google` with your connector ID)
+2. After deploying Easy OIDC using the [AWS](/docs/deploy/aws/) or
+   [Google Cloud](https://github.com/easy-oidc/terraform-google-easy-oidc/blob/main/README.md#usage)
+   module, test authentication:
 
 ```bash
 kubectl oidc-login setup \

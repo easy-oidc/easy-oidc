@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 {
+  "$schema": "https://easy-oidc.dev/schema/v2/config.schema.json",
+
   // Core settings
   "issuer_url": "https://auth.example.com",
   "http_listen_addr": "127.0.0.1:8080",
@@ -11,25 +13,27 @@
 
   // Secrets configuration
   "secrets": {
-    "provider": "env",  // "aws", "gcp", "azure", or "env" for local dev
-    "env_signing_key": "your-signing-key-here",
-    "env_oauth_client_id": "your-client-id",
-    "env_oauth_client_secret": "your-client-secret"
+    "provider": "env", // "aws-secrets-manager", "aws-parameter-store", "google-secret-manager", "azure", or "env" for local dev
+    "signing_key_name": "EASYOIDC_SIGNING_KEY",
   },
 
   // Upstream connector - Generic OAuth2/OIDC provider
-  "connector": {
-    "type": "generic",
-    "scopes": ["openid", "email", "profile"],
-
-    // Generic provider configuration
+  "connectors": {
     "generic": {
-      "authorization_url": "https://dex.example.com/auth",
-      "token_url": "https://dex.example.com/token",
-      "userinfo_url": "https://dex.example.com/userinfo",
-      "email_field": "email",           // Optional: defaults to "email"
-      "email_verified_field": "email_verified"  // Optional: defaults to "email_verified"
-    }
+      "type": "generic",
+      "display_name": "Generic OIDC",
+      "credentials_secret": "EASYOIDC_GENERIC_CREDENTIALS",
+      "scopes": ["openid", "email", "profile"],
+
+      // Generic provider configuration
+      "generic": {
+        "authorization_url": "https://dex.example.com/auth",
+        "token_url": "https://dex.example.com/token",
+        "userinfo_url": "https://dex.example.com/userinfo",
+        "email_field": "email", // Optional: defaults to "email"
+        "email_verified_field": "email_verified", // Optional: defaults to "email_verified"
+      },
+    },
   },
 
   // Default redirect URIs (used if not specified per client)
@@ -39,17 +43,17 @@
   "groups_overrides": {
     "prod-groups": {
       "alice@example.com": ["admins", "developers"],
-      "bob@example.com": ["readonly"]
-    }
+      "bob@example.com": ["readonly"],
+    },
   },
 
   // OIDC clients (key is the client_id)
   "clients": {
     "kubelogin-prod": {
       "redirect_uris": ["http://localhost:8000"],
-      "groups_override": "prod-groups"
-    }
-  }
+      "groups_override": "prod-groups",
+    },
+  },
 
   // Optional: Token TTL in seconds (default: 3600 = 1 hour)
   // "token_ttl_seconds": 3600,

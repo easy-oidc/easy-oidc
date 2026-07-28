@@ -17,12 +17,12 @@ New to Easy OIDC? Start here:
 ## Setup Guides
 
 - [Specification](/docs/spec/) - Complete system design and architecture
-- [Upstream Providers](/docs/upstream/) - Configure Google or GitHub OAuth
-- [Deployment](/docs/deploy/) - Deploy to AWS (GCP and Azure coming soon)
+- [Sign-in Providers](/docs/upstream/) - Configure Google, GitHub, generic OAuth2/OIDC, or email codes
+- [Deployment](/docs/deploy/) - Deploy to AWS or Google Cloud using the official OpenTofu/Terraform modules
 - [Kubernetes Integration](/docs/kubernetes/) - Configure your cluster
 - [kubelogin](/docs/kubelogin/) - Authenticate with kubectl
 
 ## Reference
 
-- [Configuration Reference](/docs/config/) - Complete configuration options
+- [Configuration Reference](/docs/config/) - Connectors, email verification, secrets, clients, and templates
 - [Troubleshooting](/docs/troubleshooting/) - Common issues and solutions

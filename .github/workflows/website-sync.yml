@@ -9,6 +9,7 @@ on:
     branches: [main]
     paths:
       - 'docs/**'
+      - 'schema/**'
   workflow_dispatch: {}
 
 jobs:

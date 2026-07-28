@@ -33,7 +33,7 @@ func NewSigner(signingKey *SigningKey, kid, issuerURL string, tokenTTL time.Dura
 
 // SignIDToken signs an OpenID Connect ID token with the provided claims.
 // The email is normalized and used as the subject (sub) claim.
-func (s *Signer) SignIDToken(email, clientID string, groups []string, nonce string) (string, error) {
+func (s *Signer) SignIDToken(email string, emailVerified bool, clientID string, groups []string, nonce string) (string, error) {
 	now := time.Now()
 
 	sub := NormalizeEmail(email)
@@ -52,7 +52,7 @@ func (s *Signer) SignIDToken(email, clientID string, groups []string, nonce stri
 	if err := token.Set("email", email); err != nil {
 		return "", err
 	}
-	if err := token.Set("email_verified", true); err != nil {
+	if err := token.Set("email_verified", emailVerified); err != nil {
 		return "", err
 	}
 	if err := token.Set("preferred_username", username); err != nil {

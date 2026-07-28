@@ -2,7 +2,6 @@
 // Copyright The Easy OIDC Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Package oidc implements the OpenID Connect protocol server functionality.
 package oidc
 
 import (
@@ -24,6 +23,7 @@ type AuthCodePayload struct {
 	RedirectURI   string
 	CodeChallenge string
 	Email         string
+	EmailVerified bool
 	Nonce         string
 }
 
@@ -51,6 +51,7 @@ func (m *AuthCodeManager) GenerateCode(payload AuthCodePayload) (string, error) 
 		RedirectURI:   payload.RedirectURI,
 		CodeChallenge: payload.CodeChallenge,
 		Email:         payload.Email,
+		EmailVerified: payload.EmailVerified,
 		Nonce:         payload.Nonce,
 		CreatedAt:     now,
 		ExpiresAt:     now.Add(5 * time.Minute),
@@ -76,6 +77,7 @@ func (m *AuthCodeManager) ValidateAndExtract(code string) (*AuthCodePayload, err
 		RedirectURI:   authCode.RedirectURI,
 		CodeChallenge: authCode.CodeChallenge,
 		Email:         authCode.Email,
+		EmailVerified: authCode.EmailVerified,
 		Nonce:         authCode.Nonce,
 	}
 

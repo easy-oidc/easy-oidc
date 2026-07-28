@@ -8,61 +8,62 @@ SPDX-License-Identifier: Apache-2.0
 
 ## Quick Start
 
-### 1. Set up the repository
-
-Verify the required tools and install the Git hooks:
+Verify tools and install Git hooks:
 
 ```bash
 make setup
 ```
 
-### 2. Copy the example environment file
+Copy `.env.example` to `.env`, then generate a signing key and encryption key:
 
 ```bash
 cp .env.example .env
-```
-
-### 3. Generate an RSA signing key
-
-```bash
 scripts/generate-signing-key.sh | pbcopy
+openssl rand -hex 32
 ```
 
-Paste the output (copied to clipboard by `pbcopy` above) in `.env`:
+Paste the keys into `EASYOIDC_SIGNING_KEY` and `EASYOIDC_ENCRYPTION_KEY` in
+`.env`. The encryption key is currently used when testing GitHub connectors.
+
+## Configure Google OAuth
+
+1. Create an OAuth 2.0 Client ID in the [Google Cloud Console](https://console.cloud.google.com/apis/credentials).
+2. Add `http://localhost:8080/callback/google` as an authorized redirect URI. The final path component is the connector ID from the config, not its connector type.
+3. Configure the connector's credential secret as one JSON environment variable:
 
 ```bash
-EASYOIDC_SIGNING_KEY='-----BEGIN PRIVATE KEY-----
-MC4CAQAwBQYDK2VwBCIEI...
------END PRIVATE KEY-----'
+export EASYOIDC_GOOGLE_CREDENTIALS='{"client_id":"123456789.apps.googleusercontent.com","client_secret":"replace-me"}'
 ```
 
-### 4. Create a Google OAuth App
+Each configured OAuth connector has its own `credentials_secret`, so multiple
+Google, GitHub, or generic connectors can run simultaneously.
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
-2. Create OAuth 2.0 Client ID
-3. Set authorized redirect URI: `http://localhost:8080/callback/google`
-4. Copy Client ID and Client Secret to `.env`:
+## Build and run
 
-```bash
-EASYOIDC_OAUTH_CLIENT_ID=123456789.apps.googleusercontent.com
-EASYOIDC_OAUTH_CLIENT_SECRET=GOCSPX-xxxxxxxxxxxxxxxxxxxxx
-```
-
-### 5. Build and run Easy OIDC
+Load `.env` with `direnv` or your preferred shell tooling, then run:
 
 ```bash
-# Load environment variables (if using direnv or similar)
-export $(cat .env | xargs)
-
-# Build and run the server with the example local development config
 make build
 ./bin/easy-oidc --config examples/config/config-local-dev.jsonc --debug
 ```
 
-### 6. Test with kubelogin
+Validate configuration and all effective templates without loading operational
+secrets or contacting external services:
 
 ```bash
-# In another terminal
+./bin/easy-oidc validate --config examples/config/config-local-dev.jsonc
+```
+
+Develop custom templates with mock data, no operational secrets, and automatic
+reloads:
+
+```bash
+make dev
+```
+
+Test with kubelogin in another terminal:
+
+```bash
 kubectl oidc-login setup \
   --oidc-issuer-url=http://localhost:8080 \
   --oidc-client-id=kubelogin-local \
@@ -70,40 +71,80 @@ kubectl oidc-login setup \
   --oidc-extra-scope=groups
 ```
 
-## Environment Variables
+## Email OTP development
 
-The `.env` file should contain:
-
-- `EASYOIDC_SIGNING_KEY` - PKCS8 PEM private key compatible with `signing_algorithm` (RSA-3072 for the default RS256 algorithm)
-- `EASYOIDC_OAUTH_CLIENT_ID` - OAuth client ID from Google/GitHub
-- `EASYOIDC_OAUTH_CLIENT_SECRET` - OAuth client secret from Google/GitHub
-
-**Important:** Do not commit `.env` to version control! It's already ignored in `.gitignore`.
-
-## Alternative: Using direnv
-
-For automatic environment loading:
+Use [Mailpit](https://github.com/axllent/mailpit) to capture development email locally.
+The development configuration uses plaintext authenticated SMTP, so no local
+certificates are required. Run Mailpit with the credentials from `.env.example`:
 
 ```bash
-# Install direnv
-brew install direnv  # macOS
-
-# Create .envrc
-echo 'dotenv' > .envrc
-direnv allow
-
-# Now .env is automatically loaded when you cd into this directory
+docker run --rm --name easy-oidc-mailpit \
+  -p 8025:8025 \
+  -p 1025:1025 \
+  -e MP_SMTP_AUTH=easy-oidc:easy-oidc \
+  -e MP_SMTP_AUTH_ALLOW_INSECURE=true \
+  axllent/mailpit
 ```
+
+Load `.env`, start Easy OIDC with the email development configuration, and open
+Mailpit at <http://localhost:8025>:
+
+```bash
+./bin/easy-oidc --config examples/config/config-email-dev.jsonc --debug
+```
+
+See [`examples/config/config-multiple.jsonc`](examples/config/config-multiple.jsonc)
+for a broader example with multiple connectors, provider email verification,
+SMTP, and Turnstile. Direct email login works without Turnstile, as in the local
+Mailpit example, but doing so is strongly discouraged outside local development
+because it exposes the SMTP sender to abuse.
+
+The `.env` file is ignored by Git and must never be committed.
 
 ## Troubleshooting
 
-**"environment variable not set" error:**
-- Make sure you've exported the variables: `export $(cat .env | xargs)`
-- Or use a tool like `direnv` for automatic loading
+### Environment variable is not set
 
-**"email not verified" error:**
-- Make sure your Google account email is verified
-- Check the email in your Google profile
+Load the example exports into the current shell before starting Easy OIDC:
 
-**"unknown client_id" error:**
-- Make sure the client_id in the kubelogin command matches the config file
+```bash
+source .env
+```
+
+Do not use `export $(cat .env | xargs)`: it does not safely preserve multiline
+PEM signing keys.
+
+### Unknown client ID
+
+The `--oidc-client-id` passed to kubelogin must exactly match a key under
+`clients` in the selected configuration. The local examples use
+`kubelogin-local`.
+
+### OAuth redirect URI mismatch
+
+The upstream OAuth application callback must match the issuer and connector ID
+exactly. For the Google local-development connector it is:
+
+```text
+http://localhost:8080/callback/google
+```
+
+The final path component is the connector ID, not the connector type or display
+name.
+
+### Authentication fails because groups are missing
+
+`config-local-dev.jsonc` requires groups. Replace `your-email@example.com` in
+`groups_overrides` with the normalized email returned by your provider, or set
+`require_groups` to `false` while testing.
+
+### Mailpit authentication fails
+
+- For SMTP authentication failures, ensure `.env` and `MP_SMTP_AUTH` both use
+  `easy-oidc:easy-oidc`, and that Mailpit has
+  `MP_SMTP_AUTH_ALLOW_INSECURE=true`.
+- If ports `1025` or `8025` are already occupied, stop the existing service or
+  consistently change both the Docker port mapping and Easy OIDC configuration.
+
+See the main [troubleshooting guide](docs/troubleshooting.md) for deployment,
+OIDC, kubelogin, and Kubernetes issues.

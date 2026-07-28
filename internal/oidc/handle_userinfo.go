@@ -35,12 +35,14 @@ func (s *Server) HandleUserInfo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userInfo := map[string]interface{}{
-		"sub":            token.Subject(),
-		"email_verified": true,
+		"sub": token.Subject(),
 	}
 
 	if email, ok := token.Get("email"); ok {
 		userInfo["email"] = email
+	}
+	if emailVerified, ok := token.Get("email_verified"); ok {
+		userInfo["email_verified"] = emailVerified
 	}
 
 	if username, ok := token.Get("preferred_username"); ok {

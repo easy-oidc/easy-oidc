@@ -1,0 +1,28 @@
+{{define "content"}}
+<h1>{{.Title}}</h1>
+<form method="post" action="/identity/select">
+  <input type="hidden" name="token" value="{{.Token}}" />
+  <fieldset>
+    <legend>Choose an email address</legend>
+    {{range $index, $email := .Emails}}
+    <label>
+      <input
+        type="radio"
+        name="index"
+        value="{{$index}}"
+        {{if
+        eq
+        $index
+        0}}required{{end}}
+      />
+      <span>{{$email.Address}}</span>
+      {{if
+      $email.Verified}}<span>Verified</span>{{else}}<span>Unverified</span>{{end}}
+      {{if $email.Primary}}<span>Primary</span>{{end}}
+    </label>
+    <br />
+    {{end}}
+  </fieldset>
+  <button type="submit">Continue</button>
+</form>
+{{end}}

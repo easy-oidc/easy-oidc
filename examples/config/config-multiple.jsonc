@@ -1,0 +1,66 @@
+// Easy OIDC <https://easy-oidc.dev>
+// Copyright The Easy OIDC Authors
+// SPDX-License-Identifier: Apache-2.0
+
+{
+  "$schema": "https://easy-oidc.dev/schema/v2/config.schema.json",
+
+  "issuer_url": "https://auth.example.com",
+  "http_listen_addr": "127.0.0.1:8080",
+  "data_dir": "/var/lib/easy-oidc",
+  "require_groups": false,
+
+  "secrets": {
+    "provider": "env",
+    "signing_key_name": "EASYOIDC_SIGNING_KEY",
+  },
+
+  "connectors": {
+    "company-google": {
+      "type": "google",
+      "display_name": "Company Google",
+      "order": 10,
+      "credentials_secret": "EASYOIDC_GOOGLE_CREDENTIALS",
+    },
+    "engineering-dex": {
+      "type": "generic",
+      "display_name": "Engineering Dex",
+      "order": 20,
+      "credentials_secret": "EASYOIDC_DEX_CREDENTIALS",
+      "generic": {
+        "authorization_url": "https://dex.example.com/auth",
+        "token_url": "https://dex.example.com/token",
+        "userinfo_url": "https://dex.example.com/userinfo",
+        "subject_field": "sub",
+      },
+    },
+    "email": {
+      "type": "email",
+      "display_name": "Email code",
+      "order": 30,
+    },
+  },
+
+  "email": {
+    "verification_mode": "provider",
+    "otp_secret_name": "EASYOIDC_OTP_SECRET",
+    "otp_ttl_seconds": 300,
+    "smtp": {
+      "host": "smtp.example.com",
+      "port": 587,
+      "tls_mode": "starttls",
+      "from_name": "Easy OIDC",
+      "from_address": "auth@example.com",
+      "credentials_secret": "EASYOIDC_SMTP_CREDENTIALS",
+    },
+    "turnstile": {
+      "site_key": "replace-with-your-turnstile-site-key",
+      "secret_name": "EASYOIDC_TURNSTILE_SECRET",
+    },
+  },
+
+  "default_redirect_uris": ["http://localhost:8000"],
+  "clients": {
+    "kubelogin": {},
+  },
+}

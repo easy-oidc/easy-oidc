@@ -27,6 +27,7 @@ Fill in the application details:
 - **Application description** (optional): `OIDC provider for Kubernetes authentication`
 - **Authorization callback URL**: `https://auth.example.com/callback/github`
   - Replace `auth.example.com` with your actual OIDC hostname
+  - Replace `github` when your configured connector ID is different
 
 Click **Register application**.
 
@@ -44,20 +45,29 @@ You should now have:
 
 **Important**: Copy these values now—you'll need them in the next step.
 
-## Step 4: Store Credentials in AWS Secrets Manager
+## Step 4: Store Secrets in AWS Secrets Manager
 
-Use the AWS CLI to store your GitHub OAuth credentials:
+Use the AWS CLI to store your GitHub OAuth credentials and a random encryption
+master key. Easy OIDC uses the encryption key to protect stateless identity
+selection data.
 
 ```bash
 aws secretsmanager create-secret \
-  --name easy-oidc-connector-secret \
+  --name easy-oidc-github-credentials \
   --secret-string '{
     "client_id": "Iv1.abc123def456",
     "client_secret": "abc123def456789..."
   }'
+
+aws secretsmanager create-secret \
+  --name easy-oidc-encryption-key \
+  --secret-string "$(openssl rand -hex 32)"
 ```
 
 Replace the `client_id` and `client_secret` values with your actual credentials from Step 3.
+Set `secrets.encryption_key_name` to `easy-oidc-encryption-key` in the Easy OIDC
+configuration. See the [configuration reference](/docs/config/) for other
+supported secrets providers.
 
 ## Organization OAuth Apps (Alternative)
 
@@ -74,15 +84,16 @@ Organization OAuth apps are recommended for teams, as they provide better access
 If you're using GitHub Enterprise Server (self-hosted):
 
 1. Follow the same OAuth app creation steps on your GitHub Enterprise instance
-2. When configuring Easy OIDC via Terraform, specify your GitHub Enterprise hostname:
+2. Set the hostname on that connector:
 
-```hcl
-module "easy_oidc" {
-  source = "easy-oidc/easy-oidc/aws"
-  
-  # ... other config ...
-  connector_type            = "github"
-  connector_github_hostname = "github.yourcompany.com"
+```jsonc
+"connectors": {
+  "github": {
+    "type": "github",
+    "display_name": "GitHub Enterprise",
+    "credentials_secret": "easy-oidc-github-credentials",
+    "github": {"hostname": "github.yourcompany.com"}
+  }
 }
 ```
 
@@ -90,8 +101,11 @@ module "easy_oidc" {
 
 To verify your OAuth app is configured correctly:
 
-1. Note your callback URL: `https://auth.example.com/callback/github`
-2. After deploying Easy OIDC (see [Deploy to AWS](/docs/deploy/aws/)), test authentication:
+1. Note your callback URL: `https://auth.example.com/callback/github` (replace
+   `github` with your connector ID)
+2. After deploying Easy OIDC using the [AWS](/docs/deploy/aws/) or
+   [Google Cloud](https://github.com/easy-oidc/terraform-google-easy-oidc/blob/main/README.md#usage)
+   module, test authentication:
 
 ```bash
 kubectl oidc-login setup \
@@ -104,7 +118,12 @@ You should be redirected to GitHub's authorization page.
 
 ## Important Notes
 
-**Email Privacy**: If users have enabled email privacy in their GitHub settings, their primary email may not be accessible. Easy OIDC uses the primary verified email from GitHub for authentication.
+**Email selection**: Easy OIDC requests the account's email list. If GitHub
+returns more than one address, the user chooses which identity to use; primary
+and verified status are shown rather than silently selecting an address. An
+unverified selection is subject to the configured email-verification policy.
+GitHub-generated `users.noreply` addresses are excluded because they cannot
+receive verification codes.
 
 **Group Mappings**: GitHub's OAuth flow doesn't provide organization/team membership by default. Easy OIDC requires you to configure static group mappings (see [Configuration Reference](/docs/config/)).
 

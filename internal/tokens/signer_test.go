@@ -61,7 +61,7 @@ func TestSupportedSigningAlgorithms(t *testing.T) {
 
 			signer := NewSigner(signingKey, "test-kid", "https://auth.example.com", time.Hour)
 			tokenString, err := signer.SignIDToken(
-				"Alice@Example.COM", "test-client", []string{"admins"}, "test-nonce",
+				"Alice@Example.COM", false, "test-client", []string{"admins"}, "test-nonce",
 			)
 			if err != nil {
 				t.Fatalf("SignIDToken() error = %v", err)
@@ -80,6 +80,9 @@ func TestSupportedSigningAlgorithms(t *testing.T) {
 			}
 			if username, _ := token.Get("preferred_username"); username != "Alice" {
 				t.Errorf("preferred_username = %q, want Alice", username)
+			}
+			if emailVerified, _ := token.Get("email_verified"); emailVerified != false {
+				t.Errorf("email_verified = %v, want false", emailVerified)
 			}
 
 			jwksData, err := GenerateJWKS(signingKey, "test-kid")

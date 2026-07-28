@@ -2,7 +2,6 @@
 // Copyright The Easy OIDC Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Package tokens provides functionality for signing tokens and managing groups.
 package tokens
 
 import (

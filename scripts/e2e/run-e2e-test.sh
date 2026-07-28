@@ -74,8 +74,7 @@ make build
 
 echo "==> Starting easy-oidc..."
 export EASYOIDC_SIGNING_KEY="$(openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 2>/dev/null)"
-export EASYOIDC_OAUTH_CLIENT_ID="easy-oidc-e2e"
-export EASYOIDC_OAUTH_CLIENT_SECRET="unused-e2e-secret"
+export EASYOIDC_DEX_CREDENTIALS='{"client_id":"easy-oidc-e2e","client_secret":"unused-e2e-secret"}'
 
 ./bin/easy-oidc --config "$SCRIPT_DIR/easy-oidc-config.jsonc" --debug &
 EASY_OIDC_PID=$!

@@ -9,7 +9,7 @@ This guide shows you how to configure your Kubernetes cluster to use Easy OIDC f
 
 ## Overview
 
-Kubernetes can validate OIDC tokens issued by Easy OIDC using the API server's built-in OIDC authentication. Once configured, users authenticate via their browser (Google/GitHub), receive an ID token, and kubectl uses that token for API requests.
+Kubernetes can validate OIDC tokens issued by Easy OIDC using the API server's built-in OIDC authentication. Once configured, users authenticate via their browser through one of the configured sign-in methods, receive an ID token, and kubectl uses that token for API requests.
 
 ## Configure Kubernetes API Server
 
@@ -201,24 +201,24 @@ You can use the same Easy OIDC instance for multiple Kubernetes clusters by conf
 
 **Example:**
 
-```hcl
-# In Terraform
-clients = {
-  kubelogin-prod = {
-    groups_override = "prod-groups"
-  }
-  kubelogin-staging = {
-    groups_override = "staging-groups"
-  }
-}
-
-groups_overrides = {
-  prod-groups = {
-    "alice@example.com" = ["prod-admins"]
-  }
-  staging-groups = {
-    "alice@example.com" = ["staging-admins"]
-    "bob@example.com"   = ["staging-readonly"]
+```jsonc
+{
+  "clients": {
+    "kubelogin-prod": {
+      "groups_override": "prod-groups"
+    },
+    "kubelogin-staging": {
+      "groups_override": "staging-groups"
+    }
+  },
+  "groups_overrides": {
+    "prod-groups": {
+      "alice@example.com": ["prod-admins"]
+    },
+    "staging-groups": {
+      "alice@example.com": ["staging-admins"],
+      "bob@example.com": ["staging-readonly"]
+    }
   }
 }
 ```
@@ -234,7 +234,7 @@ Alice will have different groups (and thus permissions) in each cluster.
 **Token Storage**: kubelogin caches tokens in `~/.kube/cache/oidc-login`. Protect this directory (permissions should be `0700`).
 
 **Revocation**: To revoke a user's access:
-1. Remove their email from Easy OIDC group mappings (requires Terraform apply + instance restart)
+1. Remove their email from the Easy OIDC group mappings and restart Easy OIDC
 2. Or remove their RBAC bindings in Kubernetes
 
 Existing tokens remain valid until expiry (default 1 hour).

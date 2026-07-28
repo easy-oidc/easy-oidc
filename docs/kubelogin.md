@@ -102,7 +102,7 @@ kubectl oidc-login setup \
 
 This will:
 1. Open your browser
-2. Redirect to Google or GitHub (depending on your Easy OIDC configuration)
+2. Select or redirect to a configured Easy OIDC sign-in method
 3. After successful login, display your ID token and claims
 
 **Expected output:**

@@ -38,8 +38,8 @@ make check          # Run fmt, lint, and test
 # Run locally with example config
 ./bin/easy-oidc --config examples/config/config-local-dev.jsonc --debug
 
-# Validate configuration
-./bin/easy-oidc --config config.jsonc --validate
+# Validate configuration and templates
+./bin/easy-oidc validate --config config.jsonc
 
 # Show version
 ./bin/easy-oidc --version
@@ -75,7 +75,9 @@ The repository does not currently commit generated source files. Go module sums 
 - Secrets are loaded once at startup (not on every request)
 - Email addresses are always normalized to lowercase
 - PKCE is mandatory for all clients
-- No client secrets (public clients only)
+- No downstream client secrets (downstream clients are public and use PKCE)
+- Every Go package must define its package docblock in `doc.go`
+- Every new Go function, method, and type must have a docblock comment, even if unexported
 
 ## Key Design Decisions
 

@@ -24,7 +24,7 @@ LDFLAGS := -X $(BUILDVARS_PKG).buildVersion=$(BUILD_VERSION) \
            -X $(BUILDVARS_PKG).commitDate=$(COMMIT_DATE) \
            -X $(BUILDVARS_PKG).commitBranch=$(COMMIT_BRANCH)
 
-.PHONY: help setup fmt lint precommit test e2e check build clean tag
+.PHONY: help setup fmt lint precommit test e2e check build dev clean tag
 
 help: ## Show available targets
 	@echo "Usage: make <target>"
@@ -77,6 +77,9 @@ build: ## Build the easy-oidc binary
 	@echo "Building easy-oidc..."
 	@mkdir -p $(BINARY_DIR)
 	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY_DIR)/easy-oidc ./cmd/easy-oidc
+
+dev: ## Run the template development server
+	go run ./cmd/easy-oidc dev --templates-dir ./templates
 
 clean: ## Remove build artifacts
 	@echo "Cleaning build artifacts..."

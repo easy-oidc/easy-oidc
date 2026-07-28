@@ -9,18 +9,18 @@ Common issues and solutions when using Easy OIDC.
 
 ## Deployment Issues
 
-### Terraform apply fails with "secret does not exist"
+### OpenTofu/Terraform apply fails with "secret does not exist"
 
-**Symptom**: Terraform fails with `Error: secret not found` when referencing Secrets Manager secrets.
+**Symptom**: OpenTofu/Terraform fails with `Error: secret not found` when referencing Secrets Manager secrets.
 
-**Cause**: Secrets must be created before running Terraform.
+**Cause**: Secrets must be created before running OpenTofu/Terraform.
 
 **Solution**:
 
 ```bash
 # Create OAuth secret
 aws secretsmanager create-secret \
-  --name easy-oidc-connector-secret \
+  --name easy-oidc-google-credentials \
   --secret-string '{
     "client_id": "your-client-id",
     "client_secret": "your-client-secret"
@@ -50,9 +50,9 @@ openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 | aws secretsmanage
 
 3. Wait 5-10 minutes after updating DNS for propagation.
 
-4. Check Caddy logs on the instance (requires SSH to be enabled via Terraform module variables):
+4. Check Caddy logs on the instance (requires SSH to be enabled via OpenTofu/Terraform module variables):
    ```bash
-   ssh ubuntu@<instance-ip>
+   ssh admin@<instance-ip>
    sudo journalctl -u caddy -f
    ```
 
@@ -75,8 +75,8 @@ ls -lh /usr/local/bin/easy-oidc
 ls -lh /usr/local/bin/caddy
 
 # Verify config file was created
-ls -lh /etc/easy-oidc/config.yaml
-cat /etc/easy-oidc/config.yaml
+ls -lh /etc/easy-oidc/config.jsonc
+cat /etc/easy-oidc/config.jsonc
 
 # Check Easy OIDC service
 sudo journalctl -u easy-oidc -f
@@ -182,7 +182,7 @@ kubelogin will print a URL. Copy and paste it into your local browser.
    ```
 
 3. **Verify groups are configured** in Easy OIDC:
-   - Check Terraform `groups_overrides` configuration
+   - Check the Easy OIDC `groups_overrides` configuration
    - Ensure `groups_override` is set for your client
 
 ### OAuth redirect URI mismatch
@@ -193,8 +193,9 @@ kubelogin will print a URL. Copy and paste it into your local browser.
 
 **Solution**:
 
-1. **For Google**: Ensure redirect URI is `https://auth.example.com/callback/google`
-2. **For GitHub**: Ensure redirect URI is `https://auth.example.com/callback/github`
+1. Ensure the upstream OAuth application's redirect URI is
+   `https://auth.example.com/callback/<connector-id>`.
+2. Check that `<connector-id>` exactly matches the stable key under `connectors`.
 3. **For kubelogin**: Ensure `http://localhost:8000` (or your custom port) is in `default_redirect_uris`
 
 ## Configuration Issues
@@ -207,17 +208,18 @@ kubelogin will print a URL. Copy and paste it into your local browser.
 
 **Solution**:
 
-1. **Check Terraform configuration**:
-   ```hcl
-   clients = {
-     kubelogin-prod = {
-       groups_override = "prod-groups"  # Must be set
-     }
-   }
-
-   groups_overrides = {
-     prod-groups = {
-       "alice@example.com" = ["admins"]  # Email must exist
+1. **Check the application configuration**:
+   ```jsonc
+   {
+     "clients": {
+       "kubelogin-prod": {
+         "groups_override": "prod-groups"
+       }
+     },
+     "groups_overrides": {
+       "prod-groups": {
+         "alice@example.com": ["admins"]
+       }
      }
    }
    ```
@@ -226,11 +228,8 @@ kubelogin will print a URL. Copy and paste it into your local browser.
    - Check the `email` claim in your ID token
    - Ensure it matches the key in `groups_overrides` exactly
 
-3. **Apply Terraform changes** and restart Easy OIDC:
-   ```bash
-   terraform apply
-   # Instance replacement restarts the service
-   ```
+3. **Restart Easy OIDC** after updating its configuration. Module users should
+   update `easy_oidc_config` and run `tofu apply`.
 
 ### Can't connect to Easy OIDC from Kubernetes API server
 
@@ -269,15 +268,14 @@ kubelogin will print a URL. Copy and paste it into your local browser.
      --secret-string file://new-key.pem
    ```
 
-3. **Update `jwks_kid` in Terraform** (if exposed, otherwise not needed):
-   ```hcl
-   # Future feature: key rotation with multiple keys
-   ```
+3. **Update or remove a fixed `jwks_kid`** so clients do not cache a new public
+   key under the old key ID. When omitted, Easy OIDC derives it from the key.
 
-4. **Trigger instance replacement** or restart the service:
+4. **Restart the service** because secrets are loaded only during startup. For
+   the AWS module, replace the instance without changing its stable network
+   interface:
    ```bash
-   terraform taint module.easy_oidc.aws_instance.this
-   terraform apply
+   tofu apply -replace=module.easy_oidc.aws_instance.main
    ```
 
 5. **Users re-authenticate** automatically (existing tokens remain valid until expiry).
@@ -296,7 +294,7 @@ kubelogin will print a URL. Copy and paste it into your local browser.
 
 3. **Check Caddy logs**:
    ```bash
-   ssh ubuntu@<new-instance-ip>
+   ssh admin@<new-instance-ip>
    sudo journalctl -u caddy -f
    ```
 
@@ -323,8 +321,8 @@ args:
 
 Update Easy OIDC `default_redirect_uris`:
 
-```hcl
-default_redirect_uris = ["http://localhost:18000"]
+```jsonc
+"default_redirect_uris": ["http://localhost:18000"]
 ```
 
 ## Debugging
@@ -344,14 +342,14 @@ kubectl oidc-login get-token \
 SSH into the instance:
 
 ```bash
-ssh ubuntu@<instance-ip>
+ssh admin@<instance-ip>
 sudo journalctl -u easy-oidc -f
 ```
 
 ### View Caddy logs
 
 ```bash
-ssh ubuntu@<instance-ip>
+ssh admin@<instance-ip>
 sudo journalctl -u caddy -f
 ```
 
@@ -392,6 +390,6 @@ If you're still stuck:
 2. **Review configuration**: [Configuration Reference](/docs/config/)
 3. **Search GitHub Issues**: [github.com/easy-oidc/easy-oidc/issues](https://github.com/easy-oidc/easy-oidc/issues)
 4. **Open a new issue** with:
-   - Terraform/OpenTofu configuration (please REDACT any secrets or confidential/personal information!)
+   - OpenTofu/Terraform configuration (please REDACT any secrets or confidential/personal information!)
    - Easy OIDC logs (`journalctl -u easy-oidc`)
    - Steps to reproduce

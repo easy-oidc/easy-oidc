@@ -2,7 +2,6 @@
 // Copyright The Easy OIDC Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Package upstream provides connectors for authenticating users with upstream OAuth2/OIDC providers.
 package upstream
 
 import (
@@ -18,15 +17,26 @@ import (
 type Connector interface {
 	AuthCodeURL(state string, opts ...oauth2.AuthCodeOption) string
 	Exchange(ctx context.Context, code string) (*oauth2.Token, error)
-	GetUserEmail(ctx context.Context, token *oauth2.Token) (email string, verified bool, err error)
+	GetIdentity(ctx context.Context, token *oauth2.Token) (Identity, error)
+}
+
+// Email is an email assertion returned by an upstream provider.
+type Email struct {
+	Address  string
+	Verified bool
+	Primary  bool
+}
+
+// Identity is a stable upstream subject and all of its email assertions.
+type Identity struct {
+	Subject string
+	Emails  []Email
 }
 
 // NewConnector creates a new upstream connector based on the configuration.
 // Supported types are "google", "github", and "generic".
 // The redirect URL is automatically constructed as {issuerURL}/callback/{type}.
-func NewConnector(cfg config.ConnectorConfig, issuerURL, clientID, clientSecret string) (Connector, error) {
-	redirectURL := fmt.Sprintf("%s/callback/%s", issuerURL, cfg.Type)
-
+func NewConnector(cfg config.ConnectorConfig, redirectURL, clientID, clientSecret string) (Connector, error) {
 	switch cfg.Type {
 	case "google":
 		return NewGoogleConnector(cfg, redirectURL, clientID, clientSecret), nil

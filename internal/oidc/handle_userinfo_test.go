@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -28,22 +29,22 @@ func TestHandleUserInfoVerifiesToken(t *testing.T) {
 		})),
 	}
 
-	validToken, err := signer.SignIDToken("user@example.com", "test-client", []string{"users"}, "")
+	validToken, err := signer.SignIDToken("user@example.com", false, "test-client", []string{"users"}, "")
 	if err != nil {
 		t.Fatalf("failed to sign valid token: %v", err)
 	}
 	forgedSigner := tokens.NewSigner(newTestSigningKey(t), "test-kid", issuer, time.Hour)
-	forgedToken, err := forgedSigner.SignIDToken("attacker@example.com", "test-client", nil, "")
+	forgedToken, err := forgedSigner.SignIDToken("attacker@example.com", true, "test-client", nil, "")
 	if err != nil {
 		t.Fatalf("failed to sign forged token: %v", err)
 	}
 	expiredSigner := tokens.NewSigner(signingKey, "test-kid", issuer, -time.Minute)
-	expiredToken, err := expiredSigner.SignIDToken("user@example.com", "test-client", nil, "")
+	expiredToken, err := expiredSigner.SignIDToken("user@example.com", true, "test-client", nil, "")
 	if err != nil {
 		t.Fatalf("failed to sign expired token: %v", err)
 	}
 	wrongIssuerSigner := tokens.NewSigner(signingKey, "test-kid", "https://attacker.example.com", time.Hour)
-	wrongIssuerToken, err := wrongIssuerSigner.SignIDToken("user@example.com", "test-client", nil, "")
+	wrongIssuerToken, err := wrongIssuerSigner.SignIDToken("user@example.com", true, "test-client", nil, "")
 	if err != nil {
 		t.Fatalf("failed to sign wrong-issuer token: %v", err)
 	}
@@ -69,6 +70,9 @@ func TestHandleUserInfoVerifiesToken(t *testing.T) {
 
 			if response.Code != tt.wantStatus {
 				t.Fatalf("status = %d, want %d; body: %s", response.Code, tt.wantStatus, response.Body.String())
+			}
+			if tt.name == "valid token" && !strings.Contains(response.Body.String(), `"email_verified":false`) {
+				t.Fatalf("userinfo did not preserve email_verified=false: %s", response.Body.String())
 			}
 		})
 	}

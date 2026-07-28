@@ -16,7 +16,7 @@ import (
 func TestHandleDiscoveryAdvertisesConfiguredSigningAlgorithm(t *testing.T) {
 	server := NewServer(
 		&config.Config{IssuerURL: "https://auth.example.com", SigningAlgorithm: "PS512"},
-		nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 	)
 	response := httptest.NewRecorder()
 	server.HandleDiscovery(response, httptest.NewRequest(http.MethodGet, "/.well-known/openid-configuration", nil))

@@ -5,7 +5,7 @@
 
 set -eo pipefail
 
-# Userdata script for Ubuntu LTS, which sets up easy-oidc and Caddy on a fresh instance.
+# Userdata script for Debian stable, which sets up easy-oidc and Caddy on a fresh instance.
 # Variables which you can set prior to invoking this script:
 # EASY_OIDC_VERSION="latest"
 # EASY_OIDC_SHA512="abc123..."
@@ -36,11 +36,31 @@ AUTO_UPDATES="${AUTO_UPDATES:-true}"
 
 echo "=== Starting Installation ==="
 
+# === Verify system dependencies ===
+for command in curl tar sha512sum; do
+    if ! command -v "${command}" >/dev/null 2>&1; then
+        echo "ERROR: required command is unavailable: ${command}"
+        exit 1
+    fi
+done
+if [ ! -s /etc/ssl/certs/ca-certificates.crt ]; then
+    echo "ERROR: system CA certificates are unavailable"
+    exit 1
+fi
+if [ "${AUTO_UPDATES}" = "true" ] && ! command -v unattended-upgrade >/dev/null 2>&1; then
+    echo "ERROR: unattended-upgrades is unavailable"
+    exit 1
+fi
+
 # === Configure Firewall (if enabled) ===
 if [ "${FIREWALL}" = "true" ]; then
     echo "Configuring firewall..."
     # Only allow HTTP/HTTPS
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ufw
+    if ! command -v ufw >/dev/null 2>&1; then
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update -qq
+        apt-get install -y -qq ufw
+    fi
     ufw --force disable
     ufw --force reset
     ufw default deny incoming

@@ -5,342 +5,245 @@ linkTitle: 'Configuration'
 weight: 7
 ---
 
-This page details all configuration options for Easy OIDC when deployed via Terraform.
+Easy OIDC reads a JSONC configuration file. Pass its path with `--config` or set
+`EASYOIDC_CONFIG_PATH`; the default is `./config.jsonc`.
 
-## Overview
+Add the versioned JSON Schema to receive editor validation, completion, and
+field documentation:
 
-Easy OIDC configuration is specified through Terraform module variables, which are then rendered into a JSONC configuration file on the EC2 instance.
-
-## Terraform Module Variables
-
-### Required Variables
-
-#### `vpc_id`
-- **Type**: `string`
-- **Description**: VPC ID where Easy OIDC will be deployed
-- **Example**: `"vpc-0123456789abcdef0"`
-
-#### `oidc_addr`
-- **Type**: `string`
-- **Description**: OIDC server hostname (used for issuer URL and Caddy configuration)
-- **Example**: `"auth.example.com"`
-- **Note**: Do not include `https://` prefix
-
-#### `connector_type`
-- **Type**: `string`
-- **Description**: Upstream identity provider type
-- **Allowed values**: `"google"`, `"github"`
-- **Example**: `"google"`
-
-#### `connector_client_secret_arn`
-- **Type**: `string`
-- **Description**: ARN of the AWS Secrets Manager secret containing OAuth client credentials
-- **Example**: `"arn:aws:secretsmanager:us-east-1:123456789012:secret:easy-oidc-connector-secret-AbCdEf"`
-- **Secret format**:
-  ```json
-  {
-    "client_id": "your-client-id",
-    "client_secret": "your-client-secret"
-  }
-  ```
-
-#### `clients`
-- **Type**: `map(object)`
-- **Description**: Map of OIDC client configurations, keyed by client ID
-- **Example**:
-  ```hcl
-  clients = {
-    kubelogin-prod = {
-      redirect_uris   = ["http://localhost:8000"]
-      groups_override = "prod-groups"
-    }
-    kubelogin-dev = {
-      # Uses default_redirect_uris
-      # No groups_override: uses upstream IdP groups (empty by default)
-    }
-  }
-  ```
-
-### Optional Variables
-
-#### `subnet_id`
-- **Type**: `string`
-- **Default**: `null` (auto-created)
-- **Description**: Subnet ID for the EC2 instance. If not provided, a new subnet with dual-stack support is created
-- **Example**: `"subnet-0123456789abcdef0"`
-
-#### `signing_key_secret_arn`
-- **Type**: `string`
-- **Default**: `null`
-- **Description**: ARN of the AWS Secrets Manager secret containing a PKCS8 PEM private key compatible with `signing_algorithm`
-- **Example**: `"arn:aws:secretsmanager:us-east-1:123456789012:secret:easy-oidc-signing-key-XyZ123"`
-- **Recommendation**: Create manually to control key lifecycle
-
-#### `signing_algorithm`
-- **Type**: `string`
-- **Default**: `"RS256"`
-- **Allowed values**: `RS256`, `RS384`, `RS512`, `ES256`, `ES384`, `ES512`, `PS256`, `PS384`, `PS512`, `EdDSA`
-- **Description**: JWT signing algorithm. Kubernetes accepts RS256 by default; other Kubernetes-supported algorithms require matching API server configuration. EdDSA is supported by Easy OIDC but not Kubernetes.
-
-#### `default_redirect_uris`
-- **Type**: `list(string)`
-- **Default**: `["http://localhost:8000"]`
-- **Description**: Default redirect URIs used by clients that don't specify their own
-- **Example**: `["http://localhost:8000", "http://localhost:18000"]`
-
-#### `groups_overrides`
-- **Type**: `map(map(list(string)))`
-- **Default**: `{}`
-- **Description**: Named sets of email-to-groups mappings
-- **Example**:
-  ```hcl
-  groups_overrides = {
-    prod-groups = {
-      "alice@example.com" = ["cluster-admins", "developers"]
-      "bob@example.com"   = ["developers"]
-    }
-    staging-groups = {
-      "alice@example.com" = ["staging-admins"]
-      "charlie@example.com" = ["qa-team"]
-    }
-  }
-  ```
-
-#### `enable_ipv4`
-- **Type**: `bool`
-- **Default**: `true`
-- **Description**: Enable IPv4 support. Set to `false` for IPv6-only deployments
-- **Example**: `false`
-
-#### `instance_type`
-- **Type**: `string`
-- **Default**: `"t4g.nano"`
-- **Description**: EC2 instance type. Must be ARM64-compatible
-- **Example**: `"t4g.micro"`
-
-#### `allowed_cidrs_ipv4`
-- **Type**: `list(string)`
-- **Default**: `["0.0.0.0/0"]`
-- **Description**: IPv4 CIDRs allowed to access HTTP/HTTPS
-- **Example**: `["10.0.0.0/8", "172.16.0.0/12"]`
-- **Note**: Ignored if `enable_ipv4 = false`
-
-#### `allowed_cidrs_ipv6`
-- **Type**: `list(string)`
-- **Default**: `["::/0"]`
-- **Description**: IPv6 CIDRs allowed to access HTTP/HTTPS
-- **Example**: `["2001:db8::/32"]`
-
-#### `connector_hosted_domain`
-- **Type**: `string`
-- **Default**: `null`
-- **Description**: Google Workspace hosted domain restriction (Google only)
-- **Example**: `"example.com"`
-- **Effect**: Only users with `@example.com` emails can authenticate
-
-#### `connector_github_hostname`
-- **Type**: `string`
-- **Default**: `"github.com"`
-- **Description**: GitHub hostname (for GitHub Enterprise Server)
-- **Example**: `"github.yourcompany.com"`
-
-#### `easy_oidc_version`
-- **Type**: `string`
-- **Default**: `"latest"`
-- **Description**: Easy OIDC version to install
-- **Example**: `"v1.0.0"`
-
-#### `caddy_version`
-- **Type**: `string`
-- **Default**: `"latest"`
-- **Description**: Caddy version to install
-- **Example**: `"2.7.6"`
-
-#### `kms_key_id`
-- **Type**: `string`
-- **Default**: `null` (uses AWS managed key)
-- **Description**: KMS key ID or ARN for EBS encryption
-- **Example**: `"arn:aws:kms:us-east-1:123456789012:key/abcd1234-a123-456a-a12b-a123b4cd56ef"`
-
-#### `ssh_key_name`
-- **Type**: `string`
-- **Default**: `null`
-- **Description**: EC2 key pair name for SSH access
-- **Example**: `"my-ssh-key"`
-
-#### `ssh_allowed_cidrs_ipv4`
-- **Type**: `list(string)`
-- **Default**: `null`
-- **Description**: IPv4 CIDRs allowed to SSH (requires `ssh_key_name`)
-- **Example**: `["1.2.3.4/32"]`
-
-#### `ssh_allowed_cidrs_ipv6`
-- **Type**: `list(string)`
-- **Default**: `null`
-- **Description**: IPv6 CIDRs allowed to SSH (requires `ssh_key_name`)
-- **Example**: `["2001:db8::1/128"]`
-
-#### `name_prefix`
-- **Type**: `string`
-- **Default**: `"easy-oidc"`
-- **Description**: Prefix for resource names
-- **Example**: `"my-oidc"`
-
-#### `tags`
-- **Type**: `map(string)`
-- **Default**: `{}`
-- **Description**: Additional tags to apply to all resources
-- **Example**: `{ Environment = "production", Team = "platform" }`
-
-## Client Configuration
-
-Each client in the `clients` map represents an OIDC client application (e.g., kubectl).
-
-### Client Object Structure
-
-```hcl
-clients = {
-  "<client-id>" = {
-    redirect_uris   = ["http://localhost:8000"]  # Optional
-    groups_override = "prod-groups"               # Optional
-  }
+```jsonc
+{
+  "$schema": "https://easy-oidc.dev/schema/v2/config.schema.json",
+  // ...
 }
 ```
 
-#### `redirect_uris` (optional)
-- **Type**: `list(string)`
-- **Default**: Uses `default_redirect_uris`
-- **Description**: Allowed redirect URIs for this client
-- **Example**: `["http://localhost:8000", "http://localhost:18000"]`
+The schema catches structural errors while editing. `easy-oidc validate`
+remains authoritative and also checks runtime constraints and templates.
 
-#### `groups_override` (optional)
-- **Type**: `string`
-- **Default**: `null` (no group override, groups claim is empty)
-- **Description**: Reference to a named group override in `groups_overrides`
-- **Example**: `"prod-groups"`
+See the [example configurations](https://github.com/easy-oidc/easy-oidc/tree/main/examples/config),
+including `config-multiple.jsonc` for multiple connectors, email codes, SMTP, and
+Turnstile.
 
-## Group Resolution Logic
+## Deployment modules
 
-For a given `client_id` and authenticated `email`:
+This page is the source of truth for Easy OIDC application configuration. The
+official OpenTofu/Terraform modules accept the same settings as an
+`easy_oidc_config` object and add deployment-owned values such as the issuer,
+listen address, data directory, and cloud secrets provider.
 
-1. **Normalize email** to lowercase
-2. **If `groups_override` is set** for the client:
-   - Look up `groups_overrides[override_name][email]`
-   - If found, use those groups
-   - If not found, return empty array `[]`
-3. **If `groups_override` is not set**:
-   - Return empty array `[]`
-4. **Deduplicate** groups and include in ID token `groups` claim
+- [AWS module inputs](https://github.com/easy-oidc/terraform-aws-easy-oidc#variables)
+- [Google Cloud module inputs](https://github.com/easy-oidc/terraform-google-easy-oidc#variables)
+- [Deployment guides](/docs/deploy/)
 
-### Example
+Keep infrastructure settings in the module arguments and application settings
+under `easy_oidc_config`; this avoids maintaining a second configuration schema
+in each deployment module.
 
-```hcl
-groups_overrides = {
-  prod-groups = {
-    "alice@example.com" = ["admins", "devs"]
-    "bob@example.com"   = ["devs"]
-  }
-}
+## Core settings
 
-clients = {
-  kubelogin-prod = {
-    groups_override = "prod-groups"
-  }
-  kubelogin-dev = {
-    # No groups_override
-  }
+| Setting | Required | Description |
+|---|---:|---|
+| `issuer_url` | yes | Public issuer URL. HTTPS is required except on localhost. |
+| `http_listen_addr` | yes | Address used by the built-in HTTP server. |
+| `data_dir` | yes | Directory containing the SQLite database. |
+| `signing_algorithm` | no | Defaults to `RS256`. Supports the asymmetric algorithms advertised by Easy OIDC. |
+| `jwks_kid` | no | Signing key ID. Derived from the public key when omitted. |
+| `token_ttl_seconds` | no | Downstream token lifetime; defaults to 3600 seconds. |
+| `require_groups` | no | Require a non-empty group result; defaults to `true`. |
+| `templates_dir` | no | Directory containing template overrides. `EASYOIDC_TEMPLATES_DIR` takes precedence. |
+
+## Secrets
+
+`secrets.provider` is one of `aws-secrets-manager`, `aws-parameter-store`,
+`google-secret-manager`, `azure`, or `env`. Secret values are
+loaded once during startup. With the `env` provider, each configured secret name
+is the exact environment variable to read.
+
+```jsonc
+"secrets": {
+  "provider": "env",
+  "signing_key_name": "EASYOIDC_SIGNING_KEY",
+  "encryption_key_name": "EASYOIDC_ENCRYPTION_KEY"
 }
 ```
 
-**Authentication scenarios:**
+`signing_key_name` is always required. `encryption_key_name` is currently
+required for GitHub connectors because GitHub can return several email identities.
+Its value must be a 64-character hex-encoded 32-byte master key:
 
-| Client ID | Email | Groups Claim |
-|-----------|-------|--------------|
-| `kubelogin-prod` | `alice@example.com` | `["admins", "devs"]` |
-| `kubelogin-prod` | `bob@example.com` | `["devs"]` |
-| `kubelogin-prod` | `charlie@example.com` | `[]` (not in prod-groups) |
-| `kubelogin-dev` | `alice@example.com` | `[]` (no override configured) |
+```console
+openssl rand -hex 32
+```
 
-## ID Token Claims
+Easy OIDC derives purpose-specific keys from this master with HKDF-SHA256 and
+versioned, domain-separated labels. The signing key and OTP secret remain
+separate because they have different purposes and rotation requirements.
 
-Tokens issued by Easy OIDC include:
+Both AWS providers accept `aws_region`; otherwise the standard AWS SDK region
+resolution is used. `aws-parameter-store` requests parameter decryption, so it
+supports both `String` and KMS-backed `SecureString` parameters. Azure requires
+`azure_keyvault_url`. The AWS principal used for Parameter Store needs
+`ssm:GetParameter` and, for a customer-managed KMS key, `kms:Decrypt`.
+
+## Connectors
+
+`connectors` is a map keyed by stable, path-safe connector IDs. IDs may contain
+letters, digits, `_`, and `-`, are limited to 64 characters, and become part of
+the callback URL: `https://auth.example.com/callback/<connector-id>`.
+
+Each connector has:
+
+| Setting | Description |
+|---|---|
+| `type` | `google`, `github`, `generic`, or `email`. |
+| `display_name` | Label shown on the sign-in selector. |
+| `order` | Optional display order. |
+| `credentials_secret` | OAuth credential secret; required except for `email`. |
+| `scopes` | Optional OAuth scopes; provider defaults apply when omitted. |
+
+OAuth credential secrets contain:
 
 ```json
-{
-  "iss": "https://auth.example.com",
-  "aud": "kubelogin-prod",
-  "sub": "alice@example.com",
-  "email": "alice@example.com",
-  "email_verified": true,
-  "preferred_username": "alice",
-  "groups": ["admins", "devs"],
-  "iat": 1234567890,
-  "exp": 1234571490
-}
+{"client_id":"...","client_secret":"..."}
 ```
 
-**Claim descriptions:**
-- `iss`: Issuer URL (your Easy OIDC server)
-- `aud`: Audience (client ID)
-- `sub`: Subject (user's email)
-- `email`: User's verified email from Google/GitHub
-- `email_verified`: Always `true` (Google/GitHub verifies emails)
-- `preferred_username`: Local part of email (before `@`)
-- `groups`: List of groups from static mappings
-- `iat`: Issued at (Unix timestamp)
-- `exp`: Expiration (Unix timestamp, typically `iat + 1 hour`)
+The same connector type can be configured more than once, for example to
+aggregate several Dex instances. With one non-email connector, Easy OIDC redirects
+to it automatically. With multiple sign-in methods, it renders a selector.
 
-## Example: Multi-Cluster Setup
+Google supports `google.hd` for a hosted-domain hint. GitHub supports
+`github.hostname` for GitHub Enterprise. Generic connectors require
+`authorization_url`, `token_url`, and `userinfo_url`; `subject_field` defaults to
+`sub`, `email_field` to `email`, and `email_verified_field` to `email_verified`.
 
-Deploy Easy OIDC for three environments with different group mappings:
+Easy OIDC stores an upstream credential by connector ID, stable provider subject,
+and normalized email. Google and generic OIDC use the provider's `sub`; GitHub
+uses its numeric account ID. The normalized email is exposed downstream as `sub`,
+allowing different sign-in methods for the same email to resolve to the same
+downstream identity. The `email_verified` claim reflects the accepted provider
+assertion or completed local verification.
 
-```hcl
-module "easy_oidc" {
-  source = "easy-oidc/easy-oidc/aws"
+GitHub users are asked to choose when their account returns multiple email
+addresses. The page displays each address's primary and verified status; Easy OIDC
+does not silently choose one. GitHub-generated `users.noreply` addresses are
+excluded because they cannot receive verification codes.
 
-  vpc_id                      = aws_vpc.main.id
-  oidc_addr                   = "auth.example.com"
-  connector_type              = "google"
-  connector_client_secret_arn = data.aws_secretsmanager_secret.connector.arn
-  signing_key_secret_arn      = data.aws_secretsmanager_secret.signing_key.arn
+## Email authentication and verification
 
-  default_redirect_uris = ["http://localhost:8000"]
+An `email` connector adds direct sign-in with a typed one-time code. The same
+email configuration verifies OAuth identities according to the configured
+verification policy.
 
-  groups_overrides = {
-    prod-groups = {
-      "alice@example.com" = ["cluster-admins"]
-      "bob@example.com"   = ["developers"]
-    }
-    staging-groups = {
-      "alice@example.com" = ["cluster-admins"]
-      "bob@example.com"   = ["cluster-admins", "developers"]
-      "charlie@example.com" = ["qa-team"]
-    }
-    dev-groups = {
-      "alice@example.com" = ["cluster-admins"]
-      "bob@example.com"   = ["cluster-admins"]
-      "charlie@example.com" = ["cluster-admins"]
-    }
-  }
+The `email` configuration is optional. When it is omitted, email verification is
+disabled and Easy OIDC accepts the provider's chosen email and preserves its
+`email_verified` assertion.
 
-  clients = {
-    kubelogin-prod = {
-      groups_override = "prod-groups"
-    }
-    kubelogin-staging = {
-      groups_override = "staging-groups"
-    }
-    kubelogin-dev = {
-      groups_override = "dev-groups"
-    }
+```jsonc
+"email": {
+  "verification_mode": "provider",
+  "otp_secret_name": "EASYOIDC_OTP_SECRET",
+  "otp_ttl_seconds": 300,
+  "smtp": {
+    "host": "smtp.example.com",
+    "port": 587,
+    "tls_mode": "starttls",
+    "from_name": "Easy OIDC",
+    "from_address": "auth@example.com",
+    "credentials_secret": "EASYOIDC_SMTP_CREDENTIALS"
+  },
+  "turnstile": {
+    "site_key": "...",
+    "secret_name": "EASYOIDC_TURNSTILE_SECRET"
   }
 }
 ```
 
-Configure each Kubernetes cluster with its respective client ID.
+`verification_mode` defaults to `disabled`:
 
-## Next Steps
+- `disabled` accepts the provider's chosen email without local verification and
+  preserves the provider's `email_verified` assertion. SMTP is not required.
+- `provider` trusts a current upstream `email_verified` assertion, otherwise it
+  requires local verification.
+- `strict` ignores the provider assertion and requires local verification once
+  for each connector identity and exact email.
 
-- [Deploy to AWS](/docs/deploy/aws/)
-- [Configure Kubernetes](/docs/kubernetes/)
-- [Troubleshoot issues](/docs/troubleshooting/)
+`provider` and `strict` require complete OTP and SMTP configuration. A direct
+`email` connector also always requires OTP and SMTP, regardless of verification
+mode, because the code is its authentication mechanism. In `disabled` mode SMTP
+may be omitted; if supplied, it is still validated during startup.
+
+SMTP is authenticated. `tls_mode` is `starttls` (the default), `implicit`, or
+`plaintext`. Plaintext SMTP is only permitted when `host` is exactly `localhost`
+and startup prints a prominent warning because credentials, email addresses,
+message contents, and one-time codes cross the connection without encryption.
+The SMTP credential secret contains
+`{"username":"...","password":"..."}`.
+
+OTPs are random eight-digit, single-use codes. Their lifetime defaults to five
+minutes and must be a whole number of minutes from one to ten. A challenge allows
+five attempts, resends have a 60-second cooldown, and sends are limited to five
+per normalized email address per rolling hour.
+
+Cloudflare Turnstile is optional, but strongly recommended when direct email
+authentication is enabled. Without a challenge provider, attackers can still
+cause unwanted email within the per-address rate limit. Future challenge-provider
+support is intended to keep this integration vendor-neutral.
+
+## Clients and groups
+
+`clients` is a map keyed by downstream OIDC client ID. Each client can set
+`redirect_uris`, `groups_override`, and `require_groups`. When `redirect_uris` is
+omitted, `default_redirect_uris` is used. Plain HTTP redirects are accepted only
+for localhost.
+
+`groups_overrides` contains named email-to-group maps. A client's
+`groups_override` selects one map. Emails are normalized to lowercase before
+lookup, and groups are deduplicated before being emitted in the token.
+
+## Custom templates
+
+Easy OIDC embeds defaults in the binary. `templates_dir` overlays that embedded
+filesystem: provide only the files you want to replace.
+
+| Path | Data |
+|---|---|
+| `pages/layout.html` | Common HTML page layout. |
+| `pages/selector.html` | `.Title`, `.State`, `.SiteKey`, `.Connectors` (`.ID`, `.DisplayName`, `.URL`, `.Email`). |
+| `pages/identity.html` | `.Title`, `.Token`, `.Emails` (`.Address`, `.Verified`, `.Primary`). |
+| `pages/otp.html` | `.Title`, `.ChallengeID`, `.Message`. |
+| `pages/error.html` | `.Title`, `.Message`. |
+| `email/layout.html` | Common HTML email layout. |
+| `email/otp.html` | `.Code`, `.ExpiresAt`, `.ExpiresIn`. |
+| `email/layout.txt` | Common plain-text email layout. |
+| `email/otp.txt` | `.Code`, `.ExpiresAt`, `.ExpiresIn`. |
+
+`.ExpiresAt` is an exact UTC `time.Time`; `.ExpiresIn` is the configured
+`time.Duration`. For example:
+
+```gotemplate
+It expires at {{.ExpiresAt.Format "15:04 MST"}}
+(in {{printf "%.0f" .ExpiresIn.Minutes}} minutes).
+```
+
+Page content templates define `content`; layouts render it with
+`{{template "content" .}}`. Email HTML and text templates each have their own
+layout.
+
+All effective templates are parsed and test-rendered during startup. A parse or
+render error prevents the server from starting.
+
+Validate configuration and templates in CI with:
+
+```console
+easy-oidc validate --config ./config.jsonc
+```
+
+Develop overlays with mock data and live reload using:
+
+```console
+easy-oidc dev --templates-dir ./templates
+```
+
+The development server disables Turnstile and opens an index of page and email
+previews. Press `o` to open it in a browser.

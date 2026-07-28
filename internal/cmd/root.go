@@ -2,13 +2,15 @@
 // Copyright The Easy OIDC Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Package cmd provides the command-line interface for easy-oidc using Cobra.
-// It handles command parsing, flag management, and application bootstrapping.
 package cmd
 
 import (
 	"context"
+	"crypto/hkdf"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -18,101 +20,85 @@ import (
 	"time"
 
 	"github.com/easy-oidc/easy-oidc/internal/buildvars"
+	"github.com/easy-oidc/easy-oidc/internal/challenge"
 	"github.com/easy-oidc/easy-oidc/internal/config"
+	"github.com/easy-oidc/easy-oidc/internal/email"
 	"github.com/easy-oidc/easy-oidc/internal/oidc"
 	"github.com/easy-oidc/easy-oidc/internal/secrets"
 	"github.com/easy-oidc/easy-oidc/internal/storage"
+	"github.com/easy-oidc/easy-oidc/internal/templates"
 	"github.com/easy-oidc/easy-oidc/internal/tokens"
 	"github.com/easy-oidc/easy-oidc/internal/upstream"
 	"github.com/spf13/cobra"
 )
 
-var (
-	debugMode    bool
-	showVersion  bool
-	validateOnly bool
-	configPath   string
-)
-
 // NewRootCmd creates and returns the root Cobra command for easy-oidc.
-// The command supports flags for debug mode, version display, config validation,
-// and custom config file paths.
 func NewRootCmd() *cobra.Command {
+	var debugMode bool
+	var showVersion bool
+
+	// Determine the config file path before binding it as the flag default.
+	configPath := os.Getenv("EASYOIDC_CONFIG_PATH")
+	if configPath == "" {
+		configPath = "./config.jsonc"
+	}
 	cmd := &cobra.Command{
 		Use:   "easy-oidc",
 		Short: "Minimal OIDC server for Kubernetes",
 		Long: `easy-oidc is a lightweight OIDC server designed for Kubernetes clusters.
-It delegates authentication to Google or GitHub and maps users to groups via static configuration.`,
-		RunE: run,
+It delegates authentication to upstream identity providers and maps users to groups via static configuration.`,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if showVersion {
+				fmt.Printf("easy-oidc version %s\n", buildvars.BuildVersion())
+				if debugMode {
+					fmt.Printf("  Build date:   %s\n", buildvars.BuildDate())
+					fmt.Printf("  Commit:       %s\n", buildvars.CommitHash())
+					fmt.Printf("  Commit date:  %s\n", buildvars.CommitDate())
+					fmt.Printf("  Branch:       %s\n", buildvars.CommitBranch())
+				}
+				return nil
+			}
+			return run(cmd.Context(), cmd.OutOrStdout(), configPath, debugMode)
+		},
 	}
 
 	cmd.Flags().BoolVarP(&debugMode, "debug", "v", false, "Enable debug logging")
 	cmd.Flags().BoolVar(&showVersion, "version", false, "Show version and exit")
-	cmd.Flags().BoolVar(&validateOnly, "validate", false, "Validate configuration and exit")
-	cmd.Flags().StringVar(&configPath, "config", "", "Path to config file (default: ./config.jsonc or EASYOIDC_CONFIG_PATH)")
-
+	cmd.Flags().StringVar(&configPath, "config", configPath, "Path to config file")
+	cmd.AddCommand(newValidateCmd(), newDevCmd())
 	return cmd
 }
 
-func run(cmd *cobra.Command, args []string) error {
-	if showVersion {
-		fmt.Printf("easy-oidc version %s\n", buildvars.BuildVersion())
-		if debugMode {
-			fmt.Printf("  Build date:   %s\n", buildvars.BuildDate())
-			fmt.Printf("  Commit:       %s\n", buildvars.CommitHash())
-			fmt.Printf("  Commit date:  %s\n", buildvars.CommitDate())
-			fmt.Printf("  Branch:       %s\n", buildvars.CommitBranch())
-		}
-		return nil
-	}
-
-	ctx := context.Background()
-
-	// set up logger
+// run assembles and serves Easy OIDC until cancellation or an interrupt.
+func run(ctx context.Context, output io.Writer, configPath string, debug bool) error {
+	// Set up structured logging.
 	logLevel := slog.LevelInfo
-	if debugMode {
+	if debug {
 		logLevel = slog.LevelDebug
 	}
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: logLevel,
-	}))
+	logger := slog.New(slog.NewJSONHandler(output, &slog.HandlerOptions{Level: logLevel}))
 	slog.SetDefault(logger)
 
-	// determine config file path
-	configFilePath := configPath
-	if configFilePath == "" {
-		if envPath := os.Getenv("EASYOIDC_CONFIG_PATH"); envPath != "" {
-			configFilePath = envPath
-		} else {
-			configFilePath = "./config.jsonc"
-		}
-	}
-
-	// load config
-	cfg, err := config.Load(configFilePath)
+	// Load the configuration and precompile all effective templates.
+	cfg, err := config.Load(configPath)
 	if err != nil {
 		logger.Error("failed to load configuration", "error", err)
 		return fmt.Errorf("configuration error: %w", err)
 	}
-	if validateOnly {
-		logger.Info("configuration is valid")
-		return nil
+	templateManager, err := templates.Load(cfg.TemplatesDir)
+	if err != nil {
+		return fmt.Errorf("load templates: %w", err)
 	}
 
-	// set up secrets provider
+	// Set up the configured secrets provider.
 	secretsProvider, err := secrets.NewProvider(ctx, cfg.Secrets)
 	if err != nil {
 		logger.Error("failed to create secrets provider", "error", err)
 		return err
 	}
 
-	// load OIDC token signing key
-	var signingKeyPEM string
-	if cfg.Secrets.Provider == "env" {
-		signingKeyPEM, err = secretsProvider.GetSecret(ctx, "signing_key")
-	} else {
-		signingKeyPEM, err = secretsProvider.GetSecret(ctx, cfg.Secrets.SigningKeyName)
-	}
+	// Load the downstream OIDC token signing key.
+	signingKeyPEM, err := secretsProvider.GetSecret(ctx, cfg.Secrets.SigningKeyName)
 	if err != nil {
 		logger.Error("failed to get signing key", "error", err)
 		return err
@@ -123,7 +109,7 @@ func run(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// generate key ID if not provided
+	// Generate the key ID from the signing key when it is not configured.
 	if cfg.JWKSKID == "" {
 		cfg.JWKSKID, err = tokens.GenerateKeyID(signingKey)
 		if err != nil {
@@ -133,72 +119,130 @@ func run(cmd *cobra.Command, args []string) error {
 		logger.Info("generated jwks_kid from key fingerprint", "kid", cfg.JWKSKID)
 	}
 
-	// load upstream oauth connector credentials
-	var oauthCredsJSON string
-	if cfg.Secrets.Provider == "env" {
-		oauthCredsJSON, err = secretsProvider.GetSecret(ctx, "oauth_credentials")
-	} else {
-		oauthCredsJSON, err = secretsProvider.GetSecret(ctx, cfg.Secrets.ConnectorSecretName)
-	}
-	if err != nil {
-		logger.Error("failed to get OAuth credentials", "error", err)
-		return err
-	}
-	oauthCreds, err := secrets.ParseOAuthCredentials(oauthCredsJSON)
-	if err != nil {
-		logger.Error("failed to parse OAuth credentials", "error", err)
-		return err
-	}
-
-	// set up upstream connector
-	connector, err := upstream.NewConnector(cfg.Connector, cfg.IssuerURL, oauthCreds.ClientID, oauthCreds.ClientSecret)
-	if err != nil {
-		logger.Error("failed to create connector", "error", err)
-		return err
+	// Load credentials and initialize every configured upstream connector.
+	connectors := make(map[string]upstream.Connector)
+	for id, connectorConfig := range cfg.Connectors {
+		if connectorConfig.Type == "email" {
+			continue
+		}
+		raw, getErr := secretsProvider.GetSecret(ctx, connectorConfig.CredentialsSecret)
+		if getErr != nil {
+			return getErr
+		}
+		credentials, parseErr := secrets.ParseOAuthCredentials(raw)
+		if parseErr != nil {
+			return parseErr
+		}
+		connector, newErr := upstream.NewConnector(connectorConfig, cfg.IssuerURL+"/callback/"+id, credentials.ClientID, credentials.ClientSecret)
+		if newErr != nil {
+			return newErr
+		}
+		connectors[id] = connector
 	}
 
-	// set up token signer
-	tokenTTL := time.Duration(cfg.TokenTTLSeconds) * time.Second
-	signer := tokens.NewSigner(signingKey, cfg.JWKSKID, cfg.IssuerURL, tokenTTL)
+	// Derive the identity-selection key from the generic encryption master key.
+	var selectionKey []byte
+	if cfg.Secrets.EncryptionKeyName != "" {
+		rawEncryptionKey, getErr := secretsProvider.GetSecret(ctx, cfg.Secrets.EncryptionKeyName)
+		if getErr != nil {
+			return fmt.Errorf("get encryption key: %w", getErr)
+		}
+		encryptionKey, decodeErr := hex.DecodeString(rawEncryptionKey)
+		if decodeErr != nil || len(encryptionKey) != 32 {
+			return fmt.Errorf("encryption key must be a 64-character hex-encoded 32-byte key (generate with: openssl rand -hex 32)")
+		}
+		selectionKey, err = hkdf.Key(sha256.New, encryptionKey, nil, "easy-oidc/identity-selection/v1", 32)
+		if err != nil {
+			return fmt.Errorf("derive identity selection key: %w", err)
+		}
+	}
 
-	// generate JWKS
+	// Configure email delivery, OTP verification, and optional bot protection.
+	var mailer email.Sender
+	var challengeVerifier challenge.Verifier = challenge.Noop{}
+	var otpSecret []byte
+	if cfg.Email != nil {
+		hasEmailConnector := false
+		for _, connectorConfig := range cfg.Connectors {
+			if connectorConfig.Type == "email" {
+				hasEmailConnector = true
+				break
+			}
+		}
+		needsEmailDelivery := hasEmailConnector || cfg.Email.VerificationMode == "provider" || cfg.Email.VerificationMode == "strict"
+		if needsEmailDelivery {
+			rawOTP, getErr := secretsProvider.GetSecret(ctx, cfg.Email.OTPSecretName)
+			if getErr != nil {
+				return getErr
+			}
+			otpSecret = []byte(rawOTP)
+			if len(otpSecret) < 32 {
+				return fmt.Errorf("OTP HMAC secret must be at least 32 bytes")
+			}
+		}
+		if cfg.Email.SMTP != nil {
+			if cfg.Email.SMTP.TLSMode == "plaintext" {
+				logger.Warn("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+				logger.Warn("SECURITY WARNING: SMTP TLS IS DISABLED; SMTP CREDENTIALS, EMAIL ADDRESSES, AND ONE-TIME CODES MAY BE TRANSMITTED IN PLAINTEXT")
+				logger.Warn("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+			}
+			rawSMTP, getErr := secretsProvider.GetSecret(ctx, cfg.Email.SMTP.CredentialsSecret)
+			if getErr != nil {
+				return getErr
+			}
+			smtpCredentials, parseErr := email.ParseCredentials(rawSMTP)
+			if parseErr != nil {
+				return parseErr
+			}
+			if needsEmailDelivery {
+				smtpMailer := email.NewSMTPMailer(*cfg.Email.SMTP, smtpCredentials)
+				mailer = email.NewOTPMailer(smtpMailer, templateManager, time.Duration(cfg.Email.OTPTTLSeconds)*time.Second)
+			}
+		}
+		if cfg.Email.Turnstile != nil && cfg.Email.Turnstile.SecretName != "" {
+			raw, getErr := secretsProvider.GetSecret(ctx, cfg.Email.Turnstile.SecretName)
+			if getErr != nil {
+				return getErr
+			}
+			challengeVerifier = challenge.Turnstile{Secret: raw}
+		} else if hasEmailConnector {
+			logger.Warn("email authentication configured without Turnstile bot protection")
+		}
+	}
+
+	// Set up the downstream token signer and public JWKS document.
+	signer := tokens.NewSigner(signingKey, cfg.JWKSKID, cfg.IssuerURL, time.Duration(cfg.TokenTTLSeconds)*time.Second)
 	jwksData, err := tokens.GenerateJWKS(signingKey, cfg.JWKSKID)
 	if err != nil {
 		logger.Error("failed to generate JWKS", "error", err)
 		return err
 	}
 
-	// set up SQLite storage
-	// Create data directory if it doesn't exist
-	if err := os.MkdirAll(cfg.DataDir, 0755); err != nil {
+	// Set up SQLite storage, creating its data directory when needed.
+	if err = os.MkdirAll(cfg.DataDir, 0755); err != nil {
 		logger.Error("failed to create data directory", "error", err, "path", cfg.DataDir)
 		return err
 	}
-
-	dbPath := filepath.Join(cfg.DataDir, "easy-oidc.db")
-	store, err := storage.New(dbPath, logger)
+	store, err := storage.New(filepath.Join(cfg.DataDir, "easy-oidc.db"), logger)
 	if err != nil {
 		logger.Error("failed to initialize storage", "error", err)
 		return err
 	}
 	defer func() {
-		if err := store.Close(); err != nil {
-			logger.Error("failed to close storage", "error", err)
+		if closeErr := store.Close(); closeErr != nil {
+			logger.Error("failed to close storage", "error", closeErr)
 		}
 	}()
 
-	// set up auth code manager
-	authCodeMgr, err := oidc.NewAuthCodeManager(store)
+	// Set up the authorization code manager.
+	authCodeManager, err := oidc.NewAuthCodeManager(store)
 	if err != nil {
 		logger.Error("failed to create auth code manager", "error", err)
 		return err
 	}
 
-	// set up group resolver
-	groupResolver := tokens.NewGroupResolver(cfg.GroupsOverrides)
-
-	// run server
-	server := oidc.NewServer(cfg, connector, authCodeMgr, signer, groupResolver, jwksData, logger)
+	// Set up the OIDC server and HTTP routes.
+	server := oidc.NewServer(cfg, connectors, authCodeManager, signer, tokens.NewGroupResolver(cfg.GroupsOverrides), jwksData, logger, store, templateManager, mailer, challengeVerifier, otpSecret, selectionKey)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/openid-configuration", server.HandleDiscovery)
 	mux.HandleFunc("/jwks", server.HandleJWKS)
@@ -206,44 +250,36 @@ func run(cmd *cobra.Command, args []string) error {
 	mux.HandleFunc("/token", server.HandleToken)
 	mux.HandleFunc("/userinfo", server.HandleUserInfo)
 	mux.HandleFunc("/healthz", server.HandleHealth)
-	switch cfg.Connector.Type {
-	case "google":
-		mux.HandleFunc("/callback/google", server.HandleCallback)
-	case "github":
-		mux.HandleFunc("/callback/github", server.HandleCallback)
-	case "generic":
-		mux.HandleFunc("/callback/generic", server.HandleCallback)
-	}
-	httpServer := &http.Server{
-		Addr:         cfg.HTTPListenAddr,
-		Handler:      mux,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  60 * time.Second,
-	}
+	mux.HandleFunc("/callback/", server.HandleCallback)
+	mux.HandleFunc("POST /identity/select", server.HandleIdentitySelect)
+	mux.HandleFunc("GET /select/{connector}", server.HandleSelect)
+	mux.HandleFunc("POST /email/start", server.HandleEmailStart)
+	mux.HandleFunc("POST /email/verify", server.HandleEmailVerify)
+	mux.HandleFunc("POST /email/resend", server.HandleEmailResend)
+	httpServer := &http.Server{Addr: cfg.HTTPListenAddr, Handler: mux, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 
-	// run and trap signals
-	logger.Info("starting easy-oidc server",
-		"version", buildvars.BuildVersion(),
-		"issuer", cfg.IssuerURL,
-		"listen_addr", cfg.HTTPListenAddr,
-		"connector", cfg.Connector.Type,
-	)
+	// Run the server and wait for either a server error or a shutdown signal.
+	logger.Info("starting easy-oidc server", "version", buildvars.BuildVersion(), "issuer", cfg.IssuerURL, "listen_addr", cfg.HTTPListenAddr, "connectors", len(cfg.Connectors))
+	serverErrors := make(chan error, 1)
 	go func() {
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Error("server error", "error", err)
-			os.Exit(1)
-		}
+		serverErrors <- httpServer.ListenAndServe()
 	}()
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	<-sigChan
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	select {
+	case err = <-serverErrors:
+		if err != http.ErrServerClosed {
+			return fmt.Errorf("serve HTTP: %w", err)
+		}
+		return nil
+	case <-ctx.Done():
+	}
 
-	// handle shutdown
+	// Gracefully shut down active HTTP requests.
 	logger.Info("shutting down server")
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+	if err = httpServer.Shutdown(shutdownContext); err != nil {
 		logger.Error("server shutdown error", "error", err)
 		return err
 	}

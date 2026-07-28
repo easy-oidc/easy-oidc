@@ -136,7 +136,7 @@ func TestHandleToken_RequireGroups(t *testing.T) {
 				t.Fatalf("failed to create auth code manager: %v", err)
 			}
 
-			srv := NewServer(cfg, nil, authCodeMgr, signer, groupResolver, []byte("{}"), logger)
+			srv := NewServer(cfg, nil, authCodeMgr, signer, groupResolver, []byte("{}"), logger, store, nil, nil, nil, nil, nil)
 
 			verifier := "test-verifier-dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
 			hash := sha256.Sum256([]byte(verifier))

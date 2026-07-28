@@ -8,38 +8,29 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 )
 
-// AWSProvider retrieves secrets from AWS Secrets Manager.
-type AWSProvider struct {
+// AWSSecretsManagerProvider retrieves secrets from AWS Secrets Manager.
+type AWSSecretsManagerProvider struct {
 	client *secretsmanager.Client
 }
 
-// NewAWSProvider creates a new AWS Secrets Manager provider.
+// NewAWSSecretsManagerProvider creates a new AWS Secrets Manager provider.
 // If region is provided, it will use that region; otherwise uses default AWS configuration.
-func NewAWSProvider(ctx context.Context, region string) (*AWSProvider, error) {
-	var cfg aws.Config
-	var err error
-
-	if region != "" {
-		cfg, err = config.LoadDefaultConfig(ctx, config.WithRegion(region))
-	} else {
-		cfg, err = config.LoadDefaultConfig(ctx)
-	}
+func NewAWSSecretsManagerProvider(ctx context.Context, region string) (*AWSSecretsManagerProvider, error) {
+	cfg, err := loadAWSConfig(ctx, region)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load AWS config: %w", err)
+		return nil, err
 	}
 
-	return &AWSProvider{
+	return &AWSSecretsManagerProvider{
 		client: secretsmanager.NewFromConfig(cfg),
 	}, nil
 }
 
 // GetSecret retrieves a secret value from AWS Secrets Manager by name.
-func (p *AWSProvider) GetSecret(ctx context.Context, name string) (string, error) {
+func (p *AWSSecretsManagerProvider) GetSecret(ctx context.Context, name string) (string, error) {
 	result, err := p.client.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{
 		SecretId: &name,
 	})

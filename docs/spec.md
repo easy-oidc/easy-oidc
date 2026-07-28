@@ -5,188 +5,208 @@ linkTitle: 'Specification'
 weight: 2
 ---
 
-OIDC is a minimal OIDC provider designed for use with Kubernetes, with Google/GitHub federation, and static group mappings.
+Easy OIDC is a minimal OIDC provider designed primarily for Kubernetes. It
+federates authentication to one or more upstream providers, normalizes users to
+email identities, and maps those emails to static groups.
 
-## Overview
+## Design goals
 
-`easy-oidc` is a lightweight OIDC provider that:
-- Delegates authentication to Google or GitHub (no local passwords)
-- Maps authenticated emails to Kubernetes groups via static configuration
-- Supports Auth Code + PKCE only (public clients, no client secrets)
-- Runs as a single binary with all configuration via environment variables
-- Designed to run behind Caddy for automatic Let's Encrypt TLS
+- Authorization Code flow with mandatory PKCE S256 for downstream public clients.
+- No downstream client secrets.
+- Multiple Google, GitHub, generic OAuth2/OIDC, and direct-email connectors.
+- Static email-to-group policy with per-client selection.
+- A single binary with embedded templates and SQLite persistence.
+- Secrets loaded once at startup from AWS Secrets Manager, AWS Systems Manager
+  Parameter Store, Google Secret Manager, Azure Key Vault, or environment
+  variables.
+- Secure startup validation: invalid configuration, secrets, or templates prevent
+  the server from serving requests.
 
-Terraform modules will be created for AWS, GCP, and Azure. The Go binary fetches secrets from cloud-native secret stores (AWS Secrets Manager, GCP Secret Manager, Azure Key Vault) using official SDKs.
-
----
-
-## Design Goals
-
-**Included:**
-- Authorization Code + PKCE flow only
-- Public clients (kubectl/kubelogin/nadrama)
-- Google OR GitHub upstream authentication
-- Static email → groups mapping (per-cluster + global defaults)
-- Minimal infrastructure: single EC2 instance
-- No external dependencies beyond upstream IdP
-- IPv4/IPv6 dual-stack support (IPv4 can be disabled for IPv6-only)
-
-**Excluded (v1):**
-- HA/ASG/load balancers
-- Client secrets (only public clients)
-- Local password authentication
-- Admin UI for mappings
-- Dynamic group resolution from upstream IdP (groups default to empty if no static overrides specified)
-- Other OAuth2 flows (implicit, client credentials, etc.)
-
----
+Easy OIDC does not provide local passwords, an administration UI, dynamic
+upstream-group synchronization, SAML, or non-PKCE downstream flows.
 
 ## Architecture
 
-```
-┌──────────┐                                     ┌─────────────┐
-│kubelogin │──── OIDC Auth Code + PKCE ────────▶ │    Caddy    │
-└──────────┘         (port 443)                  │ (Let's Enc) │
-                                                 └──────┬──────┘
-                                                        │ proxy
-                                                        │ (127.0.0.1:8080)
-                                                 ┌──────▼──────┐
-                                                 │  easy-oidc  │◀─── Secrets Manager
-                                                 └──────┬──────┘     (startup only)
-                                                        │
-                                        ┌───────────────┴───────────────┐
-                                        │                               │
-                                  ┌─────▼─────┐                  ┌──────▼──────┐
-                                  │  Google   │                  │   GitHub    │
-                                  │   OAuth   │                  │    OAuth    │
-                                  └───────────┘                  └─────────────┘
+```text
+┌──────────┐  Auth Code + PKCE  ┌───────────────┐   HTTP   ┌───────────┐
+│kubelogin │───────────────────▶│ TLS proxy     │─────────▶│ easy-oidc │
+└──────────┘                    │ (for example, │          └────┬──────┘
+                                │ Caddy)        │               │
+                                └───────────────┘               ├────▶ SQLite
+                                                                ├────▶ Secrets provider
+                                                                ├────▶ SMTP and Turnstile
+                                                                │
+                                         ┌──────────┬───────────┼──────────┐
+                                         │          │           │          │
+                                     ┌───▼────┐ ┌───▼────┐ ┌────▼───┐ ┌────▼───┐
+                                     │Google  │ │GitHub  │ │Generic │ │Direct  │
+                                     │OAuth   │ │OAuth   │ │OAuth   │ │email   │
+                                     └────────┘ └────────┘ └────────┘ └────────┘
 ```
 
-**Flow:**
-1. Client initiates OIDC login to `https://auth.example.com`
-2. Caddy terminates TLS, proxies to `easy-oidc`
-3. `easy-oidc` redirects user to Google/GitHub
-4. On callback, validates upstream token and extracts verified email
-5. Resolves groups from static configuration
-6. Issues signed ID token with `groups` claim
-7. Kubernetes API server validates token and enforces RBAC
+A TLS reverse proxy normally fronts the HTTP server. SQLite stores browser
+authorization state, single-use authorization codes, OTP challenges, and local
+email-verification records. It does not store browser sessions or cookies.
+Secrets are loaded once during startup through the configured provider; secret
+values are not written into the application configuration or SQLite database.
 
----
+## Authentication flow
 
-## OIDC Endpoints
+1. A downstream client starts `/authorize` with a PKCE challenge.
+2. With one OAuth connector, Easy OIDC redirects automatically. Otherwise the
+   user selects an upstream provider or enters an email address.
+3. OAuth connectors return a stable provider subject and one or more email
+   assertions. Direct email authentication uses the normalized email as its
+   connector subject.
+4. If several email assertions are available, the user chooses one from a
+   stateless authenticated selection token.
+5. Easy OIDC accepts the chosen email directly, accepts the provider's
+   verification assertion, or requires a typed OTP according to the configured
+   verification mode.
+6. The original OAuth state is atomically consumed and a single-use opaque
+   authorization code is issued.
+7. `/token` validates the code and PKCE verifier, resolves static groups, and
+   returns a signed token.
 
-`easy-oidc` implements a standard OIDC provider:
+## Identity model
+
+An upstream credential is identified by connector ID, provider subject, and
+normalized email. Connector IDs make repeated instances of the same provider
+independent. Google and generic OIDC use `sub`; GitHub uses its numeric account
+ID.
+
+Provider subjects are never exposed downstream. The normalized email is used for
+downstream `sub` and `email`, so the same email has the same downstream identity
+across connectors.
+
+Local verification is recorded for each connector identity and exact email. In
+`disabled` mode, the default, Easy OIDC accepts the chosen email and preserves the
+provider's `email_verified` assertion. In `provider` mode, a current verified
+assertion is accepted and an unverified assertion requires local verification.
+In `strict` mode, provider assertions are ignored and local verification is
+required once.
+
+## Security properties
+
+- PKCE S256 is mandatory for every downstream client.
+- Authorization codes and browser state are opaque, single-use, expiring values.
+- Identity-selection data is encrypted and authenticated with AES-256-GCM.
+- Purpose-specific encryption keys are derived from a master key using
+  HKDF-SHA256 with versioned domain separation.
+- OTPs are random, single-use, short-lived, attempt-limited, and rate-limited per
+  normalized email address.
+- SMTP is authenticated and uses TLS by default; plaintext mode is restricted to
+  `localhost` and emits a prominent startup warning.
+- Turnstile can protect direct email initiation; it is optional but recommended.
+- Signing keys, encryption keys, OAuth credentials, SMTP credentials, OTP
+  secrets, and challenge secrets remain server-side.
+
+## OIDC endpoints
 
 | Endpoint | Purpose |
-|----------|---------|
+|---|---|
 | `/.well-known/openid-configuration` | Discovery document |
-| `/authorize` | Authorization endpoint (redirects to upstream IdP) |
-| `/token` | Token endpoint (validates PKCE, issues tokens) |
+| `/authorize` | Begin authorization and select a sign-in method |
+| `/token` | Consume an authorization code and validate PKCE |
 | `/jwks` | Public signing keys |
-| `/userinfo` | UserInfo endpoint |
+| `/userinfo` | Return claims for a valid Easy OIDC token |
+| `/healthz` | Health check |
 
----
+Connector callbacks and browser form endpoints are internal parts of the login
+flow rather than downstream OAuth APIs.
 
-## Configuration
+## Token identity and groups
 
-All configuration in a **JSONC file** (parsed with `tidwall/jsonc`), e.g.:
+Issued tokens include `iss`, `aud`, `sub`, `email`, `email_verified`,
+`preferred_username`, `groups`, `iat`, and `exp`. `sub` and `email` contain the
+same normalized email. Static groups are selected by downstream client and
+resolved at code exchange time.
+
+## Configuration and operations
+
+Configuration is JSONC; see the [Configuration Reference](/docs/config/).
+Templates are embedded and may be partially overlaid from a directory. All
+configuration and templates are validated before startup. Secrets are fetched
+once at startup rather than on each request.
+
+A representative multiple-connector configuration is:
 
 ```jsonc
 {
-  // Core settings
   "issuer_url": "https://auth.example.com",
   "http_listen_addr": "127.0.0.1:8080",
   "data_dir": "/var/lib/easy-oidc",
   "signing_algorithm": "RS256",
-  
-  // Signing key ID
-  "jwks_kid": "key-2024-01",
-  
-  // Secrets configuration
+
   "secrets": {
-    "provider": "aws",  // "aws", "gcp", "azure", or "env" for local dev
-    "signing_key_name": "easy-oidc-signing-key",
-    "connector_secret_name": "easy-oidc-connector-secret",
-    
-    // Azure-specific (only when provider=azure)
-    "azure_keyvault_url": "https://my-vault.vault.azure.net/",
-    
-    // Local development (only when provider=env)
-    "signing_key_pem": "-----BEGIN PRIVATE KEY-----...",
-    "oauth_client_id": "...",
-    "oauth_client_secret": "..."
+    "provider": "env",
+    "signing_key_name": "EASYOIDC_SIGNING_KEY"
   },
-  
-  // Upstream connector
-  "connector": {
-    "type": "google",  // or "github"
-    "client_id": "123456789.apps.googleusercontent.com",
-    "redirect_url": "https://auth.example.com/callback/google",
-    
-    // Optional
-    "scopes": ["openid", "email", "profile"],  // defaults per connector type
-    
-    // Provider-specific options
-    "google": {
-      "hd": "example.com"  // hosted domain
+
+  "connectors": {
+    "company-google": {
+      "type": "google",
+      "display_name": "Company Google",
+      "order": 10,
+      "credentials_secret": "EASYOIDC_GOOGLE_CREDENTIALS",
+      "google": {
+        "hd": "example.com"
+      }
     },
-    "github": {
-      "hostname": "github.com"  // for GitHub Enterprise
+    "engineering-dex": {
+      "type": "generic",
+      "display_name": "Engineering Dex",
+      "order": 20,
+      "credentials_secret": "EASYOIDC_DEX_CREDENTIALS",
+      "generic": {
+        "authorization_url": "https://dex.example.com/auth",
+        "token_url": "https://dex.example.com/token",
+        "userinfo_url": "https://dex.example.com/userinfo",
+        "subject_field": "sub"
+      }
     }
   },
-  
-  // Default redirect URIs (used if not specified per client)
+
   "default_redirect_uris": ["http://localhost:8000"],
-  
-  // Groups overrides (email → groups mappings)
-  // Optional: if not specified per client, uses groups from upstream IdP
   "groups_overrides": {
-    "prod-groups": {
-      "alice@example.com": ["prod-admins", "devs"],
-      "bob@example.com": ["prod-readonly"]
+    "production": {
+      "alice@example.com": ["cluster-admins", "developers"],
+      "bob@example.com": ["developers"]
     }
   },
-  
-  // OIDC clients (key is the client_id)
   "clients": {
     "kubelogin-prod": {
-      "redirect_uris": ["http://localhost:8000"],
-      "groups_override": "prod-groups"  // optional, omit to use upstream IdP groups
-    },
-    "kubelogin-dev": {
-      // redirect_uris not set: uses default_redirect_uris
-      // no groups_override: uses groups from upstream IdP (Google/GitHub)
+      "groups_override": "production"
     }
   }
 }
 ```
 
-**Key rotation:** Update `EASYOIDC_SIGNING_KEY_PEM` and `jwks_kid` in config, then restart.
+With the `env` provider, the signing key and each OAuth credential name are
+environment-variable names. OAuth credential values are JSON objects containing
+`client_id` and `client_secret`. Production deployments can instead use AWS
+Secrets Manager, AWS Systems Manager Parameter Store, Google Secret Manager, or
+Azure Key Vault. See the [example configurations](https://github.com/easy-oidc/easy-oidc/tree/main/examples/config)
+for direct email, GitHub, SMTP, Turnstile, and template settings.
 
-**Key principles:**
-- No key/certificate generation (provided via config)
-- Embedded SQLite for OAuth state and authorization code storage (minimal persistent state)
-- No HTTP server configuration (runs behind Caddy)
+### Group resolution
 
----
+For an authenticated email and downstream client:
 
-## Group Resolution Logic
+1. Normalize the email to lowercase.
+2. Read the client's `groups_override` name.
+3. Look up that named map under `groups_overrides`, then look up the email.
+4. Return an empty list if either lookup is absent.
+5. Deduplicate and sort the resulting groups.
+6. Reject token exchange when the effective `require_groups` setting is true and
+   the result is empty.
 
-For a given `client_id` and authenticated `email`:
+The client-level `require_groups` setting overrides the global setting. It
+defaults to true when neither is configured.
 
-1. Normalize email to lowercase
-2. If `clients[client_id].groups_override` is set:
-   - Check `groups_overrides[override_key][email]`
-   - If found, use those groups; otherwise return `[]`
-3. If `groups_override` is not set:
-   - Return `[]` (empty groups)
-4. Deduplicate and emit as `groups` claim
+## ID token claims
 
----
-
-## ID Token Claims
-
-Issued tokens include:
+An issued ID token has claims equivalent to:
 
 ```json
 {
@@ -196,276 +216,122 @@ Issued tokens include:
   "email": "alice@example.com",
   "email_verified": true,
   "preferred_username": "alice",
-  "groups": ["prod-admins", "devs"],
-  "iat": 1234567890,
-  "exp": 1234571490
+  "groups": ["cluster-admins", "developers"],
+  "iat": 1753650000,
+  "exp": 1753653600,
+  "nonce": "optional-client-nonce"
 }
 ```
 
----
+| Claim | Meaning |
+|---|---|
+| `iss` | Configured Easy OIDC issuer URL. |
+| `aud` | Downstream client ID that initiated authorization. |
+| `sub` | Normalized email; provider subjects are never exposed. |
+| `email` | The same normalized email identity used downstream. |
+| `email_verified` | Provider assertion in disabled mode; true after accepted provider or local verification in provider/strict modes. |
+| `preferred_username` | Local part of the email address. |
+| `groups` | Sorted static groups resolved for the downstream client. |
+| `iat`, `exp` | Issue and expiry times; lifetime is controlled by `token_ttl_seconds`. |
+| `nonce` | Included only when supplied in the authorization request. |
 
-## PKCE Enforcement
+### PKCE enforcement
 
-- `/authorize` requires `code_challenge` and `code_challenge_method=S256`
-- `/token` requires `code_verifier` matching the challenge
-- No fallback to non-PKCE flows
+- `/authorize` requires `code_challenge` and `code_challenge_method=S256`.
+- `/token` requires the matching `code_verifier`.
+- Authorization codes are opaque, expiring, atomically consumed, and cannot be
+  exchanged twice.
+- There is no fallback to a non-PKCE flow and downstream client secrets are not
+  supported.
 
----
+## Kubernetes integration
 
-## Kubernetes Integration
+Kubernetes API servers can validate Easy OIDC tokens directly:
 
-### API Server Flags
-
-```bash
+```text
 --oidc-issuer-url=https://auth.example.com
 --oidc-client-id=kubelogin-prod
 --oidc-username-claim=email
 --oidc-groups-claim=groups
 ```
 
-### kubeconfig Example
+Users can configure [kubelogin](https://github.com/int128/kubelogin) as a
+kubeconfig exec credential plugin:
 
 ```yaml
 users:
-  - name: oidc-prod
-    user:
-      exec:
-        apiVersion: client.authentication.k8s.io/v1
-        command: kubelogin
-        args:
-          - get-token
-          - --oidc-issuer-url=https://auth.example.com
-          - --oidc-client-id=kubelogin-prod
-          - --oidc-extra-scope=email
-          - --oidc-extra-scope=groups
+- name: oidc-prod
+  user:
+    exec:
+      apiVersion: client.authentication.k8s.io/v1
+      command: kubelogin
+      args:
+      - get-token
+      - --oidc-issuer-url=https://auth.example.com
+      - --oidc-client-id=kubelogin-prod
+      - --oidc-use-pkce
 ```
 
----
+Kubernetes uses `email` as the RBAC username and `groups` for group bindings. See
+the [Kubernetes integration guide](/docs/kubernetes/) for cluster-specific setup,
+RBAC examples, and complete kubeconfig instructions.
 
-## Terraform Module (`terraform-aws-easy-oidc`)
+## OpenTofu/Terraform deployment
 
-The companion Terraform module provisions:
+The companion modules provision the cloud runtime around the binary:
 
-### Usage Example
+- `terraform-aws-easy-oidc` provisions an ARM64 or AMD64 EC2 instance, IAM
+  permissions, security groups, optional networking resources, systemd services,
+  and Caddy.
+- `terraform-google-easy-oidc` provisions a Compute Engine VM, service account,
+  firewall rules, optional networking resources, systemd services, and Caddy.
 
-**Pre-requisites: Create secrets in Secrets Manager**
+The module names retain `terraform` for registry and repository compatibility,
+but examples use the OpenTofu CLI:
 
-Use AWS CLI to keep secrets out of Terraform state and version control:
-
-**1. OAuth client credentials:**
-```bash
-# For Google
-aws secretsmanager create-secret \
-  --name easy-oidc-connector-secret \
-  --secret-string '{
-    "client_id": "123456789.apps.googleusercontent.com",
-    "client_secret": "GOCSPX-xxxxxxxxxxxxxxxxxxxxx"
-  }'
-
-# For GitHub
-aws secretsmanager create-secret \
-  --name easy-oidc-connector-secret \
-  --secret-string '{
-    "client_id": "Iv1.abc123def456",
-    "client_secret": "abc123def456..."
-  }'
+```console
+tofu init
+tofu plan
+tofu apply
 ```
 
-**2. PKCS8 PEM private key (RSA-3072 for the default RS256 algorithm):**
-```bash
-openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 | aws secretsmanager create-secret \
-  --name easy-oidc-signing-key \
-  --secret-string file:///dev/stdin
-```
+Secrets should be created outside OpenTofu/Terraform and passed to the module by
+name or ARN so secret values do not enter state. Instance startup writes the
+JSONC configuration, starts Easy OIDC and Caddy, and lets Easy OIDC read its
+configured secrets using the instance IAM role or service account. See the
+[AWS deployment guide](/docs/deploy/aws/) for the complete module example,
+variables, outputs, DNS, and replacement procedure, or the
+[Google Cloud module](https://github.com/easy-oidc/terraform-google-easy-oidc/blob/main/README.md#usage)
+for Google Cloud deployment instructions.
 
-Then reference them in Terraform:
+## Implementation dependencies
 
-> **Note:** Terraform will fail if these secrets don't exist. Create them before running `terraform apply`.
+The main direct dependencies and their responsibilities are:
 
-**Deploy the module:**
-```hcl
-# Configuration
-locals {
-  vpc_cidr      = "10.0.0.0/16"
-  oidc_hostname = "auth.example.com"
-}
+| Dependency | Purpose |
+|---|---|
+| `github.com/lestrrat-go/jwx/v2` | JWT signing and verification; JWK and JWKS handling. |
+| `golang.org/x/oauth2` | Upstream OAuth 2.0 authorization and token exchange. |
+| `github.com/tailscale/hujson` | JSONC parsing and standardization. |
+| `github.com/spf13/cobra` | Command-line interface. |
+| `github.com/mattn/go-sqlite3` | Persistent OAuth state, codes, OTP challenges, and verification records. |
+| AWS SDK for Go v2 | AWS Secrets Manager and Systems Manager Parameter Store. |
+| Google Cloud Secret Manager client | Google Secret Manager access. |
+| Azure SDK for Go | Azure Key Vault access. |
 
-# Reference secrets
-data "aws_secretsmanager_secret" "connector_secret" {
-  name = "easy-oidc-connector-secret"
-}
+Signing uses Go's cryptographic implementations through JWX. Supported
+algorithms are RS256/384/512, PS256/384/512, ES256/384/512, and EdDSA; RS256 is
+the default for broad Kubernetes compatibility.
 
-data "aws_secretsmanager_secret" "signing_key" {
-  name = "easy-oidc-signing-key"
-}
+## Persistence and lifecycle
 
-# Create VPC, IGW, IPv6 egress gateway
-resource "aws_vpc" "main" {
-  cidr_block                       = local.vpc_cidr
-  assign_generated_ipv6_cidr_block = true
-  enable_dns_hostnames             = true
-  enable_dns_support               = true
-}
+The SQLite database lives under `data_dir` and allows authorization state,
+authorization codes, OTP challenges, and verification records to survive process
+restarts. Signing-key rotation currently requires replacing the configured key
+and restarting Easy OIDC.
 
-resource "aws_internet_gateway" "main" {
-  vpc_id = aws_vpc.main.id
-}
-
-resource "aws_egress_only_internet_gateway" "main" {
-  vpc_id = aws_vpc.main.id
-}
-
-resource "aws_route_table" "main" {
-  vpc_id = aws_vpc.main.id
-
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.main.id
-  }
-
-  route {
-    ipv6_cidr_block        = "::/0"
-    egress_only_gateway_id = aws_egress_only_internet_gateway.main.id
-  }
-}
-
-# Deploy easy-oidc
-module "easy_oidc" {
-  source = "easy-oidc/easy-oidc/aws"
-
-  region                        = "us-east-1"
-  vpc_id                        = aws_vpc.main.id
-  oidc_addr                     = local.oidc_hostname
-  
-  connector_type                = "google"
-  connector_client_secret_arn   = data.aws_secretsmanager_secret.connector_secret.arn
-  signing_key_secret_arn        = data.aws_secretsmanager_secret.signing_key.arn
-  
-  default_redirect_uris = ["http://localhost:8000"]
-  
-  groups_overrides = {
-    prod-groups = {
-      "alice@example.com" = ["prod-admins", "devs"]
-      "bob@example.com"   = ["prod-readonly"]
-    }
-  }
-  
-  clients = {
-    kubelogin-prod = {
-      groups_override = "prod-groups"  # override upstream IdP groups
-    }
-    kubelogin-dev = {
-      # redirect_uris not set: uses default_redirect_uris
-      # no groups_override: uses groups from Google/GitHub
-    }
-  }
-  
-  # Optional: IPv6-only deployment
-  enable_ipv4 = false
-}
-
-# Configure DNS records
-data "aws_route53_zone" "main" {
-  name = "example.com"
-}
-
-resource "aws_route53_record" "oidc_a" {
-  count   = module.easy_oidc.instance_public_ipv4 != null ? 1 : 0
-  zone_id = data.aws_route53_zone.main.zone_id
-  name    = local.oidc_hostname
-  type    = "A"
-  ttl     = 300
-  records = [module.easy_oidc.instance_public_ipv4]
-}
-
-resource "aws_route53_record" "oidc_aaaa" {
-  zone_id = data.aws_route53_zone.main.zone_id
-  name    = local.oidc_hostname
-  type    = "AAAA"
-  ttl     = 300
-  records = [module.easy_oidc.instance_public_ipv6]
-}
-```
-
-### AWS Resources
-
-- **EC2 Instance**: ARM64 (t4g.nano), Ubuntu LTS, dual-stack IPv4/IPv6 or IPv6-only
-- **Subnet** (auto-created if not provided): Public subnet with IPv6 CIDR, optional IPv4 CIDR
-- **Security Group**: 80/tcp and 443/tcp from configurable CIDRs
-- **IAM Role**: Read-only access to Secrets Manager
-- **Secrets Manager**: Signing keys + upstream OAuth credentials
-
-### User Data Bootstrap
-
-On instance launch:
-1. Download `easy-oidc` and `caddy` ARM64 binaries
-2. Render `/etc/easy-oidc/config.jsonc` from Terraform variables
-3. Create `/var/lib/easy-oidc` directory with proper permissions
-4. Install systemd units for `easy-oidc` and `caddy`
-5. Start services (easy-oidc fetches secrets at startup using AWS SDK)
-
-### Terraform Variables
-
-**Required:**
-- `region`, `vpc_id`
-- `oidc_addr` (e.g., `auth.example.com` or `auth.example.com:8443`)
-- `connector_type` (`google` or `github`)
-- `connector_client_secret_arn` (pre-created secret ARN)
-- `clients` (map of OIDC client definitions, keyed by client_id)
-
-**Optional:**
-- `subnet_id` (auto-created if omitted; requires VPC with IGW, IPv6 egress-only gateway, and route table with default routes configured)
-- `enable_ipv4` (default: `true`; set to `false` for IPv6-only)
-- `instance_type` (default: `t4g.nano`)
-- `signing_key_secret_arn` (recommended to create manually via CLI to keep out of Terraform state)
-- `allowed_cidrs_ipv4` (ignored if `enable_ipv4 = false`)
-- `allowed_cidrs_ipv6`
-
-### Terraform Outputs
-
-- `issuer_url`
-- `client_ids` (list of configured client IDs)
-- `instance_id`, `instance_public_ipv4` (null if IPv4 disabled), `instance_public_ipv6`
-- `subnet_id` (ID of created or provided subnet)
-- `security_group_id`
-
----
-
-## Security & Operations
-
-**Reboot resilience:**
-- Configuration persists in `/etc/easy-oidc/config.jsonc` and `/etc/easy-oidc/env` (reloaded from EBS root volume)
-- Systemd auto-restarts services
-- OAuth state and authorization codes persist across restarts (SQLite database in `/var/lib/easy-oidc/easy-oidc.db`)
-- In-flight login sessions survive restarts
-
-**Instance replacement:**
-- Terraform re-provisions with identical config
-- Secrets Manager provides keys and credentials
-- DNS records updated automatically via Terraform
-- Users must re-login; client configs and group mappings unchanged
-
-**Secret management:**
-- All secrets created manually via AWS CLI to keep them out of Terraform state
-- Signing keys and OAuth credentials stored in Secrets Manager
-- Terraform only references secrets by ARN (never contains secret values)
-- EC2 IAM role grants read-only access to Secrets Manager (no write)
-
----
-
-## Development Notes
-
-**Dependencies:**
-- `github.com/lestrrat-go/jwx/v2` - JWT/JWK/JWKS handling
-- `golang.org/x/oauth2` - OAuth2 client (for Google/GitHub login flow)
-- `github.com/tidwall/jsonc` - JSONC config parsing
-- `github.com/spf13/cobra` - CLI framework
-- `github.com/mattn/go-sqlite3` - Embedded SQLite for OAuth state and authorization code storage
-- Standard library `crypto/rsa`, `crypto/ecdsa`, and `crypto/ed25519` for signing
-- Cloud SDKs: AWS Secrets Manager, GCP Secret Manager, Azure Key Vault
-
-**Architecture:**
-- RS256, RS384, RS512, ES256, ES384, ES512, PS256, PS384, PS512, and EdDSA token signing; RS256 is the Kubernetes-compatible default
-- All HTTP runs on loopback; Caddy handles public TLS
-- Embedded SQLite for OAuth state and authorization code storage with replay protection
-- ARM64-first design (t4g instances, ARM64 binaries)
+Configuration, secrets, and templates are loaded at startup. The process exits
+instead of serving requests if configuration validation, secret loading,
+template parsing, or template test rendering fails. `easy-oidc validate` performs
+the same configuration and template checks for CI, while `easy-oidc dev` serves
+live-reloading template previews with mock data.

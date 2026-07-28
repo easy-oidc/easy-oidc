@@ -1,0 +1,45 @@
+// Easy OIDC <https://easy-oidc.dev>
+// Copyright The Easy OIDC Authors
+// SPDX-License-Identifier: Apache-2.0
+
+{
+  "$schema": "https://easy-oidc.dev/schema/v2/config.schema.json",
+
+  // Local email authentication with Mailpit. See DEV.md for setup instructions.
+  "issuer_url": "http://localhost:8080",
+  "http_listen_addr": "127.0.0.1:8080",
+  "data_dir": "temp",
+  "signing_algorithm": "RS256",
+  "require_groups": false,
+
+  "secrets": {
+    "provider": "env",
+    "signing_key_name": "EASYOIDC_SIGNING_KEY",
+  },
+
+  "connectors": {
+    "email": {
+      "type": "email",
+      "display_name": "Email code",
+    },
+  },
+
+  "email": {
+    "verification_mode": "disabled",
+    "otp_secret_name": "EASYOIDC_OTP_SECRET",
+    "otp_ttl_seconds": 300,
+    "smtp": {
+      "host": "localhost",
+      "port": 1025,
+      "tls_mode": "plaintext",
+      "from_name": "Easy OIDC",
+      "from_address": "auth@localhost",
+      "credentials_secret": "EASYOIDC_SMTP_CREDENTIALS",
+    },
+  },
+
+  "default_redirect_uris": ["http://localhost:8000"],
+  "clients": {
+    "kubelogin-local": {},
+  },
+}
