@@ -71,6 +71,7 @@ type Config struct {
 	DefaultRedirectURIs []string                       `json:"default_redirect_uris"`
 	GroupsOverrides     map[string]map[string][]string `json:"groups_overrides"`
 	Clients             map[string]ClientConfig        `json:"clients"`
+	OIDCTrust           OIDCTrustConfig                `json:"oidc_trust,omitempty"`
 }
 
 // SecretsConfig defines the secrets provider configuration.
@@ -152,10 +153,11 @@ type TurnstileConfig struct {
 // ClientConfig defines OIDC client-specific configuration.
 // Each client can have custom redirect URIs and group override mappings.
 type ClientConfig struct {
-	RedirectURIs   []string           `json:"redirect_uris"`
-	GroupsOverride string             `json:"groups_override"`
-	RequireGroups  *bool              `json:"require_groups,omitempty"`
-	RefreshTokens  RefreshTokenConfig `json:"refresh_tokens,omitempty"`
+	RedirectURIs   []string             `json:"redirect_uris"`
+	GroupsOverride string               `json:"groups_override"`
+	RequireGroups  *bool                `json:"require_groups,omitempty"`
+	RefreshTokens  RefreshTokenConfig   `json:"refresh_tokens,omitempty"`
+	TrustBindings  []TrustBindingConfig `json:"trust_bindings,omitempty"`
 }
 
 // RefreshTokenConfig controls refresh issuance and snapshotted grant lifetimes.

@@ -15,11 +15,12 @@ import (
 	refreshdomain "github.com/easy-oidc/easy-oidc/internal/refresh"
 	"github.com/easy-oidc/easy-oidc/internal/storage"
 	"github.com/easy-oidc/easy-oidc/internal/tokens"
+	"github.com/easy-oidc/easy-oidc/internal/trust"
 	"github.com/easy-oidc/easy-oidc/internal/upstream"
 )
 
 const (
-	maxTokenFormBytes          = 16 << 10
+	maxTokenFormBytes          = trust.MaxJWTBytes + (4 << 10)
 	maxRefreshMaterialAttempts = 3
 )
 
@@ -68,7 +69,7 @@ func (s *Server) HandleToken(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, http.StatusBadRequest, "invalid_request", "invalid form")
 		return
 	}
-	for _, name := range []string{"grant_type", "code", "client_id", "client_secret", "redirect_uri", "code_verifier", "refresh_token", "scope"} {
+	for _, name := range []string{"grant_type", "code", "client_id", "client_secret", "redirect_uri", "code_verifier", "refresh_token", "scope", "subject_token", "subject_token_type", "requested_token_type"} {
 		if len(r.PostForm[name]) > 1 {
 			oauthError(w, http.StatusBadRequest, "invalid_request", "duplicate parameter")
 			return
@@ -98,7 +99,9 @@ func (s *Server) HandleToken(w http.ResponseWriter, r *http.Request) {
 			host = r.RemoteAddr
 		}
 		defer func() {
-			s.logger.Info("refresh attempt", "result", audit.status, "client_id", r.PostForm.Get("client_id"), "remote_ip", host, "user_agent", r.UserAgent(), "sid", audit.sid)
+			if s.logger != nil {
+				s.logger.Info("refresh attempt", "result", audit.status, "client_id", r.PostForm.Get("client_id"), "remote_ip", host, "user_agent", r.UserAgent(), "sid", audit.sid)
+			}
 		}()
 		if r.PostForm.Get("refresh_token") == "" || r.PostForm.Get("client_id") == "" {
 			oauthError(audit, http.StatusBadRequest, "invalid_request", "refresh_token and client_id are required")
@@ -122,6 +125,8 @@ func (s *Server) HandleToken(w http.ResponseWriter, r *http.Request) {
 			response["scope"] = result.Scope
 		}
 		oauthJSON(audit, http.StatusOK, response)
+	case "urn:ietf:params:oauth:grant-type:token-exchange":
+		s.exchangeTrustedToken(w, r)
 	default:
 		oauthError(w, http.StatusBadRequest, "unsupported_grant_type", "unsupported grant type")
 	}

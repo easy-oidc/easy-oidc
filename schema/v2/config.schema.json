@@ -126,6 +126,10 @@
         "$ref": "#/$defs/client"
       },
       "description": "Downstream public OIDC clients keyed by client ID."
+    },
+    "oidc_trust": {
+      "$ref": "#/$defs/oidcTrust",
+      "description": "External OIDC issuers and reusable trust policies."
     }
   },
   "allOf": [
@@ -567,6 +571,10 @@
           "type": "boolean",
           "description": "Client-specific override for the global require_groups setting."
         },
+		"trust_bindings": {
+		  "type": "array", "maxItems": 100,
+		  "items": { "$ref": "#/$defs/trustBinding" }
+		},
 		"refresh_tokens": {
 		  "type": "object",
 		  "additionalProperties": false,
@@ -579,6 +587,47 @@
 			"offline_absolute_ttl": { "$ref": "#/$defs/duration", "default": "2160h" }
 		  }
 		}
+      }
+    },
+    "claimSchema": {
+      "description": "A bounded Draft 2020-12 schema fragment. References, vocabularies, and content keywords are rejected at startup."
+    },
+    "claimSchemas": {
+      "type": "object", "maxProperties": 64,
+      "propertyNames": { "minLength": 1, "maxLength": 256 },
+      "additionalProperties": { "$ref": "#/$defs/claimSchema" }
+    },
+    "oidcTrust": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "issuers": { "type": "object", "propertyNames": { "minLength": 1, "maxLength": 64 }, "additionalProperties": { "$ref": "#/$defs/trustIssuer" } },
+        "policies": { "type": "object", "propertyNames": { "minLength": 1, "maxLength": 64 }, "additionalProperties": { "$ref": "#/$defs/trustPolicy" } }
+      }
+    },
+    "trustIssuer": {
+      "type": "object", "additionalProperties": false, "required": ["provider"],
+      "properties": {
+        "provider": { "enum": ["github", "buildkite", "oidc"] },
+        "issuer_url": { "$ref": "#/$defs/publicURI" },
+        "signing_algs": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["RS256","RS384","RS512","ES256","ES384","ES512","PS256","PS384","PS512","EdDSA"] } },
+        "max_token_age": { "$ref": "#/$defs/duration" }
+      },
+      "allOf": [{ "if": { "properties": { "provider": { "const": "oidc" } } }, "then": { "required": ["issuer_url","signing_algs","max_token_age"] } }]
+    },
+    "trustPolicy": {
+      "type": "object", "additionalProperties": false, "required": ["issuer"],
+      "properties": {
+        "issuer": { "type": "string", "minLength": 1 }, "subject": { "type": "string", "pattern": "^trusted:" },
+        "groups": { "type": "array", "minItems": 1, "maxItems": 100, "items": { "type": "string", "minLength": 1, "maxLength": 256 } },
+        "required_claims": { "$ref": "#/$defs/claimSchemas" }, "claims": { "$ref": "#/$defs/claimSchemas" }
+      }
+    },
+    "trustBinding": {
+      "type": "object", "additionalProperties": false, "required": ["id","trust_policy"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 64 }, "trust_policy": { "type": "string", "minLength": 1 },
+        "subject": { "type": "string", "pattern": "^trusted:" }, "groups": { "type": "array", "minItems": 1, "maxItems": 100, "items": { "type": "string", "minLength": 1, "maxLength": 256 } },
+        "claims": { "$ref": "#/$defs/claimSchemas" }
       }
     }
   }

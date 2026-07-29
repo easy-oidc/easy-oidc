@@ -65,7 +65,7 @@ It delegates authentication to upstream identity providers and maps users to gro
 	cmd.Flags().BoolVarP(&debugMode, "debug", "v", false, "Enable debug logging")
 	cmd.Flags().BoolVar(&showVersion, "version", false, "Show version and exit")
 	cmd.Flags().StringVar(&configPath, "config", configPath, "Path to config file")
-	cmd.AddCommand(newValidateCmd(), newDevCmd())
+	cmd.AddCommand(newCheckCmd(), newDevCmd())
 	return cmd
 }
 

@@ -29,6 +29,38 @@ type TokenContext struct {
 	AccessExpiry  time.Time
 }
 
+// TrustedTokenContext contains claims for a short-lived exchanged identity token.
+type TrustedTokenContext struct {
+	Subject, ClientID, UpstreamIssuer, UpstreamSubject string
+	Groups                                             []string
+	Expiry                                             time.Time
+}
+
+// SignTrustedIDToken signs an exchanged ID token without session or refresh claims.
+func (s *Signer) SignTrustedIDToken(context TrustedTokenContext) (string, error) {
+	now := time.Now().UTC()
+	token := jwt.New()
+	jti := make([]byte, 16)
+	if _, err := rand.Read(jti); err != nil {
+		return "", fmt.Errorf("generate jti: %w", err)
+	}
+	claims := map[string]any{jwt.IssuerKey: s.issuerURL, jwt.SubjectKey: context.Subject, jwt.AudienceKey: context.ClientID, jwt.IssuedAtKey: now, jwt.ExpirationKey: context.Expiry, jwt.JwtIDKey: base64.RawURLEncoding.EncodeToString(jti), "groups": context.Groups, "upstream_issuer": context.UpstreamIssuer, "upstream_subject": context.UpstreamSubject}
+	for key, value := range claims {
+		if err := token.Set(key, value); err != nil {
+			return "", fmt.Errorf("set %s claim: %w", key, err)
+		}
+	}
+	hdrs := jws.NewHeaders()
+	if err := hdrs.Set(jws.KeyIDKey, s.kid); err != nil {
+		return "", err
+	}
+	signed, err := jwt.Sign(token, jwt.WithKey(s.signingKey.Algorithm, s.signingKey.PrivateKey, jws.WithProtectedHeaders(hdrs)))
+	if err != nil {
+		return "", fmt.Errorf("sign trusted token: %w", err)
+	}
+	return string(signed), nil
+}
+
 // SignTokenPair issues distinct ID and access JWTs with independent claims and expiries.
 func (s *Signer) SignTokenPair(context TokenContext) (string, string, error) {
 	id, err := s.signContext(context, true)

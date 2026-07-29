@@ -23,7 +23,7 @@ func (s *Server) HandleDiscovery(w http.ResponseWriter, r *http.Request) {
 		"subject_types_supported":               []string{"public"},
 		"id_token_signing_alg_values_supported": []string{s.config.SigningAlgorithm},
 		"scopes_supported":                      []string{"openid", "email", "profile", "groups", "offline_access"},
-		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
+		"grant_types_supported":                 []string{"authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:token-exchange"},
 		"claims_supported":                      []string{"sub", "email", "email_verified", "preferred_username", "groups"},
 		"code_challenge_methods_supported":      []string{"S256"},
 	}

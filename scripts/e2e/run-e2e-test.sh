@@ -8,6 +8,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DEX_IMAGE="ghcr.io/dexidp/dex@sha256:8499afd690c437f52301efd2b05b2455da5bd2dfc20332cd697dc9937f808462" # v2.45.1
+DEX_ISSUER="http://127.0.0.1:5556/dex"
+DEX_SUBJECT="CiQwOGE4Njg0Yi1kYjg4LTRiNzMtOTBhOS0zY2QxNjYxZjU0NjYSBWxvY2Fs"
+TRUST_CLIENT_ID="ci-token-exchange-e2e"
+ID_TOKEN_TYPE="urn:ietf:params:oauth:token-type:id_token"
 
 echo "==> Checking prerequisites..."
 for cmd in curl jq make go kubectl openssl; do
@@ -78,11 +82,12 @@ make build
 echo "==> Starting easy-oidc..."
 export EASYOIDC_SIGNING_KEY="$(openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 2>/dev/null)"
 export EASYOIDC_ENCRYPTION_KEY="$(openssl rand -hex 32)"
-export EASYOIDC_DEX_CREDENTIALS='{"client_id":"easy-oidc-e2e","client_secret":"easy-oidc-e2e-secret"}'
+export EASYOIDC_DEX_CREDENTIALS='{"client_id":"easy-oidc-interactive-e2e","client_secret":"easy-oidc-interactive-e2e-secret"}'
 E2E_TEMP_DIR="$(mktemp -d)"
 EASY_OIDC_LOG="$E2E_TEMP_DIR/easy-oidc.log"
 TOKEN_CACHE_DIR="$E2E_TEMP_DIR/cache"
 BROWSER_COMMAND="$E2E_TEMP_DIR/open-browser"
+# See README.md for sequence diagrams of both E2E login flows.
 mkdir -p "$TOKEN_CACHE_DIR"
 cat > "$BROWSER_COMMAND" <<'EOF'
 #!/usr/bin/env bash
@@ -129,6 +134,78 @@ if ! curl -sf http://127.0.0.1:8080/jwks | jq . > /dev/null; then
     exit 1
 fi
 
+echo "==> Testing trusted service login..."
+DEX_TOKEN_RESPONSE="$E2E_TEMP_DIR/dex-token-response.json"
+DEX_TOKEN_STATUS="$(curl -sS -o "$DEX_TOKEN_RESPONSE" -w '%{http_code}' \
+    -u "$TRUST_CLIENT_ID:ci-token-exchange-e2e-secret" \
+    --data-urlencode grant_type=password \
+    --data-urlencode username=test@example.com \
+    --data-urlencode password=easy-oidc-e2e-password \
+    --data-urlencode 'scope=openid email' \
+    "$DEX_ISSUER/token")"
+if [ "$DEX_TOKEN_STATUS" != 200 ]; then
+    echo "ERROR: Dex did not issue the trusted service test token (HTTP $DEX_TOKEN_STATUS)"
+    exit 1
+fi
+DEX_ID_TOKEN="$(jq -er '.id_token | select(type == "string" and length > 0)' "$DEX_TOKEN_RESPONSE")"
+
+EXCHANGE_RESPONSE="$E2E_TEMP_DIR/token-exchange-response.json"
+EXCHANGE_HEADERS="$E2E_TEMP_DIR/token-exchange-headers.txt"
+EXCHANGE_STATUS="$(curl -sS -D "$EXCHANGE_HEADERS" -o "$EXCHANGE_RESPONSE" -w '%{http_code}' \
+    --data-urlencode 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange' \
+    --data-urlencode "client_id=$TRUST_CLIENT_ID" \
+    --data-urlencode "subject_token=$DEX_ID_TOKEN" \
+    --data-urlencode "subject_token_type=$ID_TOKEN_TYPE" \
+    --data-urlencode "requested_token_type=$ID_TOKEN_TYPE" \
+    http://127.0.0.1:8080/token)"
+unset DEX_ID_TOKEN
+if [ "$EXCHANGE_STATUS" != 200 ]; then
+    cat "$EASY_OIDC_LOG"
+    echo "ERROR: Easy OIDC rejected the trusted service login (HTTP $EXCHANGE_STATUS)"
+    exit 1
+fi
+if ! grep -Eiq '^cache-control:[[:space:]]*no-store\r?$' "$EXCHANGE_HEADERS" ||
+   ! grep -Eiq '^pragma:[[:space:]]*no-cache\r?$' "$EXCHANGE_HEADERS"; then
+    echo "ERROR: Trusted service login response is missing no-cache headers"
+    exit 1
+fi
+if ! jq -e --arg token_type "$ID_TOKEN_TYPE" '
+    (.access_token | type == "string" and length > 0) and
+    .issued_token_type == $token_type and
+    .token_type == "Bearer" and
+    (.expires_in | type == "number" and . > 0 and . <= 900) and
+    (has("id_token") | not) and
+    (has("refresh_token") | not)
+' "$EXCHANGE_RESPONSE" > /dev/null; then
+    echo "ERROR: Trusted service login returned an invalid token response"
+    exit 1
+fi
+
+MINTED_TOKEN_PAYLOAD="$(jq -er '
+    .access_token | split(".")[1] |
+    gsub("-"; "+") | gsub("_"; "/") |
+    . + ("=" * ((4 - (length % 4)) % 4)) |
+    @base64d | fromjson
+' "$EXCHANGE_RESPONSE")"
+if ! jq -e \
+    --arg audience "$TRUST_CLIENT_ID" \
+    --arg issuer "$DEX_ISSUER" \
+    --arg subject "$DEX_SUBJECT" '
+    .sub == "trusted:e2e:ci" and
+    .aud == [$audience] and
+    .groups == ["e2e:ci"] and
+    .upstream_issuer == $issuer and
+    .upstream_subject == $subject and
+    (.jti | type == "string" and length > 0) and
+    (has("sid") | not)
+' <<< "$MINTED_TOKEN_PAYLOAD" > /dev/null; then
+    jq . <<< "$MINTED_TOKEN_PAYLOAD"
+    echo "ERROR: Trusted service token contains unexpected claims"
+    exit 1
+fi
+unset MINTED_TOKEN_PAYLOAD
+echo "✅ Trusted service token minted from the Dex-issued OIDC token."
+
 echo "==> Testing OIDC login and refresh with kubelogin..."
 echo ""
 echo "Opening browser for OIDC authentication..."
@@ -139,7 +216,7 @@ FIRST_TOKEN="$E2E_TEMP_DIR/first.json"
 SECOND_TOKEN="$E2E_TEMP_DIR/second.json"
 kubectl oidc-login get-token \
     --oidc-issuer-url=http://127.0.0.1:8080 \
-    --oidc-client-id=e2e-test-client \
+    --oidc-client-id=kubelogin-interactive-e2e \
     --oidc-use-pkce \
     --listen-address=127.0.0.1:18000 \
     --browser-command="$BROWSER_COMMAND" \
@@ -152,7 +229,7 @@ sleep 6
 echo "==> Refreshing without opening a browser..."
 kubectl oidc-login get-token \
     --oidc-issuer-url=http://127.0.0.1:8080 \
-    --oidc-client-id=e2e-test-client \
+    --oidc-client-id=kubelogin-interactive-e2e \
     --oidc-use-pkce \
     --listen-address=127.0.0.1:18000 \
     --token-cache-dir="$TOKEN_CACHE_DIR" \
@@ -163,7 +240,7 @@ if [ "$(jq -r '.status.token // empty' "$FIRST_TOKEN")" = "$(jq -r '.status.toke
     echo "ERROR: kubelogin did not return a fresh ID token"
     exit 1
 fi
-if ! jq -s -e 'any(.[]; .msg == "refresh attempt" and .result == 200 and .client_id == "e2e-test-client")' "$EASY_OIDC_LOG" > /dev/null; then
+if ! jq -s -e 'any(.[]; .msg == "refresh attempt" and .result == 200 and .client_id == "kubelogin-interactive-e2e")' "$EASY_OIDC_LOG" > /dev/null; then
     cat "$EASY_OIDC_LOG"
     echo "ERROR: no successful kubelogin refresh exchange was logged"
     exit 1

@@ -47,11 +47,12 @@ make build
 ./bin/easy-oidc --config examples/config/config-local-dev.jsonc --debug
 ```
 
-Validate configuration and all effective templates without loading operational
-secrets or contacting external services:
+Validate configuration and all effective templates separately without loading
+operational secrets or contacting external services:
 
 ```bash
-./bin/easy-oidc validate --config examples/config/config-local-dev.jsonc
+./bin/easy-oidc check config --config examples/config/config-local-dev.jsonc
+./bin/easy-oidc check templates --config examples/config/config-local-dev.jsonc
 ```
 
 Develop custom templates with mock data, no operational secrets, and automatic

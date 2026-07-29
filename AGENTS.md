@@ -39,7 +39,8 @@ make check          # Run fmt, lint, and test
 ./bin/easy-oidc --config examples/config/config-local-dev.jsonc --debug
 
 # Validate configuration and templates
-./bin/easy-oidc validate --config config.jsonc
+./bin/easy-oidc check config --config config.jsonc
+./bin/easy-oidc check templates --config config.jsonc
 
 # Show version
 ./bin/easy-oidc --version

@@ -37,6 +37,25 @@
     },
   },
 
+  "oidc_trust": {
+    "issuers": {
+      "dex": {
+        "provider": "oidc",
+        "issuer_url": "http://127.0.0.1:5556/dex",
+        "signing_algs": ["RS256"],
+        "max_token_age": "5m",
+      },
+    },
+    "policies": {
+      "dex-ci-e2e": {
+        "issuer": "dex",
+        "required_claims": {
+          "sub": { "const": "CiQwOGE4Njg0Yi1kYjg4LTRiNzMtOTBhOS0zY2QxNjYxZjU0NjYSBWxvY2Fs" },
+        },
+      },
+    },
+  },
+
   "default_redirect_uris": ["http://localhost:18000"],
 
   "groups_overrides": {
@@ -46,7 +65,15 @@
   },
 
   "clients": {
-    "e2e-test-client": {
+    "ci-token-exchange-e2e": {
+      "trust_bindings": [{
+        "id": "dex-ci-exchange-e2e",
+        "trust_policy": "dex-ci-e2e",
+        "subject": "trusted:e2e:ci",
+        "groups": ["e2e:ci"],
+      }],
+    },
+    "kubelogin-interactive-e2e": {
       "groups_override": "local-groups",
       "refresh_tokens": {
         "enabled": true,

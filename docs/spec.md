@@ -332,6 +332,6 @@ and restarting Easy OIDC.
 
 Configuration, secrets, and templates are loaded at startup. The process exits
 instead of serving requests if configuration validation, secret loading,
-template parsing, or template test rendering fails. `easy-oidc validate` performs
-the same configuration and template checks for CI, while `easy-oidc dev` serves
-live-reloading template previews with mock data.
+template parsing, or template test rendering fails. `easy-oidc check config` and
+`easy-oidc check templates` perform the corresponding checks for CI, while
+`easy-oidc dev` serves live-reloading template previews with mock data.

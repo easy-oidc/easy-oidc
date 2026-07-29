@@ -18,12 +18,85 @@ field documentation:
 }
 ```
 
-The schema catches structural errors while editing. `easy-oidc validate`
-remains authoritative and also checks runtime constraints and templates.
+The schema catches structural errors while editing. `easy-oidc check config`
+remains authoritative for runtime configuration constraints, while
+`easy-oidc check templates` validates all effective templates.
 
 See the [example configurations](https://github.com/easy-oidc/easy-oidc/tree/main/examples/config),
 including `config-multiple.jsonc` for multiple connectors, email codes, SMTP, and
 Turnstile.
+
+## External OIDC trust
+
+External OIDC and CI identities use three configuration layers:
+
+- `oidc_trust.issuers` defines trusted token issuers.
+- `oidc_trust.policies` defines reusable claim requirements.
+- Client `trust_bindings` authorize policies and assign a subject and groups.
+
+```jsonc
+{
+  "oidc_trust": {
+    "issuers": {
+      "github-actions": { "provider": "github" }
+    },
+    "policies": {
+      "acme-github": {
+        "issuer": "github-actions",
+        "required_claims": {
+          "repository_owner_id": { "const": "123456" }
+        }
+      }
+    }
+  },
+  "clients": {
+    "cluster-production": {
+      "redirect_uris": ["http://localhost:8000/callback"],
+      "trust_bindings": [{
+        "id": "github-production",
+        "trust_policy": "acme-github",
+        "subject": "trusted:github:acme/app:production",
+        "groups": ["podplane:operators"],
+        "claims": {
+          "repository_id": { "const": "987654" },
+          "environment": { "const": "production" },
+          "job_workflow_ref": {
+            "const": "acme/deploy/.github/workflows/deploy.yml@refs/heads/main"
+          }
+        }
+      }]
+    }
+  }
+}
+```
+
+Issuer `provider` is `github`, `buildkite`, or `oidc`. The GitHub and Buildkite
+presets supply their official issuer settings. Generic `oidc` issuers require
+`issuer_url`, `signing_algs`, and `max_token_age`; HTTPS is required except on
+localhost.
+
+Claim rules are JSON Schema fragments, and every configured claim must be present.
+The `claims` from a binding are overlayed on top of `claims` from a policy, where
+each `claims` from the binding replaces those with the same name in the policy,
+while policy `required_claims` always remain in effect.
+
+Binding `subject` and `groups` replace the corresponding policy values when set.
+The effective subject must start with `trusted:`, groups must be non-empty, and
+exactly one binding must match a token.
+
+You can check a token against the configured trust policies with:
+
+```sh
+easy-oidc check trust \
+  --config config.jsonc \
+  --client-id cluster-production \
+  --token-file token.jwt
+```
+
+Use `--token-file -` to read from standard input.
+
+In production, prefer immutable organization, repository, and pipeline IDs; constrain
+the approved workflow or step; and assign a dedicated least-privilege Kubernetes group.
 
 ## Deployment modules
 
@@ -234,10 +307,11 @@ layout.
 All effective templates are parsed and test-rendered during startup. A parse or
 render error prevents the server from starting.
 
-Validate configuration and templates in CI with:
+Validate configuration and templates separately in CI with:
 
 ```console
-easy-oidc validate --config ./config.jsonc
+easy-oidc check config --config ./config.jsonc
+easy-oidc check templates --config ./config.jsonc
 ```
 
 Develop overlays with mock data and live reload using:

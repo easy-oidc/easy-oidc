@@ -11,6 +11,7 @@ import (
 	"github.com/easy-oidc/easy-oidc/internal/storage"
 	"github.com/easy-oidc/easy-oidc/internal/templates"
 	"github.com/easy-oidc/easy-oidc/internal/tokens"
+	"github.com/easy-oidc/easy-oidc/internal/trust"
 	"github.com/easy-oidc/easy-oidc/internal/upstream"
 	"log/slog"
 )
@@ -31,11 +32,12 @@ type Server struct {
 	selectionKey  []byte
 	encryptionKey []byte
 	refresh       *refresh.Service
+	trust         *trust.Service
 }
 
 // NewServer creates an OIDC server with the provided dependencies.
 func NewServer(cfg *config.Config, connectors map[string]upstream.Connector, authCodeMgr *AuthCodeManager, signer *tokens.Signer, groupResolver *tokens.GroupResolver, jwksData []byte, logger *slog.Logger, store *storage.Store, tm *templates.Manager, mailer email.Sender, challengeVerifier challenge.Verifier, otpSecret, selectionKey, encryptionKey []byte) *Server {
-	return &Server{config: cfg, connectors: connectors, authCodeMgr: authCodeMgr, signer: signer, groupResolver: groupResolver, jwksData: jwksData, logger: logger, store: store, templates: tm, mailer: mailer, challenge: challengeVerifier, otpSecret: otpSecret, selectionKey: selectionKey, encryptionKey: encryptionKey, refresh: refresh.NewService(cfg, store, signer, groupResolver, connectors, logger)}
+	return &Server{config: cfg, connectors: connectors, authCodeMgr: authCodeMgr, signer: signer, groupResolver: groupResolver, jwksData: jwksData, logger: logger, store: store, templates: tm, mailer: mailer, challenge: challengeVerifier, otpSecret: otpSecret, selectionKey: selectionKey, encryptionKey: encryptionKey, refresh: refresh.NewService(cfg, store, signer, groupResolver, connectors, logger), trust: trust.NewService(cfg)}
 }
 func (s *Server) isValidRedirectURI(uri string, client config.ClientConfig) bool {
 	uris := client.RedirectURIs

@@ -15,13 +15,19 @@ telemetry:
 
 oauth2:
   skipApprovalScreen: true
+  passwordConnector: local
 
 staticClients:
-- id: easy-oidc-e2e
-  secret: easy-oidc-e2e-secret
+# Easy OIDC uses this client to delegate interactive user login to Dex.
+- id: easy-oidc-interactive-e2e
+  secret: easy-oidc-interactive-e2e-secret
   redirectURIs:
   - 'http://127.0.0.1:8080/callback/generic'
-  name: 'Easy OIDC E2E Test'
+  name: 'Easy OIDC Interactive E2E'
+# The E2E script uses this client to obtain the external token that Easy OIDC exchanges.
+- id: ci-token-exchange-e2e
+  secret: ci-token-exchange-e2e-secret
+  name: 'CI Token Exchange E2E'
 
 connectors:
 - type: mockCallback
@@ -32,6 +38,6 @@ enablePasswordDB: true
 
 staticPasswords:
 - email: "test@example.com"
-  hash: "$2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W"
+  hash: "$2a$10$2cEClpIvheg2vsGwgU0asON7mHsxVRQoPOYmwn9HcPI8mkhy4F14e"
   username: "test"
   userID: "08a8684b-db88-4b73-90a9-3cd1661f5466"

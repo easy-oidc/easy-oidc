@@ -1,0 +1,75 @@
+// Easy OIDC <https://easy-oidc.dev>
+// Copyright The Easy OIDC Authors
+// SPDX-License-Identifier: Apache-2.0
+
+package oidc
+
+import (
+	"encoding/json"
+	"net/http"
+	"time"
+
+	"github.com/easy-oidc/easy-oidc/internal/tokens"
+)
+
+// exchangeTrustedToken verifies an external ID token and issues one downstream ID token.
+func (s *Server) exchangeTrustedToken(w http.ResponseWriter, r *http.Request) {
+	const idTokenType = "urn:ietf:params:oauth:token-type:id_token"
+	allowed := map[string]bool{"grant_type": true, "client_id": true, "subject_token": true, "subject_token_type": true, "requested_token_type": true}
+	for name := range r.PostForm {
+		if !allowed[name] {
+			oauthError(w, http.StatusBadRequest, "invalid_request", "parameter is not valid for token exchange")
+			return
+		}
+	}
+	clientID, raw := r.PostForm.Get("client_id"), r.PostForm.Get("subject_token")
+	if clientID == "" || raw == "" || r.PostForm.Get("subject_token_type") != idTokenType || r.PostForm.Get("requested_token_type") != idTokenType {
+		oauthError(w, http.StatusBadRequest, "invalid_request", "valid token exchange parameters are required")
+		return
+	}
+	if s.trust == nil || s.signer == nil {
+		oauthError(w, http.StatusInternalServerError, "server_error", "token exchange is unavailable")
+		return
+	}
+	result, err := s.trust.VerifyAndEvaluate(r.Context(), raw, clientID)
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Info("trust exchange", "client_id", clientID, "result", "denied")
+		}
+		oauthError(w, http.StatusBadRequest, "invalid_request", "subject token is invalid or unacceptable")
+		return
+	}
+	expiry := time.Now().UTC().Add(s.config.IDTokenTTL.Duration())
+	if expiry.After(time.Now().Add(15 * time.Minute)) {
+		expiry = time.Now().Add(15 * time.Minute)
+	}
+	signed, err := s.signer.SignTrustedIDToken(tokens.TrustedTokenContext{Subject: result.Binding.Subject, ClientID: clientID, Groups: result.Binding.Groups, UpstreamIssuer: result.Issuer, UpstreamSubject: result.UpstreamSubject, Expiry: expiry})
+	if err != nil {
+		oauthError(w, http.StatusInternalServerError, "server_error", "token signing failed")
+		return
+	}
+	if s.logger != nil {
+		attributes := []any{"issuer", result.Issuer, "client_id", clientID, "policy", result.Binding.Policy, "binding", result.Binding.ID, "subject", result.Binding.Subject, "result", "allowed"}
+		for _, claim := range []string{"run_id", "build_id", "job_id"} {
+			if value, ok := auditClaim(result.Claims[claim]); ok {
+				attributes = append(attributes, claim, value)
+			}
+		}
+		s.logger.Info("trust exchange", attributes...)
+	}
+	oauthJSON(w, http.StatusOK, map[string]any{"access_token": signed, "issued_token_type": idTokenType, "token_type": "Bearer", "expires_in": int64(time.Until(expiry).Seconds())})
+}
+
+// auditClaim returns a bounded scalar provider identifier suitable for structured logging.
+func auditClaim(value any) (string, bool) {
+	var text string
+	switch typed := value.(type) {
+	case string:
+		text = typed
+	case json.Number:
+		text = typed.String()
+	default:
+		return "", false
+	}
+	return text, text != "" && len(text) <= 256
+}

@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/easy-oidc/easy-oidc/internal/templates"
 	"github.com/tailscale/hujson"
 )
 
@@ -85,9 +84,6 @@ func Load(path string) (*Config, error) {
 
 	if err := validate(&cfg); err != nil {
 		return nil, fmt.Errorf("config validation failed: %w", err)
-	}
-	if err := templates.Validate(cfg.TemplatesDir); err != nil {
-		return nil, fmt.Errorf("template validation failed: %w", err)
 	}
 
 	return &cfg, nil
@@ -231,6 +227,9 @@ func validate(cfg *Config) error {
 	if err := validateGroupsOverrides(cfg.GroupsOverrides); err != nil {
 		return fmt.Errorf("groups_overrides: %w", err)
 	}
+	if err := validateTrust(cfg); err != nil {
+		return fmt.Errorf("oidc_trust: %w", err)
+	}
 
 	return nil
 }
@@ -249,7 +248,7 @@ func validateIssuerURL(issuer string) error {
 		return fmt.Errorf("scheme must be http or https")
 	}
 
-	if u.Scheme == "http" && u.Hostname() != "localhost" && u.Hostname() != "127.0.0.1" {
+	if u.Scheme == "http" && u.Hostname() != "localhost" && u.Hostname() != "127.0.0.1" && u.Hostname() != "::1" {
 		return fmt.Errorf("http scheme only allowed for localhost in development")
 	}
 
