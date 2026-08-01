@@ -259,6 +259,33 @@ func TestSigningAlgorithmJSONValues(t *testing.T) {
 	}
 }
 
+// TestNormalizeEmail verifies canonical email normalization.
+func TestNormalizeEmail(t *testing.T) {
+	for input, expected := range map[string]string{
+		"alice@example.com": "alice@example.com",
+		"Alice@Example.Com": "alice@example.com",
+		"  bob@test.com  ":  "bob@test.com",
+		"CHARLIE@TEST.COM":  "charlie@test.com",
+	} {
+		if result := NormalizeEmail(input); result != expected {
+			t.Errorf("NormalizeEmail(%q) = %q, want %q", input, result, expected)
+		}
+	}
+}
+
+// TestExtractUsername verifies username extraction from email-like subjects.
+func TestExtractUsername(t *testing.T) {
+	for email, expected := range map[string]string{
+		"alice@example.com":  "alice",
+		"bob.smith@test.com": "bob.smith",
+		"charlie":            "charlie",
+	} {
+		if result := ExtractUsername(email); result != expected {
+			t.Errorf("ExtractUsername(%q) = %q, want %q", email, result, expected)
+		}
+	}
+}
+
 func privateKeyPEM(t *testing.T, privateKey any) string {
 	t.Helper()
 	der, err := x509.MarshalPKCS8PrivateKey(privateKey)

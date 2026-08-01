@@ -4,6 +4,10 @@
 package oidc
 
 import (
+	"context"
+	"log/slog"
+
+	"github.com/easy-oidc/easy-oidc/internal/authpolicy"
 	"github.com/easy-oidc/easy-oidc/internal/challenge"
 	"github.com/easy-oidc/easy-oidc/internal/config"
 	"github.com/easy-oidc/easy-oidc/internal/email"
@@ -13,31 +17,40 @@ import (
 	"github.com/easy-oidc/easy-oidc/internal/tokens"
 	"github.com/easy-oidc/easy-oidc/internal/trust"
 	"github.com/easy-oidc/easy-oidc/internal/upstream"
-	"log/slog"
 )
 
+// policyResolver defines the policy decisions consumed by the OIDC server and its services.
+type policyResolver interface {
+	ResolveClient(context.Context, string, bool) (authpolicy.ResolvedClient, error)
+	ResolveUser(context.Context, authpolicy.ResolvedClient, string) (authpolicy.ResolvedUser, error)
+	ResolveTrust(context.Context, authpolicy.ResolvedClient, string) ([]config.EffectiveTrustBinding, error)
+}
+
 type Server struct {
-	config        *config.Config
-	connectors    map[string]upstream.Connector
-	authCodeMgr   *AuthCodeManager
-	signer        *tokens.Signer
-	groupResolver *tokens.GroupResolver
-	jwksData      []byte
-	logger        *slog.Logger
-	store         *storage.Store
-	templates     *templates.Manager
-	mailer        email.Sender
-	challenge     challenge.Verifier
-	otpSecret     []byte
-	selectionKey  []byte
-	encryptionKey []byte
-	refresh       *refresh.Service
-	trust         *trust.Service
+	config         *config.Config
+	connectors     map[string]upstream.Connector
+	authCodeMgr    *AuthCodeManager
+	signer         *tokens.Signer
+	jwksData       []byte
+	logger         *slog.Logger
+	store          *storage.Store
+	templates      *templates.Manager
+	mailer         email.Sender
+	challenge      challenge.Verifier
+	otpSecret      []byte
+	selectionKey   []byte
+	encryptionKey  []byte
+	refresh        *refresh.Service
+	trust          *trust.Service
+	policyResolver policyResolver
 }
 
 // NewServer creates an OIDC server with the provided dependencies.
-func NewServer(cfg *config.Config, connectors map[string]upstream.Connector, authCodeMgr *AuthCodeManager, signer *tokens.Signer, groupResolver *tokens.GroupResolver, jwksData []byte, logger *slog.Logger, store *storage.Store, tm *templates.Manager, mailer email.Sender, challengeVerifier challenge.Verifier, otpSecret, selectionKey, encryptionKey []byte) *Server {
-	return &Server{config: cfg, connectors: connectors, authCodeMgr: authCodeMgr, signer: signer, groupResolver: groupResolver, jwksData: jwksData, logger: logger, store: store, templates: tm, mailer: mailer, challenge: challengeVerifier, otpSecret: otpSecret, selectionKey: selectionKey, encryptionKey: encryptionKey, refresh: refresh.NewService(cfg, store, signer, groupResolver, connectors, logger), trust: trust.NewService(cfg)}
+func NewServer(cfg *config.Config, connectors map[string]upstream.Connector, authCodeMgr *AuthCodeManager, signer *tokens.Signer, jwksData []byte, logger *slog.Logger, store *storage.Store, tm *templates.Manager, mailer email.Sender, challengeVerifier challenge.Verifier, otpSecret, selectionKey, encryptionKey []byte, resolver policyResolver) *Server {
+	if resolver == nil {
+		resolver = authpolicy.NewResolver(cfg, nil)
+	}
+	return &Server{config: cfg, connectors: connectors, authCodeMgr: authCodeMgr, signer: signer, jwksData: jwksData, logger: logger, store: store, templates: tm, mailer: mailer, challenge: challengeVerifier, otpSecret: otpSecret, selectionKey: selectionKey, encryptionKey: encryptionKey, policyResolver: resolver, refresh: refresh.NewService(cfg, store, signer, connectors, logger, resolver), trust: trust.NewService(cfg, resolver)}
 }
 func (s *Server) isValidRedirectURI(uri string, client config.ClientConfig) bool {
 	uris := client.RedirectURIs

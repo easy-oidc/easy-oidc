@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/easy-oidc/easy-oidc/internal/authpolicy"
 	"github.com/easy-oidc/easy-oidc/internal/config"
 	"github.com/lestrrat-go/jwx/v2/jwa"
 	"github.com/lestrrat-go/jwx/v2/jwk"
@@ -30,6 +31,12 @@ const (
 	cacheTTL    = 5 * time.Minute
 	refreshWait = 30 * time.Second
 )
+
+// policyResolver defines the client and trust decisions consumed during token verification.
+type policyResolver interface {
+	ResolveClient(context.Context, string, bool) (authpolicy.ResolvedClient, error)
+	ResolveTrust(context.Context, authpolicy.ResolvedClient, string) ([]config.EffectiveTrustBinding, error)
+}
 
 // Result contains verified provenance and the exactly matched binding.
 type Result struct {
@@ -48,11 +55,12 @@ type Diagnostic struct {
 
 // Service performs external verification and policy evaluation.
 type Service struct {
-	cfg    *config.Config
-	client *http.Client
-	mu     sync.Mutex
-	cache  map[string]cachedIssuer
-	loads  singleflight.Group
+	cfg            *config.Config
+	client         *http.Client
+	mu             sync.Mutex
+	cache          map[string]cachedIssuer
+	loads          singleflight.Group
+	policyResolver policyResolver
 }
 
 // cachedIssuer holds validated metadata and keys for a bounded interval.
@@ -64,7 +72,7 @@ type cachedIssuer struct {
 }
 
 // NewService constructs a verifier with bounded HTTP behavior.
-func NewService(cfg *config.Config) *Service {
+func NewService(cfg *config.Config, resolver policyResolver) *Service {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	client := &http.Client{Timeout: 5 * time.Second, Transport: transport}
 	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
@@ -73,7 +81,10 @@ func NewService(cfg *config.Config) *Service {
 		}
 		return nil
 	}
-	return &Service{cfg: cfg, client: client, cache: make(map[string]cachedIssuer)}
+	if resolver == nil {
+		resolver = authpolicy.NewResolver(cfg, nil)
+	}
+	return &Service{cfg: cfg, client: client, cache: make(map[string]cachedIssuer), policyResolver: resolver}
 }
 
 // VerifyAndEvaluate runs the complete production verification and exactly-one evaluator.
@@ -84,8 +95,11 @@ func (s *Service) VerifyAndEvaluate(ctx context.Context, raw, clientID string) (
 	if len(raw) == 0 || len(raw) > MaxJWTBytes {
 		return nil, fmt.Errorf("token size is invalid")
 	}
-	client, ok := s.cfg.Clients[clientID]
-	if !ok {
+	resolved, err := s.policyResolver.ResolveClient(ctx, clientID, true)
+	if err != nil {
+		if authpolicy.IsIndeterminate(err) {
+			return nil, err
+		}
 		return nil, fmt.Errorf("unknown client")
 	}
 	unverified, err := jwt.Parse([]byte(raw), jwt.WithVerify(false), jwt.WithValidate(false))
@@ -139,21 +153,22 @@ func (s *Service) VerifyAndEvaluate(ctx context.Context, raw, clientID string) (
 		return nil, err
 	}
 	result := &Result{Issuer: issuerURL, UpstreamSubject: verified.Subject(), Claims: claims}
+	bindings, resolveErr := s.policyResolver.ResolveTrust(ctx, resolved, issuerName)
+	if resolveErr != nil {
+		return result, resolveErr
+	}
 	matches := 0
-	for _, binding := range client.TrustBindings {
-		effective := binding.Effective
-		if effective == nil || effective.Issuer != issuerName {
-			continue
-		}
-		validationErr := effective.Schema.Validate(claims)
-		diagnostic := Diagnostic{BindingID: effective.ID, Match: validationErr == nil}
+	for i := range bindings {
+		binding := &bindings[i]
+		validationErr := binding.Schema.Validate(claims)
+		diagnostic := Diagnostic{BindingID: binding.ID, Match: validationErr == nil}
 		if validationErr != nil {
 			diagnostic.Reason = "claims did not satisfy policy"
 		}
 		result.Diagnostics = append(result.Diagnostics, diagnostic)
 		if validationErr == nil {
 			matches++
-			result.Binding = effective
+			result.Binding = binding
 		}
 	}
 	if matches != 1 {

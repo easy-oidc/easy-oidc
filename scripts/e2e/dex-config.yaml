@@ -22,12 +22,16 @@ staticClients:
 - id: easy-oidc-interactive-e2e
   secret: easy-oidc-interactive-e2e-secret
   redirectURIs:
-  - 'http://127.0.0.1:8080/callback/generic'
+  - 'http://127.0.0.1:18080/callback/generic'
   name: 'Easy OIDC Interactive E2E'
-# The E2E script uses this client to obtain the external token that Easy OIDC exchanges.
-- id: ci-token-exchange-e2e
-  secret: ci-token-exchange-e2e-secret
-  name: 'CI Token Exchange E2E'
+# The static flow uses a distinct client so both policy sources are exercised.
+- id: static-ci-token-exchange-e2e
+  secret: static-ci-token-exchange-e2e-secret
+  name: 'Static CI Token Exchange E2E'
+# The database policy flow uses this client to obtain an external exchange token.
+- id: db-ci-token-exchange-e2e
+  secret: db-ci-token-exchange-e2e-secret
+  name: 'Database Policy CI Token Exchange E2E'
 
 connectors:
 - type: mockCallback

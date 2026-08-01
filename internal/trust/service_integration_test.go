@@ -134,7 +134,7 @@ func serviceForIssuer(t *testing.T, issuer *tlsIssuer, policies ...string) *Serv
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := NewService(loaded)
+	service := NewService(loaded, nil)
 	service.client = issuer.server.Client()
 	return service
 }

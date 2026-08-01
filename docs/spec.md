@@ -25,6 +25,10 @@ email identities, and maps those emails to static groups.
 Easy OIDC does not provide local passwords, an administration UI, dynamic
 upstream-group synchronization, SAML, or non-PKCE downstream flows.
 
+The optional [policy database](policy-database.md) supplies database policy
+through bounded, read-only PostgreSQL queries, while static policy retains
+precedence for clients with the same ID.
+
 ## Architecture
 
 ```text

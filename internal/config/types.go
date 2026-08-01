@@ -72,6 +72,49 @@ type Config struct {
 	GroupsOverrides     map[string]map[string][]string `json:"groups_overrides"`
 	Clients             map[string]ClientConfig        `json:"clients"`
 	OIDCTrust           OIDCTrustConfig                `json:"oidc_trust,omitempty"`
+	PolicyDatabase      *PolicyDatabaseConfig          `json:"policy_database,omitempty"`
+}
+
+// PolicyDatabaseConfig configures a supplemental policy database.
+type PolicyDatabaseConfig struct {
+	Driver                 string                  `json:"driver"`
+	ConnectionStringSecret string                  `json:"connection_string_secret"`
+	RedirectURIs           []string                `json:"redirect_uris"`
+	ClientDefaults         PolicyClientDefaults    `json:"client_defaults,omitempty"`
+	Queries                PolicyQueries           `json:"queries,omitempty"`
+	ClientLookupCache      ClientLookupCacheConfig `json:"client_lookup_cache,omitempty"`
+	PolicyBuildCache       PolicyBuildCacheConfig  `json:"policy_build_cache,omitempty"`
+	QueryTimeout           Duration                `json:"query_timeout,omitempty"`
+	MaxConnections         int32                   `json:"max_connections,omitempty"`
+	MaxTrustRows           int                     `json:"max_trust_rows,omitempty"`
+	MaxGroups              int                     `json:"max_groups,omitempty"`
+	MaxGroupBytes          int                     `json:"max_group_bytes,omitempty"`
+	MaxJSONBytes           int                     `json:"max_json_bytes,omitempty"`
+}
+
+// PolicyClientDefaults defines settings shared by dynamically resolved clients.
+type PolicyClientDefaults struct {
+	RequireGroups *bool              `json:"require_groups,omitempty"`
+	RefreshTokens RefreshTokenConfig `json:"refresh_tokens,omitempty"`
+}
+
+// PolicyQueries contains the three parameterized policy database queries.
+type PolicyQueries struct {
+	ClientExists  string `json:"client_exists"`
+	UserAccess    string `json:"user_access"`
+	TrustBindings string `json:"trust_bindings"`
+}
+
+// ClientLookupCacheConfig bounds positive and negative client existence lookups.
+type ClientLookupCacheConfig struct {
+	TTL         Duration `json:"ttl,omitempty"`
+	NegativeTTL Duration `json:"negative_ttl,omitempty"`
+	MaxEntries  int      `json:"max_entries,omitempty"`
+}
+
+// PolicyBuildCacheConfig bounds immutable built trust policy artifacts.
+type PolicyBuildCacheConfig struct {
+	MaxEntries int `json:"max_entries,omitempty"`
 }
 
 // SecretsConfig defines the secrets provider configuration.

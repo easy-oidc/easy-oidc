@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/easy-oidc/easy-oidc/internal/authpolicy"
 	"github.com/easy-oidc/easy-oidc/internal/buildvars"
 	"github.com/easy-oidc/easy-oidc/internal/challenge"
 	"github.com/easy-oidc/easy-oidc/internal/config"
@@ -96,6 +97,23 @@ func run(ctx context.Context, output io.Writer, configPath string, debug bool) e
 		logger.Error("failed to create secrets provider", "error", err)
 		return err
 	}
+
+	// Set up the optional policy database.
+	var policyDatabase *authpolicy.PostgreSQL
+	if cfg.PolicyDatabase != nil {
+		connectionString, getErr := secretsProvider.GetSecret(ctx, cfg.PolicyDatabase.ConnectionStringSecret)
+		if getErr != nil {
+			return fmt.Errorf("load policy database connection string")
+		}
+		startupCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		policyDatabase, err = authpolicy.NewPostgreSQL(startupCtx, connectionString, *cfg.PolicyDatabase, cfg.OIDCTrust.Issuers, logger)
+		cancel()
+		if err != nil {
+			return fmt.Errorf("initialize policy database: %w", err)
+		}
+		defer policyDatabase.Close()
+	}
+	policyResolver := authpolicy.NewResolver(cfg, policyDatabase)
 
 	// Load the downstream OIDC token signing key.
 	signingKeyPEM, err := secretsProvider.GetSecret(ctx, cfg.Secrets.SigningKeyName)
@@ -243,7 +261,7 @@ func run(ctx context.Context, output io.Writer, configPath string, debug bool) e
 	}
 
 	// Set up the OIDC server and HTTP routes.
-	server := oidc.NewServer(cfg, connectors, authCodeManager, signer, tokens.NewGroupResolver(cfg.GroupsOverrides), jwksData, logger, store, templateManager, mailer, challengeVerifier, otpSecret, selectionKey, encryptionKey)
+	server := oidc.NewServer(cfg, connectors, authCodeManager, signer, jwksData, logger, store, templateManager, mailer, challengeVerifier, otpSecret, selectionKey, encryptionKey, policyResolver)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/openid-configuration", server.HandleDiscovery)
 	mux.HandleFunc("/jwks", server.HandleJWKS)

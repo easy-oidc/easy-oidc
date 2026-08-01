@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/easy-oidc/easy-oidc/internal/authpolicy"
 	"github.com/easy-oidc/easy-oidc/internal/config"
 	"github.com/easy-oidc/easy-oidc/internal/storage"
 	"github.com/easy-oidc/easy-oidc/internal/tokens"
@@ -33,6 +34,31 @@ type testConnector struct {
 	identityCalls  int
 	refreshCalls   int
 	exitOnIdentity bool
+}
+
+// fakePolicyResolver is a controllable policy resolver for persistence tests.
+type fakePolicyResolver struct {
+	client      authpolicy.ResolvedClient
+	userResults []authpolicy.ResolvedUser
+	userErrors  []error
+	userCalls   int
+	freshCalls  []bool
+}
+
+// ResolveClient returns the configured dynamic client.
+func (f *fakePolicyResolver) ResolveClient(_ context.Context, _ string, fresh bool) (authpolicy.ResolvedClient, error) {
+	f.freshCalls = append(f.freshCalls, fresh)
+	return f.client, nil
+}
+
+// ResolveUser returns the next configured policy decision.
+func (f *fakePolicyResolver) ResolveUser(context.Context, authpolicy.ResolvedClient, string) (authpolicy.ResolvedUser, error) {
+	index := f.userCalls
+	f.userCalls++
+	if index < len(f.userErrors) && f.userErrors[index] != nil {
+		return authpolicy.ResolvedUser{}, f.userErrors[index]
+	}
+	return f.userResults[index], nil
 }
 
 // AuthCodeURL satisfies upstream.Connector.
@@ -89,7 +115,7 @@ func TestProviderResponseCrashProcess(t *testing.T) {
 		Clients:    map[string]config.ClientConfig{"client": {RefreshTokens: config.RefreshTokenConfig{Enabled: true}}},
 	}
 	connector := &testConnector{refreshed: &upstream.Credential{AccessToken: "new-access", RefreshToken: "new-refresh", AccessExpiry: time.Now().Add(time.Hour)}, exitOnIdentity: true}
-	service := NewService(cfg, store, signer, tokens.NewGroupResolver(nil), map[string]upstream.Connector{"provider": connector}, logger)
+	service := NewService(cfg, store, signer, map[string]upstream.Connector{"provider": connector}, logger, authpolicy.NewResolver(cfg, nil))
 	if _, exchangeErr := service.Exchange(context.Background(), Request{Token: os.Getenv("EASY_OIDC_PROVIDER_RESPONSE_CRASH_TOKEN"), ClientID: "client"}); exchangeErr != nil {
 		t.Fatal(exchangeErr)
 	}
@@ -185,7 +211,7 @@ func newTestFixture(t *testing.T, connectors map[string]upstream.Connector) *tes
 			"client": {RefreshTokens: config.RefreshTokenConfig{Enabled: true, AllowOfflineAccess: true}},
 		},
 	}
-	return &testFixture{service: NewService(cfg, store, signer, tokens.NewGroupResolver(nil), connectors, logger), store: store, signer: signer, cfg: cfg}
+	return &testFixture{service: NewService(cfg, store, signer, connectors, logger, authpolicy.NewResolver(cfg, nil)), store: store, signer: signer, cfg: cfg}
 }
 
 // createGrant creates one refresh family and encrypts an optional upstream credential.
@@ -283,6 +309,54 @@ func TestCurrentPolicyRevokesGrant(t *testing.T) {
 	if _, _, err := fixture.store.PrepareRefresh(current, "client", time.Now().UTC()); !errors.Is(err, storage.ErrInvalidGrant) {
 		t.Fatalf("grant remained active: %v", err)
 	}
+}
+
+// TestDynamicPolicyPersistence verifies temporary decisions preserve a grant and denial revokes it.
+func TestDynamicPolicyPersistence(t *testing.T) {
+	t.Run("indeterminate then current groups", func(t *testing.T) {
+		fixture := newTestFixture(t, nil)
+		client := fixture.cfg.Clients["client"]
+		fake := &fakePolicyResolver{client: authpolicy.ResolvedClient{Config: client}, userErrors: []error{&authpolicy.IndeterminateError{Err: context.DeadlineExceeded}, nil}, userResults: []authpolicy.ResolvedUser{{}, {Groups: []string{"updated"}}}}
+		fixture.service.policyResolver = fake
+		current := fixture.createGrant(t, "dynamic-retry", "email", nil)
+		if _, failure := fixture.service.Exchange(context.Background(), Request{Token: current.Token, ClientID: "client"}); failure == nil || failure.Code != Temporary {
+			t.Fatalf("temporary decision=%#v", failure)
+		}
+		if _, _, err := fixture.store.PrepareRefresh(current, "client", time.Now().UTC()); err != nil {
+			t.Fatalf("temporary decision damaged grant: %v", err)
+		}
+		result, failure := fixture.service.Exchange(context.Background(), Request{Token: current.Token, ClientID: "client"})
+		if failure != nil {
+			t.Fatal(failure)
+		}
+		verified, err := fixture.signer.VerifyToken(result.IDToken)
+		if err != nil {
+			t.Fatal(err)
+		}
+		groups, _ := verified.Get("groups")
+		encoded, _ := json.Marshal(groups)
+		if string(encoded) != `["updated"]` {
+			t.Fatalf("groups=%s", encoded)
+		}
+		if len(fake.freshCalls) != 2 || !fake.freshCalls[0] || !fake.freshCalls[1] {
+			t.Fatalf("client freshness checks=%v", fake.freshCalls)
+		}
+	})
+	t.Run("definitive denial revokes", func(t *testing.T) {
+		fixture := newTestFixture(t, nil)
+		client := fixture.cfg.Clients["client"]
+		fixture.service.policyResolver = &fakePolicyResolver{client: authpolicy.ResolvedClient{Config: client}, userErrors: []error{authpolicy.ErrDenied}}
+		current := fixture.createGrant(t, "dynamic-denial", "email", nil)
+		if _, failure := fixture.service.Exchange(context.Background(), Request{Token: current.Token, ClientID: "client"}); failure == nil || failure.Code != InvalidGrant {
+			t.Fatalf("denial=%#v", failure)
+		}
+		if _, failure := fixture.service.Exchange(context.Background(), Request{Token: current.Token, ClientID: "client"}); failure == nil || failure.Code != InvalidGrant {
+			t.Fatalf("retry after revocation=%#v", failure)
+		}
+		if fake, ok := fixture.service.policyResolver.(*fakePolicyResolver); !ok || fake.userCalls != 1 {
+			t.Fatalf("policy resolver was called after revocation: %#v", fixture.service.policyResolver)
+		}
+	})
 }
 
 // TestConnectorExchangeRevalidatesAndPersists verifies current identity evidence and credential re-encryption.

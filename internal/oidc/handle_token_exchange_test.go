@@ -5,9 +5,12 @@
 package oidc
 
 import (
+	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -16,8 +19,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/easy-oidc/easy-oidc/internal/authpolicy"
 	"github.com/easy-oidc/easy-oidc/internal/config"
 	"github.com/easy-oidc/easy-oidc/internal/tokens"
+	"github.com/easy-oidc/easy-oidc/internal/trust"
 	"github.com/lestrrat-go/jwx/v2/jwa"
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/lestrrat-go/jwx/v2/jws"
@@ -118,7 +123,7 @@ func tokenExchangeServer(t *testing.T, issuer *tokenExchangeIssuer, policies int
 	signer := tokens.NewSigner(key, "downstream-key", loaded.IssuerURL, time.Hour)
 	originalTransport := http.DefaultTransport
 	http.DefaultTransport = issuer.server.Client().Transport
-	server := NewServer(loaded, nil, nil, signer, tokens.NewGroupResolver(nil), nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	server := NewServer(loaded, nil, nil, signer, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	http.DefaultTransport = originalTransport
 	return server, key
 }
@@ -135,6 +140,87 @@ func tokenExchangeRequest(server *Server, values url.Values) *httptest.ResponseR
 // validTokenExchangeForm returns a complete RFC 8693 ID-token exchange form.
 func validTokenExchangeForm(raw string) url.Values {
 	return url.Values{"grant_type": {tokenExchangeGrant}, "client_id": {"client"}, "subject_token": {raw}, "subject_token_type": {idTokenType}, "requested_token_type": {idTokenType}}
+}
+
+// TestTokenExchangePolicyResolver verifies live trust replacement, exact matching, and temporary failures.
+func TestTokenExchangePolicyResolver(t *testing.T) {
+	issuer := newTokenExchangeIssuer(t)
+	server, signingKey := tokenExchangeServer(t, issuer, 2)
+	staticClient := server.config.Clients["client"]
+	first := staticClient.TrustBindings[0].Effective
+	second := staticClient.TrustBindings[1].Effective
+	firstDynamic := config.EffectiveTrustBinding{ID: "live-first", Subject: "current:first", Groups: []string{"current-a"}, Schema: first.Schema}
+	secondDynamic := config.EffectiveTrustBinding{ID: "live-second", Subject: "current:second", Groups: []string{"current-b"}, Schema: second.Schema}
+	fake := &fakePolicyResolver{client: authpolicy.ResolvedClient{Config: staticClient}, trust: []config.EffectiveTrustBinding{firstDynamic}}
+	server.policyResolver = fake
+	originalTransport := http.DefaultTransport
+	http.DefaultTransport = issuer.server.Client().Transport
+	server.trust = trust.NewService(server.config, fake)
+	http.DefaultTransport = originalTransport
+	assertIdentity := func(subject, group string) {
+		t.Helper()
+		response := tokenExchangeRequest(server, validTokenExchangeForm(issuer.sign(nil)))
+		if response.Code != http.StatusOK {
+			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+		}
+		var body struct {
+			AccessToken string `json:"access_token"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		verified, err := jwt.Parse([]byte(body.AccessToken), jwt.WithKey(signingKey.Algorithm, signingKey.PublicKey), jwt.WithValidate(true))
+		if err != nil {
+			t.Fatal(err)
+		}
+		groups, _ := verified.Get("groups")
+		encoded, _ := json.Marshal(groups)
+		if verified.Subject() != subject || string(encoded) != `["`+group+`"]` {
+			t.Fatalf("subject=%q groups=%s", verified.Subject(), encoded)
+		}
+	}
+	assertIdentity("current:first", "current-a")
+	fake.trust = []config.EffectiveTrustBinding{secondDynamic}
+	assertIdentity("current:second", "current-b")
+	for name, bindings := range map[string][]config.EffectiveTrustBinding{"zero": {}, "ambiguous": {firstDynamic, secondDynamic}} {
+		t.Run(name, func(t *testing.T) {
+			fake.trust = bindings
+			response := tokenExchangeRequest(server, validTokenExchangeForm(issuer.sign(nil)))
+			if response.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+		})
+	}
+	fake.trustErr = &authpolicy.IndeterminateError{Err: context.DeadlineExceeded}
+	var logs bytes.Buffer
+	server.logger = slog.New(slog.NewJSONHandler(&logs, nil))
+	response := tokenExchangeRequest(server, validTokenExchangeForm(issuer.sign(nil)))
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("indeterminate status=%d body=%s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(logs.String(), `"result":"indeterminate"`) || strings.Contains(logs.String(), `"result":"denied"`) {
+		t.Fatalf("indeterminate exchange log=%s", logs.String())
+	}
+	fake.trustErr = nil
+	fake.trust = []config.EffectiveTrustBinding{firstDynamic}
+	assertIdentity("current:first", "current-a")
+}
+
+// TestTokenExchangeUsesSourceAgnosticTrust verifies callers always use the resolver's effective bindings.
+func TestTokenExchangeUsesSourceAgnosticTrust(t *testing.T) {
+	issuer := newTokenExchangeIssuer(t)
+	server, _ := tokenExchangeServer(t, issuer, 1)
+	effective := server.config.Clients["client"].TrustBindings[0].Effective
+	fake := &fakePolicyResolver{client: authpolicy.ResolvedClient{Config: server.config.Clients["client"]}, trust: []config.EffectiveTrustBinding{*effective}}
+	server.policyResolver = fake
+	originalTransport := http.DefaultTransport
+	http.DefaultTransport = issuer.server.Client().Transport
+	server.trust = trust.NewService(server.config, fake)
+	http.DefaultTransport = originalTransport
+	response := tokenExchangeRequest(server, validTokenExchangeForm(issuer.sign(nil)))
+	if response.Code != http.StatusOK || fake.resolveTrustCalls != 1 || len(fake.resolveClientFresh) != 1 || !fake.resolveClientFresh[0] {
+		t.Fatalf("status=%d resolve_trust_calls=%d fresh=%v body=%s", response.Code, fake.resolveTrustCalls, fake.resolveClientFresh, response.Body.String())
+	}
 }
 
 // TestTokenExchangeProductionPath verifies the complete HTTP, trust, and downstream signing path.

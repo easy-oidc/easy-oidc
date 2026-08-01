@@ -5,10 +5,12 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/url"
 	"regexp"
+	"sort"
 	"strings"
 
 	jsonschema "github.com/santhosh-tekuri/jsonschema/v6"
@@ -17,6 +19,9 @@ import (
 const maxTrustBindings = 100
 
 var trustNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$`)
+
+// ValidTrustBindingID reports whether id satisfies the shared static and dynamic binding identifier contract.
+func ValidTrustBindingID(id string) bool { return trustNamePattern.MatchString(id) }
 
 // denySchemaLoader prevents all external schema retrieval.
 type denySchemaLoader struct{}
@@ -49,7 +54,7 @@ type TrustPolicyConfig struct {
 	Claims         map[string]json.RawMessage `json:"claims,omitempty"`
 }
 
-// TrustBindingConfig authorizes one policy for a downstream client.
+// TrustBindingConfig allows one policy for a downstream client.
 type TrustBindingConfig struct {
 	ID          string                     `json:"id"`
 	TrustPolicy string                     `json:"trust_policy"`
@@ -59,7 +64,7 @@ type TrustBindingConfig struct {
 	Effective   *EffectiveTrustBinding     `json:"-"`
 }
 
-// EffectiveTrustBinding is an immutable startup-compiled authorization rule.
+// EffectiveTrustBinding is an immutable startup-compiled auth rule.
 type EffectiveTrustBinding struct {
 	ID, Policy, Issuer, Subject string
 	Groups                      []string
@@ -215,11 +220,20 @@ func validateClaimName(name, provider string) error {
 	return nil
 }
 
+// ValidateTrustClaimName applies the configured issuer provider's trust claim allowlist.
+func ValidateTrustClaimName(name, provider string) error { return validateClaimName(name, provider) }
+
 // isTrustAlg accepts only asymmetric JWT signature algorithms.
 func isTrustAlg(alg string) bool { _, ok := supportedSigningAlgorithms[alg]; return ok }
 
 // compileTrustSchema safely compiles one bounded effective object schema.
 func compileTrustSchema(claims, required map[string]json.RawMessage) (*jsonschema.Schema, error) {
+	_, schema, err := CompileTrustSchema(claims, required)
+	return schema, err
+}
+
+// BuildTrustSchema canonicalizes and validates an effective trust schema without compiling it.
+func BuildTrustSchema(claims, required map[string]json.RawMessage) ([]byte, error) {
 	properties, names := map[string]any{}, []any{}
 	for name, raw := range claims {
 		if name == "" || len(name) > 256 {
@@ -247,10 +261,20 @@ func compileTrustSchema(claims, required map[string]json.RawMessage) (*jsonschem
 			names = append(names, name)
 		}
 	}
+	sort.Slice(names, func(i, j int) bool { return names[i].(string) < names[j].(string) })
 	doc := map[string]any{"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "required": names, "properties": properties}
 	data, _ := json.Marshal(doc)
 	if len(data) > 64<<10 || len(names) > 64 {
 		return nil, fmt.Errorf("effective schema exceeds safe limits")
+	}
+	return data, nil
+}
+
+// CompileCanonicalTrustSchema compiles canonical bytes returned by BuildTrustSchema.
+func CompileCanonicalTrustSchema(data []byte) (*jsonschema.Schema, error) {
+	doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("decode canonical trust schema: %w", err)
 	}
 	c := jsonschema.NewCompiler()
 	c.DefaultDraft(jsonschema.Draft2020)
@@ -259,6 +283,16 @@ func compileTrustSchema(claims, required map[string]json.RawMessage) (*jsonschem
 		return nil, err
 	}
 	return c.Compile("urn:easy-oidc:binding")
+}
+
+// CompileTrustSchema canonicalizes and compiles an effective trust schema using static policy safety semantics.
+func CompileTrustSchema(claims, required map[string]json.RawMessage) ([]byte, *jsonschema.Schema, error) {
+	data, err := BuildTrustSchema(claims, required)
+	if err != nil {
+		return nil, nil, err
+	}
+	schema, err := CompileCanonicalTrustSchema(data)
+	return data, schema, err
 }
 
 // decodeFragment rejects dangerous features and structurally oversized fragments.

@@ -5,7 +5,9 @@
 package oidc
 
 import (
+	"context"
 	"crypto/ed25519"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +16,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/easy-oidc/easy-oidc/internal/authpolicy"
+	"github.com/easy-oidc/easy-oidc/internal/config"
 	"github.com/easy-oidc/easy-oidc/internal/tokens"
 	"github.com/lestrrat-go/jwx/v2/jwa"
 )
@@ -88,5 +92,33 @@ func newTestSigningKey(t *testing.T) *tokens.SigningKey {
 		Algorithm:  jwa.EdDSA,
 		PrivateKey: privateKey,
 		PublicKey:  publicKey,
+	}
+}
+
+// TestHandleUserInfoRevalidatesDynamicClient verifies current client auth and failure mapping.
+func TestHandleUserInfoRevalidatesDynamicClient(t *testing.T) {
+	issuer := "https://test.example.com"
+	signer := tokens.NewSigner(newTestSigningKey(t), "kid", issuer, time.Hour)
+	_, access, err := signer.SignTokenPair(tokens.TokenContext{Email: "user@example.com", ClientID: "dynamic", Scopes: "openid", AuthTime: time.Now(), IDExpiry: time.Now().Add(time.Hour), AccessExpiry: time.Now().Add(time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name string
+		err  error
+		want int
+	}{{"accepted", nil, http.StatusOK}, {"denied", authpolicy.ErrDenied, http.StatusUnauthorized}, {"indeterminate", &authpolicy.IndeterminateError{Err: context.DeadlineExceeded}, http.StatusServiceUnavailable}}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fake := &fakePolicyResolver{client: authpolicy.ResolvedClient{Config: config.ClientConfig{}}, clientErrors: []error{test.err}}
+			server := &Server{config: &config.Config{}, signer: signer, policyResolver: fake, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+			request := httptest.NewRequest(http.MethodGet, "/userinfo", nil)
+			request.Header.Set("Authorization", "Bearer "+access)
+			response := httptest.NewRecorder()
+			server.HandleUserInfo(response, request)
+			if response.Code != test.want || fake.resolveClientCalls != 1 {
+				t.Fatalf("status=%d calls=%d body=%s", response.Code, fake.resolveClientCalls, response.Body.String())
+			}
+		})
 	}
 }

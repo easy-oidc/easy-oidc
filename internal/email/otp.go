@@ -28,11 +28,15 @@ func NewOTPMailer(mailer *SMTPMailer, templates *templates.Manager, ttl time.Dur
 func (m *OTPMailer) SendOTP(ctx context.Context, to, code string, expiresAt time.Time) error {
 	var textBody, htmlBody bytes.Buffer
 	templateData := templates.OTPEmailData{Code: code, ExpiresAt: expiresAt.UTC(), ExpiresIn: m.ttl}
+	subject, err := m.templates.RenderEmailSubject(templateData)
+	if err != nil {
+		return err
+	}
 	if err := m.templates.RenderEmail(&textBody, "text", templateData); err != nil {
 		return err
 	}
 	if err := m.templates.RenderEmail(&htmlBody, "html", templateData); err != nil {
 		return err
 	}
-	return m.mailer.send(ctx, to, "Easy OIDC verification code", textBody.String(), htmlBody.String())
+	return m.mailer.send(ctx, to, subject, textBody.String(), htmlBody.String())
 }

@@ -5,10 +5,12 @@
 package oidc
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/easy-oidc/easy-oidc/internal/authpolicy"
 	"github.com/easy-oidc/easy-oidc/internal/config"
 	"github.com/easy-oidc/easy-oidc/internal/storage"
 	"github.com/easy-oidc/easy-oidc/internal/tokens"
@@ -104,12 +107,6 @@ func TestHandleToken_RequireGroups(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			groupResolver := tokens.NewGroupResolver(map[string]map[string][]string{
-				"test-override": {
-					"user@example.com": tt.userGroups,
-				},
-			})
-
 			cfg := &config.Config{
 				IssuerURL:      "https://test.example.com",
 				RequireGroups:  tt.globalRequireGroups,
@@ -120,6 +117,9 @@ func TestHandleToken_RequireGroups(t *testing.T) {
 						RequireGroups:  tt.clientRequireGroups,
 						GroupsOverride: "test-override",
 					},
+				},
+				GroupsOverrides: map[string]map[string][]string{
+					"test-override": {"user@example.com": tt.userGroups},
 				},
 			}
 
@@ -139,7 +139,7 @@ func TestHandleToken_RequireGroups(t *testing.T) {
 				t.Fatalf("failed to create auth code manager: %v", err)
 			}
 
-			srv := NewServer(cfg, nil, authCodeMgr, signer, groupResolver, []byte("{}"), logger, store, nil, nil, nil, nil, nil, nil)
+			srv := NewServer(cfg, nil, authCodeMgr, signer, []byte("{}"), logger, store, nil, nil, nil, nil, nil, nil, nil)
 
 			verifier := "test-verifier-dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
 			hash := sha256.Sum256([]byte(verifier))
@@ -231,7 +231,7 @@ func refreshTokenServer(t *testing.T) (*Server, *storage.Store, *AuthCodeManager
 	}
 	key := []byte("01234567890123456789012345678901")
 	signer := tokens.NewSigner(newTestSigningKey(t), "kid", cfg.IssuerURL, time.Hour)
-	return NewServer(cfg, nil, manager, signer, tokens.NewGroupResolver(nil), nil, logger, store, nil, nil, nil, nil, nil, key), store, manager, key
+	return NewServer(cfg, nil, manager, signer, nil, logger, store, nil, nil, nil, nil, nil, key, nil), store, manager, key
 }
 
 // exchangeCodeRequest sends a valid authorization-code token request.
@@ -242,6 +242,75 @@ func exchangeCodeRequest(server *Server, code, verifier string) *httptest.Respon
 	response := httptest.NewRecorder()
 	server.HandleToken(response, request)
 	return response
+}
+
+// TestDynamicCodeRedemptionPreservesCodeUntilDefinitiveAuthorization verifies retry-safe SQLite redemption.
+func TestDynamicCodeRedemptionPreservesCodeUntilDefinitiveAuthorization(t *testing.T) {
+	server, store, manager, _ := refreshTokenServer(t)
+	client := server.config.Clients["client"]
+	client.RefreshTokens.Enabled = false
+	fake := &fakePolicyResolver{
+		client:      authpolicy.ResolvedClient{Config: client},
+		userErrors:  []error{&authpolicy.IndeterminateError{Err: context.DeadlineExceeded}, nil},
+		userResults: []authpolicy.ResolvedUser{{}, {Groups: []string{"current-group"}}},
+	}
+	server.policyResolver = fake
+	verifier := "test-verifier-dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+	hash := sha256.Sum256([]byte(verifier))
+	code, err := manager.GenerateCode(AuthCodePayload{ClientID: "client", Email: "user@example.com", RedirectURI: "https://client.example/callback", CodeChallenge: base64.RawURLEncoding.EncodeToString(hash[:]), Scopes: "openid groups", AuthTime: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := exchangeCodeRequest(server, code, verifier)
+	if first.Code != http.StatusServiceUnavailable {
+		t.Fatalf("first status=%d body=%s", first.Code, first.Body.String())
+	}
+	if _, err = store.PeekAuthCode(code, time.Now()); err != nil {
+		t.Fatalf("temporary failure consumed code: %v", err)
+	}
+	second := exchangeCodeRequest(server, code, verifier)
+	if second.Code != http.StatusOK {
+		t.Fatalf("retry status=%d body=%s", second.Code, second.Body.String())
+	}
+	if _, err = store.PeekAuthCode(code, time.Now()); !errors.Is(err, storage.ErrInvalidGrant) {
+		t.Fatalf("successful redemption left code: %v", err)
+	}
+	var response struct {
+		IDToken string `json:"id_token"`
+	}
+	if err = json.Unmarshal(second.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	verified, err := server.signer.VerifyToken(response.IDToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	groups, _ := verified.Get("groups")
+	encoded, _ := json.Marshal(groups)
+	if string(encoded) != `["current-group"]` {
+		t.Fatalf("groups=%s", encoded)
+	}
+}
+
+// TestDynamicCodeRedemptionDenialIssuesNothing verifies definitive denial consumes no code or token state.
+func TestDynamicCodeRedemptionDenialIssuesNothing(t *testing.T) {
+	server, store, manager, _ := refreshTokenServer(t)
+	client := server.config.Clients["client"]
+	client.RefreshTokens.Enabled = false
+	server.policyResolver = &fakePolicyResolver{client: authpolicy.ResolvedClient{Config: client}, userErrors: []error{authpolicy.ErrDenied}}
+	verifier := "test-verifier-dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+	hash := sha256.Sum256([]byte(verifier))
+	code, err := manager.GenerateCode(AuthCodePayload{ClientID: "client", Email: "user@example.com", RedirectURI: "https://client.example/callback", CodeChallenge: base64.RawURLEncoding.EncodeToString(hash[:]), Scopes: "openid", AuthTime: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := exchangeCodeRequest(server, code, verifier)
+	if response.Code != http.StatusForbidden || strings.Contains(response.Body.String(), "id_token") || strings.Contains(response.Body.String(), "access_token") {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if _, err = store.PeekAuthCode(code, time.Now()); err != nil {
+		t.Fatalf("denial unexpectedly consumed code: %v", err)
+	}
 }
 
 // exitResponseWriter terminates its process when the token response body is written.
@@ -277,7 +346,7 @@ func responseLossServer(t *testing.T, path string) (*Server, *storage.Store) {
 		Clients:        map[string]config.ClientConfig{"client": {RefreshTokens: config.RefreshTokenConfig{Enabled: true}}},
 	}
 	signer := tokens.NewSigner(newTestSigningKey(t), "kid", cfg.IssuerURL, time.Hour)
-	return NewServer(cfg, nil, nil, signer, tokens.NewGroupResolver(nil), nil, logger, store, nil, nil, nil, nil, nil, nil), store
+	return NewServer(cfg, nil, nil, signer, nil, logger, store, nil, nil, nil, nil, nil, nil, nil), store
 }
 
 // TestResponseWriteCrashProcess exits from the production HTTP response writer after commit.
@@ -398,8 +467,8 @@ func TestHandleTokenRejectsInvalidProtocolRequests(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	server := &Server{logger: logger}
 	tests := []struct {
-		name, method, target, contentType, body, authorization, wantError string
-		wantStatus                                                        int
+		name, method, target, contentType, body, authorizationHeader, wantError string
+		wantStatus                                                              int
 	}{
 		{name: "wrong method", method: http.MethodGet, target: "/token", contentType: "application/x-www-form-urlencoded", wantStatus: http.StatusMethodNotAllowed, wantError: "invalid_request"},
 		{name: "query parameters", method: http.MethodPost, target: "/token?grant_type=refresh_token", contentType: "application/x-www-form-urlencoded", wantStatus: http.StatusBadRequest, wantError: "invalid_request"},
@@ -407,7 +476,7 @@ func TestHandleTokenRejectsInvalidProtocolRequests(t *testing.T) {
 		{name: "missing grant type", method: http.MethodPost, target: "/token", contentType: "application/x-www-form-urlencoded", wantStatus: http.StatusBadRequest, wantError: "invalid_request"},
 		{name: "unsupported grant type", method: http.MethodPost, target: "/token", contentType: "application/x-www-form-urlencoded", body: "grant_type=password", wantStatus: http.StatusBadRequest, wantError: "unsupported_grant_type"},
 		{name: "duplicate parameter", method: http.MethodPost, target: "/token", contentType: "application/x-www-form-urlencoded", body: "grant_type=refresh_token&grant_type=authorization_code", wantStatus: http.StatusBadRequest, wantError: "invalid_request"},
-		{name: "basic authentication", method: http.MethodPost, target: "/token", contentType: "application/x-www-form-urlencoded", body: "grant_type=refresh_token", authorization: "Basic Y2xpZW50OnNlY3JldA==", wantStatus: http.StatusBadRequest, wantError: "invalid_request"},
+		{name: "basic authentication", method: http.MethodPost, target: "/token", contentType: "application/x-www-form-urlencoded", body: "grant_type=refresh_token", authorizationHeader: "Basic Y2xpZW50OnNlY3JldA==", wantStatus: http.StatusBadRequest, wantError: "invalid_request"},
 		{name: "client secret", method: http.MethodPost, target: "/token", contentType: "application/x-www-form-urlencoded", body: "grant_type=refresh_token&client_secret=secret", wantStatus: http.StatusBadRequest, wantError: "invalid_request"},
 		{name: "empty client secret", method: http.MethodPost, target: "/token", contentType: "application/x-www-form-urlencoded", body: "grant_type=refresh_token&client_secret=", wantStatus: http.StatusBadRequest, wantError: "invalid_request"},
 		{name: "refresh token on code grant", method: http.MethodPost, target: "/token", contentType: "application/x-www-form-urlencoded", body: "grant_type=authorization_code&refresh_token=token", wantStatus: http.StatusBadRequest, wantError: "invalid_request"},
@@ -417,7 +486,7 @@ func TestHandleTokenRejectsInvalidProtocolRequests(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			request := httptest.NewRequest(test.method, test.target, strings.NewReader(test.body))
 			request.Header.Set("Content-Type", test.contentType)
-			request.Header.Set("Authorization", test.authorization)
+			request.Header.Set("Authorization", test.authorizationHeader)
 			response := httptest.NewRecorder()
 			server.HandleToken(response, request)
 			if response.Code != test.wantStatus {

@@ -22,6 +22,20 @@ jobs:
   ci:
     name: Build and test
     runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres@sha256:6567bca8d7bc8c82c5922425a0baee57be8402df92bae5eacad5f01ae9544daa # 17.5-alpine
+        env:
+          POSTGRES_USER: easy_oidc_test
+          POSTGRES_PASSWORD: easy_oidc_test
+          POSTGRES_DB: easy_oidc_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U easy_oidc_test -d easy_oidc_test"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -36,6 +50,8 @@ jobs:
 
       - name: Test
         run: make test
+        env:
+          EASYOIDC_POLICY_TEST_DB_URL: postgresql://easy_oidc_test:easy_oidc_test@localhost:5432/easy_oidc_test?sslmode=disable
 
       - name: Upload coverage
         uses: codecov/codecov-action@5975040f7f7d40edaff8d784b576fd65ae95c073 # v5.5.5

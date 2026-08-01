@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	texttemplate "text/template"
 	"time"
 )
@@ -21,9 +22,10 @@ var embeddedTemplates embed.FS
 
 // Manager owns the compiled page and email templates.
 type Manager struct {
-	pages     map[string]*template.Template
-	emailHTML *template.Template
-	emailText *texttemplate.Template
+	pages        map[string]*template.Template
+	emailHTML    *template.Template
+	emailText    *texttemplate.Template
+	emailSubject *texttemplate.Template
 }
 
 // effective reads an overlay template when present and otherwise uses the embedded template.
@@ -89,6 +91,10 @@ func Load(dir string) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
+	subjectBytes, err := effective(dir, "email/otp.subject.txt")
+	if err != nil {
+		return nil, err
+	}
 	m.emailHTML, err = template.New("layout").Option("missingkey=error").Parse(string(htmlLayout))
 	if err == nil {
 		_, err = m.emailHTML.Parse(string(htmlBytes))
@@ -103,6 +109,10 @@ func Load(dir string) (*Manager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse text email templates: %w", err)
 	}
+	m.emailSubject, err = texttemplate.New("subject").Option("missingkey=error").Parse(string(subjectBytes))
+	if err != nil {
+		return nil, fmt.Errorf("parse email subject template: %w", err)
+	}
 	var out bytes.Buffer
 	testEmailData := OTPEmailData{Code: "12345678", ExpiresAt: time.Date(2026, time.July, 27, 12, 34, 0, 0, time.UTC), ExpiresIn: 5 * time.Minute}
 	if err = m.emailHTML.ExecuteTemplate(&out, "layout", testEmailData); err != nil {
@@ -111,6 +121,9 @@ func Load(dir string) (*Manager, error) {
 	out.Reset()
 	if err = m.emailText.ExecuteTemplate(&out, "layout", testEmailData); err != nil {
 		return nil, fmt.Errorf("render email/otp.txt: %w", err)
+	}
+	if _, err = m.RenderEmailSubject(testEmailData); err != nil {
+		return nil, fmt.Errorf("render email/otp.subject.txt: %w", err)
 	}
 	return m, nil
 }
@@ -136,4 +149,17 @@ func (m *Manager) RenderEmail(w io.Writer, format string, data OTPEmailData) err
 		return m.emailText.ExecuteTemplate(w, "layout", data)
 	}
 	return fmt.Errorf("unknown email format %q", format)
+}
+
+// RenderEmailSubject renders and validates an OTP email subject.
+func (m *Manager) RenderEmailSubject(data OTPEmailData) (string, error) {
+	var out bytes.Buffer
+	if err := m.emailSubject.ExecuteTemplate(&out, "subject", data); err != nil {
+		return "", err
+	}
+	subject := out.String()
+	if subject == "" || strings.ContainsAny(subject, "\r\n") {
+		return "", fmt.Errorf("email subject must be non-empty and single-line")
+	}
+	return subject, nil
 }

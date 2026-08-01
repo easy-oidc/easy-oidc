@@ -26,6 +26,9 @@ See the [example configurations](https://github.com/easy-oidc/easy-oidc/tree/mai
 including `config-multiple.jsonc` for multiple connectors, email codes, SMTP, and
 Turnstile.
 
+For clients, users, groups, and trust bindings supplied by database policy, see
+the [policy database guide](policy-database.md) and `config-policy-db.jsonc`.
+
 ## External OIDC trust
 
 External OIDC and CI identities use three configuration layers:
@@ -291,6 +294,7 @@ filesystem: provide only the files you want to replace.
 | `email/otp.html` | `.Code`, `.ExpiresAt`, `.ExpiresIn`. |
 | `email/layout.txt` | Common plain-text email layout. |
 | `email/otp.txt` | `.Code`, `.ExpiresAt`, `.ExpiresIn`. |
+| `email/otp.subject.txt` | Email subject using `.Code`, `.ExpiresAt`, `.ExpiresIn`. |
 
 `.ExpiresAt` is an exact UTC `time.Time`; `.ExpiresIn` is the configured
 `time.Duration`. For example:
@@ -302,7 +306,8 @@ It expires at {{.ExpiresAt.Format "15:04 MST"}}
 
 Page content templates define `content`; layouts render it with
 `{{template "content" .}}`. Email HTML and text templates each have their own
-layout.
+layout. The email subject template defines `subject` and must render a non-empty
+single line.
 
 All effective templates are parsed and test-rendered during startup. A parse or
 render error prevents the server from starting.

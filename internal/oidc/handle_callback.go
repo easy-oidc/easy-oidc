@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/easy-oidc/easy-oidc/internal/authpolicy"
 	"github.com/easy-oidc/easy-oidc/internal/storage"
 	"github.com/easy-oidc/easy-oidc/internal/templates"
 	"github.com/easy-oidc/easy-oidc/internal/upstream"
@@ -127,14 +128,22 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request, state OAuthSta
 		s.renderGrants(w, email)
 		return
 	}
-	client, ok := s.config.Clients[state.ClientID]
-	if !ok {
-		http.Error(w, "internal error", 500)
+	resolved, err := s.policyResolver.ResolveClient(r.Context(), state.ClientID, true)
+	if err != nil {
+		if errors.Is(err, authpolicy.ErrDenied) {
+			s.renderErrorPage(w, "Login Failed", "Your account was not allowed.")
+		} else {
+			http.Error(w, "auth temporarily unavailable", http.StatusServiceUnavailable)
+		}
 		return
 	}
-	groups := s.groupResolver.ResolveGroups(client.GroupsOverride, email)
-	if client.ShouldRequireGroups(s.config.RequireGroups) && len(groups) == 0 {
-		s.renderErrorPage(w, "Login Failed", "Your account was unable to be authorised.")
+	_, policyErr := s.policyResolver.ResolveUser(r.Context(), resolved, strings.ToLower(email))
+	if policyErr != nil {
+		if errors.Is(policyErr, authpolicy.ErrDenied) {
+			s.renderErrorPage(w, "Login Failed", "Your account was not allowed.")
+		} else {
+			http.Error(w, "auth temporarily unavailable", http.StatusServiceUnavailable)
+		}
 		return
 	}
 	connectorConfig, connectorConfigured := s.config.Connectors[state.ConnectorID]

@@ -6,9 +6,12 @@ package oidc
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
+
+	"github.com/easy-oidc/easy-oidc/internal/authpolicy"
 )
 
 // HandleUserInfo handles the OIDC userinfo endpoint (/userinfo).
@@ -36,8 +39,13 @@ func (s *Server) HandleUserInfo(w http.ResponseWriter, r *http.Request) {
 		if len(token.Audience()) != 1 {
 			err = fmt.Errorf("invalid audience")
 		}
-		if s.config != nil {
-			if _, ok := s.config.Clients[token.Audience()[0]]; !ok {
+		if err == nil && s.config != nil {
+			_, resolveErr := s.policyResolver.ResolveClient(r.Context(), token.Audience()[0], false)
+			if resolveErr != nil {
+				if !errors.Is(resolveErr, authpolicy.ErrDenied) {
+					http.Error(w, "auth temporarily unavailable", http.StatusServiceUnavailable)
+					return
+				}
 				err = fmt.Errorf("invalid audience")
 			}
 		}

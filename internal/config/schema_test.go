@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/tailscale/hujson"
@@ -152,6 +153,140 @@ func TestConfigSchemaContracts(t *testing.T) {
 				t.Fatalf("validation error = %v, want valid = %v", err, test.valid)
 			}
 		})
+	}
+}
+
+// TestPolicyDatabaseSchemaAndLoaderValidation exercises the policy database configuration schema and authoritative startup validation.
+func TestPolicyDatabaseSchemaAndLoaderValidation(t *testing.T) {
+	schema := compileConfigSchema(t)
+	base := map[string]any{
+		"issuer_url": "https://auth.example.com", "http_listen_addr": "127.0.0.1:8080", "data_dir": "/tmp/easy-oidc",
+		"secrets":    map[string]any{"provider": "env", "signing_key_name": "SIGNING"},
+		"connectors": map[string]any{"google": map[string]any{"type": "google", "display_name": "Google", "credentials_secret": "GOOGLE"}},
+		"policy_database": map[string]any{
+			"driver": "postgresql", "connection_string_secret": "DATABASE_URL", "redirect_uris": []any{"http://localhost:18000"},
+			"queries": map[string]any{"client_exists": "select true as exists", "user_access": "select true as allowed, array[]::text[] as groups", "trust_bindings": "select 1 where false"},
+		},
+	}
+	tests := []struct {
+		name        string
+		schemaValid bool
+		loaderValid bool
+		edit        func(map[string]any)
+	}{
+		{"policy-database-only", true, true, func(map[string]any) {}},
+		{"dynamic refresh requires encryption", false, false, func(c map[string]any) {
+			c["policy_database"].(map[string]any)["client_defaults"] = map[string]any{"refresh_tokens": map[string]any{"enabled": true}}
+		}},
+		{"dynamic refresh with encryption", true, true, func(c map[string]any) {
+			c["policy_database"].(map[string]any)["client_defaults"] = map[string]any{"refresh_tokens": map[string]any{"enabled": true}}
+			c["secrets"].(map[string]any)["encryption_key_name"] = "ENCRYPTION"
+		}},
+		{"email-only dynamic refresh without encryption", true, true, func(c map[string]any) {
+			c["policy_database"].(map[string]any)["client_defaults"] = map[string]any{"refresh_tokens": map[string]any{"enabled": true}}
+			c["connectors"] = map[string]any{"email": map[string]any{"type": "email", "display_name": "Email code"}}
+			c["email"] = map[string]any{
+				"verification_mode": "disabled", "otp_secret_name": "OTP",
+				"smtp": map[string]any{"host": "smtp.example.com", "port": json.Number("587"), "from_address": "auth@example.com", "credentials_secret": "SMTP"},
+			}
+		}},
+		{"equivalent Go duration", true, true, func(c map[string]any) { c["policy_database"].(map[string]any)["query_timeout"] = "1000ms" }},
+		{"coexists with static client", true, true, func(c map[string]any) {
+			c["clients"] = map[string]any{"static": map[string]any{"redirect_uris": []any{"https://app.example/cb"}}}
+		}},
+		{"invalid driver", false, false, func(c map[string]any) { c["policy_database"].(map[string]any)["driver"] = "mysql" }},
+		{"invalid redirect", false, false, func(c map[string]any) {
+			c["policy_database"].(map[string]any)["redirect_uris"] = []any{"http://remote.example/cb"}
+		}},
+		{"query timeout below boundary", true, false, func(c map[string]any) { c["policy_database"].(map[string]any)["query_timeout"] = "1ms" }},
+		{"cache duration above boundary", true, false, func(c map[string]any) {
+			c["policy_database"].(map[string]any)["client_lookup_cache"] = map[string]any{"ttl": "2h"}
+		}},
+		{"invalid duration syntax", false, false, func(c map[string]any) { c["policy_database"].(map[string]any)["query_timeout"] = "soon" }},
+		{"invalid cache limit", false, false, func(c map[string]any) {
+			c["policy_database"].(map[string]any)["policy_build_cache"] = map[string]any{"max_entries": json.Number("100001")}
+		}},
+		{"invalid connections", false, false, func(c map[string]any) {
+			c["policy_database"].(map[string]any)["max_connections"] = json.Number("33")
+		}},
+		{"invalid result limit", false, false, func(c map[string]any) {
+			c["policy_database"].(map[string]any)["max_json_bytes"] = json.Number("100")
+		}},
+		{"invalid refresh policy", false, false, func(c map[string]any) {
+			c["policy_database"].(map[string]any)["client_defaults"] = map[string]any{"refresh_tokens": map[string]any{"allow_offline_access": true}}
+		}},
+		{"unknown nested field", false, false, func(c map[string]any) {
+			c["policy_database"].(map[string]any)["queries"].(map[string]any)["typo"] = "select 1"
+		}},
+		{"default queries", true, true, func(c map[string]any) {
+			delete(c["policy_database"].(map[string]any), "queries")
+		}},
+		{"partial query override", true, true, func(c map[string]any) {
+			queries := c["policy_database"].(map[string]any)["queries"].(map[string]any)
+			delete(queries, "user_access")
+			delete(queries, "trust_bindings")
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			instance := cloneJSONValue(t, base).(map[string]any)
+			test.edit(instance)
+			schemaOK := schema.Validate(instance) == nil
+			data, err := json.Marshal(instance)
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(t.TempDir(), "config.jsonc")
+			if err = os.WriteFile(path, data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			loaded, loadErr := Load(path)
+			loaderOK := loadErr == nil
+			if schemaOK != test.schemaValid || loaderOK != test.loaderValid {
+				t.Fatalf("schema valid=%v (want %v), loader valid=%v (want %v): %v", schemaOK, test.schemaValid, loaderOK, test.loaderValid, loadErr)
+			}
+			if loaded != nil && test.name == "policy-database-only" {
+				s := loaded.PolicyDatabase
+				if s.QueryTimeout.Duration() != 500*time.Millisecond || s.MaxConnections != 4 || s.ClientLookupCache.MaxEntries != 10000 || s.ClientLookupCache.TTL.Duration() != 5*time.Minute || s.ClientDefaults.RefreshTokens.SessionIdleTTL.Duration() != 30*time.Minute {
+					t.Fatalf("unexpected defaults: %#v", s)
+				}
+			}
+			if loaded != nil && test.name == "default queries" {
+				queries := loaded.PolicyDatabase.Queries
+				if queries.ClientExists != defaultClientExistsQuery || queries.UserAccess != defaultUserAccessQuery || queries.TrustBindings != defaultTrustBindingsQuery {
+					t.Fatalf("unexpected query defaults: %#v", queries)
+				}
+			}
+			if loaded != nil && test.name == "partial query override" {
+				queries := loaded.PolicyDatabase.Queries
+				if queries.ClientExists != "select true as exists" || queries.UserAccess != defaultUserAccessQuery || queries.TrustBindings != defaultTrustBindingsQuery {
+					t.Fatalf("unexpected query overrides: %#v", queries)
+				}
+			}
+		})
+	}
+}
+
+// TestPolicyDatabaseQueryDefaultsMatchSchema keeps the documented JSON Schema defaults synchronized with the loader.
+func TestPolicyDatabaseQueryDefaultsMatchSchema(t *testing.T) {
+	schemaPath := filepath.Join("..", "..", "schema", "v2", "config.schema.json")
+	data, err := os.ReadFile(schemaPath)
+	if err != nil {
+		t.Fatalf("read schema: %v", err)
+	}
+	var document map[string]any
+	if err = json.Unmarshal(data, &document); err != nil {
+		t.Fatalf("parse schema: %v", err)
+	}
+	queries := document["$defs"].(map[string]any)["policyDatabase"].(map[string]any)["properties"].(map[string]any)["queries"].(map[string]any)["properties"].(map[string]any)
+	for name, expected := range map[string]string{
+		"client_exists":  defaultClientExistsQuery,
+		"user_access":    defaultUserAccessQuery,
+		"trust_bindings": defaultTrustBindingsQuery,
+	} {
+		if got := queries[name].(map[string]any)["default"]; got != expected {
+			t.Errorf("%s schema default = %q, want %q", name, got, expected)
+		}
 	}
 }
 

@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 {
-  "issuer_url": "http://127.0.0.1:8080",
-  "http_listen_addr": "127.0.0.1:8080",
+  "issuer_url": "http://127.0.0.1:18080",
+  "http_listen_addr": "127.0.0.1:18080",
   "data_dir": "./temp",
   "signing_algorithm": "RS256",
   "access_token_ttl": "5s",
@@ -14,6 +14,17 @@
     "provider": "env",
     "signing_key_name": "EASYOIDC_SIGNING_KEY",
     "encryption_key_name": "EASYOIDC_ENCRYPTION_KEY",
+  },
+
+  "policy_database": {
+    // The policy database supplies the db-* clients after the static flows.
+    "driver": "postgresql",
+    "connection_string_secret": "EASYOIDC_POLICY_DB_URL",
+    "redirect_uris": ["http://localhost:18000"],
+    "client_defaults": {
+      "require_groups": true,
+      "refresh_tokens": { "enabled": true },
+    },
   },
 
   "connectors": {
@@ -47,7 +58,7 @@
       },
     },
     "policies": {
-      "dex-ci-e2e": {
+      "dex-static-e2e": {
         "issuer": "dex",
         "required_claims": {
           "sub": { "const": "CiQwOGE4Njg0Yi1kYjg4LTRiNzMtOTBhOS0zY2QxNjYxZjU0NjYSBWxvY2Fs" },
@@ -59,22 +70,23 @@
   "default_redirect_uris": ["http://localhost:18000"],
 
   "groups_overrides": {
-    "local-groups": {
-      "kilgore@kilgore.trout": ["admins", "developers"],
+    "static-groups": {
+      // Dex's mockCallback connector returns this fixed, non-configurable identity.
+      "kilgore@kilgore.trout": ["static-admins", "static-developers"],
     },
   },
 
   "clients": {
-    "ci-token-exchange-e2e": {
+    "static-ci-token-exchange-e2e": {
       "trust_bindings": [{
-        "id": "dex-ci-exchange-e2e",
-        "trust_policy": "dex-ci-e2e",
-        "subject": "trusted:e2e:ci",
-        "groups": ["e2e:ci"],
+        "id": "dex-static-exchange-e2e",
+        "trust_policy": "dex-static-e2e",
+        "subject": "trusted:e2e:static",
+        "groups": ["e2e:static"],
       }],
     },
-    "kubelogin-interactive-e2e": {
-      "groups_override": "local-groups",
+    "static-kubelogin-interactive-e2e": {
+      "groups_override": "static-groups",
       "refresh_tokens": {
         "enabled": true,
       },

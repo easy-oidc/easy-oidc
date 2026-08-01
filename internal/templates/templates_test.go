@@ -92,6 +92,28 @@ func TestLoadAppliesPartialEmailOverlays(t *testing.T) {
 	}
 }
 
+// TestLoadAppliesEmailSubjectOverlay verifies the subject can use the same OTP data independently of body overlays.
+func TestLoadAppliesEmailSubjectOverlay(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "email"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "email/otp.subject.txt"), []byte(`{{define "subject"}}Custom code {{.Code}}{{end}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	m, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	subject, err := m.RenderEmailSubject(OTPEmailData{Code: "12345678", ExpiresAt: time.Now(), ExpiresIn: 5 * time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if subject != "Custom code 12345678" {
+		t.Fatalf("subject = %q", subject)
+	}
+}
+
 // TestDefaultEmailIncludesExpiry verifies default email templates render the exact expiry.
 func TestDefaultEmailIncludesExpiry(t *testing.T) {
 	m, err := Load("")
@@ -108,6 +130,13 @@ func TestDefaultEmailIncludesExpiry(t *testing.T) {
 			t.Fatalf("%s email omitted expiry: %s", format, out.String())
 		}
 	}
+	subject, err := m.RenderEmailSubject(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if subject != "Easy OIDC verification code" {
+		t.Fatalf("default subject = %q", subject)
+	}
 }
 
 // TestLoadRejectsInvalidEmailOverlay verifies invalid email overlays fail loading.
@@ -121,5 +150,27 @@ func TestLoadRejectsInvalidEmailOverlay(t *testing.T) {
 	}
 	if _, err := Load(dir); err == nil {
 		t.Fatal("invalid email template accepted")
+	}
+}
+
+// TestLoadRejectsInvalidEmailSubject verifies subject overlays are rendered and header-safe at startup.
+func TestLoadRejectsInvalidEmailSubject(t *testing.T) {
+	for name, body := range map[string]string{
+		"empty":       `{{define "subject"}}{{end}}`,
+		"missing key": `{{define "subject"}}{{.Missing}}{{end}}`,
+		"newline":     "{{define \"subject\"}}first\nsecond{{end}}",
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(dir, "email"), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "email/otp.subject.txt"), []byte(body), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Load(dir); err == nil {
+				t.Fatal("invalid email subject accepted")
+			}
+		})
 	}
 }

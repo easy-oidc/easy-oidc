@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/easy-oidc/easy-oidc/internal/authpolicy"
 	"github.com/easy-oidc/easy-oidc/internal/config"
 	"github.com/easy-oidc/easy-oidc/internal/storage"
 	"github.com/easy-oidc/easy-oidc/internal/tokens"
@@ -33,6 +34,12 @@ const (
 	refreshBusyWait = time.Second
 )
 
+// policyResolver defines the current client and user decisions consumed by refresh exchange.
+type policyResolver interface {
+	ResolveClient(context.Context, string, bool) (authpolicy.ResolvedClient, error)
+	ResolveUser(context.Context, authpolicy.ResolvedClient, string) (authpolicy.ResolvedUser, error)
+}
+
 // Failure is a sanitized refresh exchange failure.
 type Failure struct {
 	Code                    string
@@ -50,17 +57,17 @@ type Result struct {
 
 // Service executes refresh grants against current policy and upstream state.
 type Service struct {
-	cfg        *config.Config
-	store      *storage.Store
-	signer     *tokens.Signer
-	groups     *tokens.GroupResolver
-	connectors map[string]upstream.Connector
-	logger     *slog.Logger
+	cfg            *config.Config
+	store          *storage.Store
+	signer         *tokens.Signer
+	connectors     map[string]upstream.Connector
+	logger         *slog.Logger
+	policyResolver policyResolver
 }
 
 // NewService creates a refresh exchange service.
-func NewService(cfg *config.Config, store *storage.Store, signer *tokens.Signer, groups *tokens.GroupResolver, connectors map[string]upstream.Connector, logger *slog.Logger) *Service {
-	return &Service{cfg: cfg, store: store, signer: signer, groups: groups, connectors: connectors, logger: logger}
+func NewService(cfg *config.Config, store *storage.Store, signer *tokens.Signer, connectors map[string]upstream.Connector, logger *slog.Logger, resolver policyResolver) *Service {
+	return &Service{cfg: cfg, store: store, signer: signer, connectors: connectors, logger: logger, policyResolver: resolver}
 }
 
 // Exchange validates, narrows, and rotates one refresh grant.
@@ -84,8 +91,15 @@ func (s *Service) Exchange(ctx context.Context, req Request) (Result, *Failure) 
 		}
 		return Result{}, &Failure{Code: Temporary, Description: "storage unavailable"}
 	}
-	client, ok := s.cfg.Clients[grant.ClientID]
-	if !ok || !client.RefreshTokens.Enabled || grant.Mode == "offline" && !client.RefreshTokens.AllowOfflineAccess {
+	resolved, resolveErr := s.policyResolver.ResolveClient(ctx, grant.ClientID, true)
+	if errors.Is(resolveErr, authpolicy.ErrDenied) {
+		return Result{SID: grant.SID}, s.revoke(grant, "policy", now)
+	}
+	if resolveErr != nil {
+		return Result{SID: grant.SID}, &Failure{Code: Temporary, Description: "auth temporarily unavailable"}
+	}
+	client := resolved.Config
+	if !client.RefreshTokens.Enabled || grant.Mode == "offline" && !client.RefreshTokens.AllowOfflineAccess {
 		return Result{SID: grant.SID}, s.revoke(grant, "policy", now)
 	}
 	effective, narrowed := grant.Scopes, false
@@ -101,10 +115,14 @@ func (s *Service) Exchange(ctx context.Context, req Request) (Result, *Failure) 
 		}
 		effective, narrowed = requested, requested != grant.Scopes
 	}
-	groups := s.groups.ResolveGroups(client.GroupsOverride, grant.Email)
-	if client.ShouldRequireGroups(s.cfg.RequireGroups) && len(groups) == 0 {
+	user, policyErr := s.policyResolver.ResolveUser(ctx, resolved, grant.Email)
+	if errors.Is(policyErr, authpolicy.ErrDenied) {
 		return Result{SID: grant.SID}, s.revoke(grant, "policy", now)
 	}
+	if policyErr != nil {
+		return Result{SID: grant.SID}, &Failure{Code: Temporary, Description: "auth temporarily unavailable"}
+	}
+	groups := user.Groups
 	cc, configured := s.cfg.Connectors[grant.ConnectorID]
 	hasNonce, hasCipher := len(grant.CredentialNonce) != 0, len(grant.CredentialCiphertext) != 0
 	if !configured || cc.Type == "email" && (hasNonce || hasCipher) || cc.Type != "email" && (grant.UpstreamSubject == "" || !hasNonce || !hasCipher) {

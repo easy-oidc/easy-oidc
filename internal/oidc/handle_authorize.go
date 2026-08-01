@@ -5,12 +5,14 @@
 package oidc
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/easy-oidc/easy-oidc/internal/authpolicy"
 	"github.com/easy-oidc/easy-oidc/internal/templates"
 )
 
@@ -18,11 +20,16 @@ import (
 func (s *Server) HandleAuthorize(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	clientID := q.Get("client_id")
-	client, ok := s.config.Clients[clientID]
-	if !ok {
+	resolved, err := s.policyResolver.ResolveClient(r.Context(), clientID, false)
+	if errors.Is(err, authpolicy.ErrDenied) {
 		http.Error(w, "unknown client_id", 400)
 		return
 	}
+	if err != nil {
+		http.Error(w, "auth temporarily unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	client := resolved.Config
 	redirect := q.Get("redirect_uri")
 	if redirect == "" || !s.isValidRedirectURI(redirect, client) {
 		http.Error(w, "invalid redirect_uri", 400)

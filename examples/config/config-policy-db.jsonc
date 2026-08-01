@@ -1,0 +1,47 @@
+// Easy OIDC <https://easy-oidc.dev>
+// Copyright The Easy OIDC Authors
+// SPDX-License-Identifier: Apache-2.0
+
+{
+  "$schema": "https://easy-oidc.dev/schema/v2/config.schema.json",
+  "issuer_url": "http://localhost:8080",
+  "http_listen_addr": "127.0.0.1:8080",
+  "data_dir": "temp",
+  "secrets": {
+    "provider": "env",
+    "signing_key_name": "EASYOIDC_SIGNING_KEY",
+    "encryption_key_name": "EASYOIDC_ENCRYPTION_KEY",
+  },
+  "connectors": {
+    "google": {
+      "type": "google",
+      "display_name": "Google",
+      "credentials_secret": "EASYOIDC_GOOGLE_CREDENTIALS",
+      "scopes": ["openid", "email", "profile"],
+    },
+  },
+  "oidc_trust": { "issuers": { "github-actions": { "provider": "github" } } },
+  "policy_database": {
+    "driver": "postgresql",
+    "connection_string_secret": "EASYOIDC_POLICY_DB_URL",
+    "redirect_uris": ["http://localhost:8000/callback"],
+    "client_defaults": {
+      "require_groups": true,
+      "refresh_tokens": { "enabled": true },
+    },
+    // Default queries use the tables created by examples/policy-db/postgresql.sql.
+    // "queries": {
+    //   "client_exists": "SELECT EXISTS (SELECT 1 FROM clusters WHERE oidc_client_id = $1 AND enabled) AS exists",
+    //   "user_access": "SELECT (cu.user_id IS NOT NULL AND c.enabled AND u.enabled) AS allowed, COALESCE(cu.groups, '{}'::text[]) AS groups FROM (SELECT $1::text AS client_id, $2::text AS email) input LEFT JOIN clusters c ON c.oidc_client_id = input.client_id LEFT JOIN users u ON lower(u.email) = input.email LEFT JOIN cluster_users cu ON cu.cluster_id = c.id AND cu.user_id = u.id",
+    //   "trust_bindings": "SELECT c.oidc_client_id AS client_id, i.issuer_id, b.id::text AS binding_id, b.subject, p.required_claims, p.claims AS policy_claims, b.claims AS binding_claims, b.groups FROM clusters c JOIN cluster_trust_bindings b ON b.cluster_id = c.id JOIN trust_policies p ON p.id = b.trust_policy_id JOIN trust_issuers i ON i.id = p.issuer_id WHERE c.enabled AND c.oidc_client_id = $1 AND i.issuer_id = $2",
+    // },
+    "client_lookup_cache": {
+      "ttl": "5m",
+      "negative_ttl": "30s",
+      "max_entries": 10000,
+    },
+    "policy_build_cache": { "max_entries": 10000 },
+    "query_timeout": "500ms",
+    "max_connections": 4,
+  },
+}

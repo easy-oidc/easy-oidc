@@ -13,10 +13,10 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/easy-oidc/easy-oidc/internal/authpolicy"
 	"github.com/easy-oidc/easy-oidc/internal/config"
 	"github.com/easy-oidc/easy-oidc/internal/storage"
 	"github.com/easy-oidc/easy-oidc/internal/templates"
-	"github.com/easy-oidc/easy-oidc/internal/tokens"
 	"github.com/easy-oidc/easy-oidc/internal/upstream"
 	"golang.org/x/oauth2"
 )
@@ -83,7 +83,7 @@ func authorizeServer(t *testing.T, connectors map[string]config.ConnectorConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewServer(cfg, registry, managerAuth, nil, tokens.NewGroupResolver(nil), nil, logger, store, manager, nil, nil, nil, []byte("01234567890123456789012345678901"), nil), captures
+	return NewServer(cfg, registry, managerAuth, nil, nil, logger, store, manager, nil, nil, nil, []byte("01234567890123456789012345678901"), nil, nil), captures
 }
 
 // authorizationRequest creates a valid downstream authorization request.
@@ -117,5 +117,60 @@ func TestHandleAuthorizeAutomaticallySelectsSingleConnector(t *testing.T) {
 	}
 	if state.ConnectorID != "google-work" || state.RedirectURI != "https://client.example/callback" || state.OIDCState != "downstream-state" {
 		t.Fatalf("unexpected state: %#v", state)
+	}
+}
+
+// TestCallbackCompletionRechecksRemovedClient verifies policy removal prevents code issuance.
+func TestCallbackCompletionRechecksRemovedClient(t *testing.T) {
+	server, captures := authorizeServer(t, map[string]config.ConnectorConfig{
+		"google": {Type: "google", DisplayName: "Google"},
+	})
+	client := server.config.Clients["client"]
+	resolver := &fakePolicyResolver{client: authpolicy.ResolvedClient{Config: client}, clientErrors: []error{nil, authpolicy.ErrDenied}}
+	server.policyResolver = resolver
+	captures["google"].identity = upstream.Identity{Subject: "upstream-user", Emails: []upstream.Email{{Address: "user@example.com", Verified: true}}}
+
+	authorize := httptest.NewRecorder()
+	server.HandleAuthorize(authorize, authorizationRequest())
+	if authorize.Code != http.StatusFound {
+		t.Fatalf("authorize status = %d: %s", authorize.Code, authorize.Body.String())
+	}
+	callback := httptest.NewRecorder()
+	callbackURL := "/callback/google?code=upstream-code&state=" + url.QueryEscape(captures["google"].state)
+	server.HandleCallback(callback, httptest.NewRequest(http.MethodGet, callbackURL, nil))
+	if callback.Code != http.StatusForbidden || resolver.resolveClientCalls != 2 || resolver.resolveUserCalls != 0 {
+		t.Fatalf("callback status=%d client_calls=%d user_calls=%d body=%s", callback.Code, resolver.resolveClientCalls, resolver.resolveUserCalls, callback.Body.String())
+	}
+}
+
+// TestHandleAuthorizeUsesResolvedClientPolicy verifies dynamic redirects and resolver failure mapping.
+func TestHandleAuthorizeUsesResolvedClientPolicy(t *testing.T) {
+	server, _ := authorizeServer(t, map[string]config.ConnectorConfig{"google": {Type: "google"}})
+	dynamic := config.ClientConfig{RedirectURIs: []string{"https://dynamic.example/callback"}}
+	tests := []struct {
+		name, redirect string
+		err            error
+		want           int
+	}{
+		{name: "exact dynamic redirect", redirect: dynamic.RedirectURIs[0], want: http.StatusFound},
+		{name: "wrong dynamic redirect", redirect: "https://client.example/callback", want: http.StatusBadRequest},
+		{name: "unknown client", redirect: dynamic.RedirectURIs[0], err: authpolicy.ErrDenied, want: http.StatusBadRequest},
+		{name: "indeterminate", redirect: dynamic.RedirectURIs[0], err: &authpolicy.IndeterminateError{Err: context.DeadlineExceeded}, want: http.StatusServiceUnavailable},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fake := &fakePolicyResolver{client: authpolicy.ResolvedClient{Config: dynamic}, clientErrors: []error{test.err}}
+			server.policyResolver = fake
+			request := authorizationRequest()
+			query := request.URL.Query()
+			query.Set("client_id", "dynamic")
+			query.Set("redirect_uri", test.redirect)
+			request.URL.RawQuery = query.Encode()
+			response := httptest.NewRecorder()
+			server.HandleAuthorize(response, request)
+			if response.Code != test.want || fake.resolveClientCalls != 1 {
+				t.Fatalf("status=%d calls=%d body=%s", response.Code, fake.resolveClientCalls, response.Body.String())
+			}
+		})
 	}
 }

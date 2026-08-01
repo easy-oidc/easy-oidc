@@ -6,9 +6,11 @@ package oidc
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
+	"github.com/easy-oidc/easy-oidc/internal/authpolicy"
 	"github.com/easy-oidc/easy-oidc/internal/tokens"
 )
 
@@ -34,9 +36,17 @@ func (s *Server) exchangeTrustedToken(w http.ResponseWriter, r *http.Request) {
 	result, err := s.trust.VerifyAndEvaluate(r.Context(), raw, clientID)
 	if err != nil {
 		if s.logger != nil {
-			s.logger.Info("trust exchange", "client_id", clientID, "result", "denied")
+			outcome := "denied"
+			if authpolicy.IsIndeterminate(err) && !errors.Is(err, authpolicy.ErrDenied) {
+				outcome = "indeterminate"
+			}
+			s.logger.Info("trust exchange", "client_id", clientID, "result", outcome)
 		}
-		oauthError(w, http.StatusBadRequest, "invalid_request", "subject token is invalid or unacceptable")
+		if authpolicy.IsIndeterminate(err) && !errors.Is(err, authpolicy.ErrDenied) {
+			oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable", "auth temporarily unavailable")
+		} else {
+			oauthError(w, http.StatusBadRequest, "invalid_request", "subject token is invalid or unacceptable")
+		}
 		return
 	}
 	expiry := time.Now().UTC().Add(s.config.IDTokenTTL.Duration())
@@ -49,7 +59,10 @@ func (s *Server) exchangeTrustedToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.logger != nil {
-		attributes := []any{"issuer", result.Issuer, "client_id", clientID, "policy", result.Binding.Policy, "binding", result.Binding.ID, "subject", result.Binding.Subject, "result", "allowed"}
+		attributes := []any{"issuer", result.Issuer, "client_id", clientID, "binding", result.Binding.ID, "subject", result.Binding.Subject, "result", "allowed"}
+		if result.Binding.Policy != "" {
+			attributes = append(attributes, "policy", result.Binding.Policy)
+		}
 		for _, claim := range []string{"run_id", "build_id", "job_id"} {
 			if value, ok := auditClaim(result.Claims[claim]); ok {
 				attributes = append(attributes, claim, value)

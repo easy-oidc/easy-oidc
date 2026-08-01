@@ -18,6 +18,12 @@ import (
 	"github.com/tailscale/hujson"
 )
 
+const (
+	defaultClientExistsQuery  = `SELECT EXISTS (SELECT 1 FROM easy_oidc_policy.clients WHERE client_id = $1) AS exists`
+	defaultUserAccessQuery    = `SELECT users.subject IS NOT NULL AS allowed, COALESCE(users.groups, ARRAY[]::text[]) AS groups FROM (VALUES ($1::text, $2::text)) AS input(client_id, subject) LEFT JOIN easy_oidc_policy.users USING (client_id, subject)`
+	defaultTrustBindingsQuery = `SELECT client_id, issuer_id, binding_id, subject, required_claims, policy_claims, binding_claims, groups FROM easy_oidc_policy.trust_bindings WHERE client_id = $1 AND issuer_id = $2 ORDER BY binding_id`
+)
+
 const DefaultSigningAlgorithm = "RS256"
 
 var supportedSigningAlgorithms = map[string]struct{}{
@@ -81,6 +87,42 @@ func Load(path string) (*Config, error) {
 		applyRefreshDefaults(&client.RefreshTokens)
 		cfg.Clients[id] = client
 	}
+	if policyDatabase := cfg.PolicyDatabase; policyDatabase != nil {
+		if strings.TrimSpace(policyDatabase.Queries.ClientExists) == "" {
+			policyDatabase.Queries.ClientExists = defaultClientExistsQuery
+		}
+		if strings.TrimSpace(policyDatabase.Queries.UserAccess) == "" {
+			policyDatabase.Queries.UserAccess = defaultUserAccessQuery
+		}
+		if strings.TrimSpace(policyDatabase.Queries.TrustBindings) == "" {
+			policyDatabase.Queries.TrustBindings = defaultTrustBindingsQuery
+		}
+		applyRefreshDefaults(&policyDatabase.ClientDefaults.RefreshTokens)
+		applyDurationDefault(&policyDatabase.ClientLookupCache.TTL, 5*time.Minute)
+		applyDurationDefault(&policyDatabase.ClientLookupCache.NegativeTTL, 30*time.Second)
+		applyDurationDefault(&policyDatabase.QueryTimeout, 500*time.Millisecond)
+		if policyDatabase.ClientLookupCache.MaxEntries == 0 {
+			policyDatabase.ClientLookupCache.MaxEntries = 10000
+		}
+		if policyDatabase.PolicyBuildCache.MaxEntries == 0 {
+			policyDatabase.PolicyBuildCache.MaxEntries = 10000
+		}
+		if policyDatabase.MaxConnections == 0 {
+			policyDatabase.MaxConnections = 4
+		}
+		if policyDatabase.MaxTrustRows == 0 {
+			policyDatabase.MaxTrustRows = 100
+		}
+		if policyDatabase.MaxGroups == 0 {
+			policyDatabase.MaxGroups = 100
+		}
+		if policyDatabase.MaxGroupBytes == 0 {
+			policyDatabase.MaxGroupBytes = 256
+		}
+		if policyDatabase.MaxJSONBytes == 0 {
+			policyDatabase.MaxJSONBytes = 64 << 10
+		}
+	}
 
 	if err := validate(&cfg); err != nil {
 		return nil, fmt.Errorf("config validation failed: %w", err)
@@ -139,6 +181,10 @@ func validate(cfg *Config) error {
 	idPattern := regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
 	hasEmailConnector := false
 	needsEncryption := false
+	refreshEnabled := cfg.PolicyDatabase != nil && cfg.PolicyDatabase.ClientDefaults.RefreshTokens.Enabled
+	for _, client := range cfg.Clients {
+		refreshEnabled = refreshEnabled || client.RefreshTokens.Enabled
+	}
 	for id, connector := range cfg.Connectors {
 		if !idPattern.MatchString(id) {
 			return fmt.Errorf("connector ID %q is not path-safe", id)
@@ -154,10 +200,7 @@ func validate(cfg *Config) error {
 		} else if connector.CredentialsSecret == "" {
 			return fmt.Errorf("connector %q: credentials_secret is required", id)
 		}
-		needsEncryption = needsEncryption || connector.Type == "github"
-		for _, client := range cfg.Clients {
-			needsEncryption = needsEncryption || (client.RefreshTokens.Enabled && connector.Type != "email")
-		}
+		needsEncryption = needsEncryption || connector.Type == "github" || (refreshEnabled && connector.Type != "email")
 	}
 	if needsEncryption && cfg.Secrets.EncryptionKeyName == "" {
 		return fmt.Errorf("secrets.encryption_key_name is required when a refresh-enabled client can use a non-email connector")
@@ -205,8 +248,13 @@ func validate(cfg *Config) error {
 		}
 	}
 
-	if len(cfg.Clients) == 0 {
+	if len(cfg.Clients) == 0 && cfg.PolicyDatabase == nil {
 		return fmt.Errorf("at least one client must be configured")
+	}
+	if database := cfg.PolicyDatabase; database != nil {
+		if err := validatePolicyDatabase(database, cfg); err != nil {
+			return fmt.Errorf("policy_database: %w", err)
+		}
 	}
 
 	for clientID, client := range cfg.Clients {
@@ -231,6 +279,47 @@ func validate(cfg *Config) error {
 		return fmt.Errorf("oidc_trust: %w", err)
 	}
 
+	return nil
+}
+
+// validatePolicyDatabase validates all limits and settings known before its secret is loaded.
+func validatePolicyDatabase(policyDatabase *PolicyDatabaseConfig, cfg *Config) error {
+	if policyDatabase.Driver != "postgresql" {
+		return fmt.Errorf("driver must be postgresql")
+	}
+	if strings.TrimSpace(policyDatabase.ConnectionStringSecret) == "" {
+		return fmt.Errorf("connection_string_secret is required")
+	}
+	if len(policyDatabase.RedirectURIs) == 0 {
+		return fmt.Errorf("redirect_uris must not be empty")
+	}
+	for _, redirect := range policyDatabase.RedirectURIs {
+		if err := validateRedirectURI(redirect); err != nil {
+			return fmt.Errorf("redirect_uris: %w", err)
+		}
+	}
+	if policyDatabase.ClientDefaults.RefreshTokens.AllowOfflineAccess && !policyDatabase.ClientDefaults.RefreshTokens.Enabled {
+		return fmt.Errorf("client_defaults.refresh_tokens.allow_offline_access requires enabled")
+	}
+	r := policyDatabase.ClientDefaults.RefreshTokens
+	if r.SessionIdleTTL.Duration() > r.SessionAbsoluteTTL.Duration() || r.OfflineIdleTTL.Duration() > r.OfflineAbsoluteTTL.Duration() {
+		return fmt.Errorf("client_defaults refresh idle TTL must not exceed absolute TTL")
+	}
+	if policyDatabase.QueryTimeout.Duration() < 10*time.Millisecond || policyDatabase.QueryTimeout.Duration() > 30*time.Second {
+		return fmt.Errorf("query_timeout must be between 10ms and 30s")
+	}
+	if policyDatabase.ClientLookupCache.TTL.Duration() > time.Hour || policyDatabase.ClientLookupCache.NegativeTTL.Duration() > time.Hour {
+		return fmt.Errorf("client lookup cache TTLs must not exceed 1h")
+	}
+	if policyDatabase.ClientLookupCache.MaxEntries < 1 || policyDatabase.ClientLookupCache.MaxEntries > 100000 || policyDatabase.PolicyBuildCache.MaxEntries < 1 || policyDatabase.PolicyBuildCache.MaxEntries > 100000 {
+		return fmt.Errorf("cache max_entries must be between 1 and 100000")
+	}
+	if policyDatabase.MaxConnections < 1 || policyDatabase.MaxConnections > 32 {
+		return fmt.Errorf("max_connections must be between 1 and 32")
+	}
+	if policyDatabase.MaxTrustRows < 1 || policyDatabase.MaxTrustRows > 1000 || policyDatabase.MaxGroups < 1 || policyDatabase.MaxGroups > 1000 || policyDatabase.MaxGroupBytes < 1 || policyDatabase.MaxGroupBytes > 4096 || policyDatabase.MaxJSONBytes < 1024 || policyDatabase.MaxJSONBytes > 1<<20 {
+		return fmt.Errorf("result limits are outside safe bounds")
+	}
 	return nil
 }
 

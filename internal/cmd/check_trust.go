@@ -5,12 +5,17 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/easy-oidc/easy-oidc/internal/authpolicy"
 	"github.com/easy-oidc/easy-oidc/internal/config"
+	"github.com/easy-oidc/easy-oidc/internal/secrets"
 	"github.com/easy-oidc/easy-oidc/internal/trust"
 	"github.com/spf13/cobra"
 )
@@ -26,6 +31,11 @@ func newCheckTrustCmd(configPath *string) *cobra.Command {
 		if err != nil {
 			return err
 		}
+		policyResolver, closePolicyDatabase, err := newTrustPolicyResolver(command.Context(), cfg)
+		if err != nil {
+			return err
+		}
+		defer closePolicyDatabase()
 		var reader io.Reader
 		if tokenFile == "-" {
 			reader = command.InOrStdin()
@@ -41,7 +51,7 @@ func newCheckTrustCmd(configPath *string) *cobra.Command {
 		if err != nil || len(data) > trust.MaxJWTBytes {
 			return fmt.Errorf("read token: input exceeds safe limit")
 		}
-		result, verifyErr := trust.NewService(cfg).VerifyAndEvaluate(command.Context(), strings.TrimSpace(string(data)), clientID)
+		result, verifyErr := trust.NewService(cfg, policyResolver).VerifyAndEvaluate(command.Context(), strings.TrimSpace(string(data)), clientID)
 		if result != nil {
 			var report strings.Builder
 			fmt.Fprintf(&report, "issuer: %s\nstandard claims: verified\n", result.Issuer)
@@ -71,4 +81,26 @@ func newCheckTrustCmd(configPath *string) *cobra.Command {
 	command.Flags().StringVar(&clientID, "client-id", "", "Target Easy OIDC client ID")
 	command.Flags().StringVar(&tokenFile, "token-file", "", "External token file, or - for stdin")
 	return command
+}
+
+// newTrustPolicyResolver constructs a resolver from static policy and the optional policy database.
+func newTrustPolicyResolver(ctx context.Context, cfg *config.Config) (*authpolicy.Resolver, func(), error) {
+	if cfg.PolicyDatabase == nil {
+		return authpolicy.NewResolver(cfg, nil), func() {}, nil
+	}
+	provider, err := secrets.NewProvider(ctx, cfg.Secrets)
+	if err != nil {
+		return nil, func() {}, fmt.Errorf("initialize policy secrets provider")
+	}
+	connectionString, err := provider.GetSecret(ctx, cfg.PolicyDatabase.ConnectionStringSecret)
+	if err != nil {
+		return nil, func() {}, fmt.Errorf("load policy database connection string")
+	}
+	startupCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	policyDatabase, err := authpolicy.NewPostgreSQL(startupCtx, connectionString, *cfg.PolicyDatabase, cfg.OIDCTrust.Issuers, slog.Default())
+	if err != nil {
+		return nil, func() {}, fmt.Errorf("initialize policy database: %w", err)
+	}
+	return authpolicy.NewResolver(cfg, policyDatabase), policyDatabase.Close, nil
 }

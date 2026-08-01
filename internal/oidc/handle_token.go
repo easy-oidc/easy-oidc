@@ -7,6 +7,7 @@ package oidc
 import (
 	"encoding/json"
 	"errors"
+	"github.com/easy-oidc/easy-oidc/internal/authpolicy"
 	"mime"
 	"net"
 	"net/http"
@@ -156,11 +157,16 @@ func (s *Server) exchangeCode(w http.ResponseWriter, r *http.Request) {
 	codeChallenge, _ := pkceChallenge(r.PostForm.Get("code_verifier"))
 	binding := storage.AuthCodeBinding{ClientID: r.PostForm.Get("client_id"), RedirectURI: r.PostForm.Get("redirect_uri"), CodeChallenge: codeChallenge}
 	payload := AuthCodePayload{ClientID: stored.ClientID, RedirectURI: stored.RedirectURI, CodeChallenge: stored.CodeChallenge, Email: stored.Email, EmailVerified: stored.EmailVerified, Nonce: stored.Nonce, Scopes: stored.Scopes, RefreshMode: stored.RefreshMode, AuthTime: stored.AuthTime, ConnectorID: stored.ConnectorID, UpstreamSubject: stored.UpstreamSubject, OfflineConsent: stored.OfflineConsent}
-	client, exists := s.config.Clients[payload.ClientID]
-	if !exists {
+	resolved, resolveErr := s.policyResolver.ResolveClient(r.Context(), payload.ClientID, true)
+	if errors.Is(resolveErr, authpolicy.ErrDenied) {
 		oauthError(w, http.StatusBadRequest, "invalid_grant", "authorization code is invalid")
 		return
 	}
+	if resolveErr != nil {
+		oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable", "auth temporarily unavailable")
+		return
+	}
+	client := resolved.Config
 	connectorConfig, connectorExists := s.config.Connectors[payload.ConnectorID]
 	if payload.RefreshMode != "" && (!client.RefreshTokens.Enabled || !connectorExists || (payload.RefreshMode == "offline" && (!client.RefreshTokens.AllowOfflineAccess || !payload.OfflineConsent))) {
 		oauthError(w, http.StatusBadRequest, "invalid_grant", "authorization code is invalid")
@@ -172,11 +178,16 @@ func (s *Server) exchangeCode(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	groups := s.groupResolver.ResolveGroups(client.GroupsOverride, payload.Email)
-	if client.ShouldRequireGroups(s.config.RequireGroups) && len(groups) == 0 {
-		oauthError(w, http.StatusForbidden, "access_denied", "user has no groups assigned")
+	user, policyErr := s.policyResolver.ResolveUser(r.Context(), resolved, payload.Email)
+	if errors.Is(policyErr, authpolicy.ErrDenied) {
+		oauthError(w, http.StatusForbidden, "access_denied", "user is not allowed")
 		return
 	}
+	if policyErr != nil {
+		oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable", "auth temporarily unavailable")
+		return
+	}
+	groups := user.Groups
 	now := time.Now().UTC()
 	sid, refresh := "", ""
 	accessExpiry, idExpiry := now.Add(s.config.AccessTokenTTL.Duration()), now.Add(s.config.IDTokenTTL.Duration())
