@@ -36,7 +36,7 @@ make check          # Run fmt, lint, and test
 ### Development
 ```bash
 # Run locally with example config
-./bin/easy-oidc --config examples/config/config-local-dev.jsonc --debug
+./bin/easy-oidc serve --config examples/config/config-local-dev.jsonc --debug
 
 # Validate configuration and templates
 ./bin/easy-oidc check config --config config.jsonc

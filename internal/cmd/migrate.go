@@ -6,6 +6,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/easy-oidc/easy-oidc/internal/config"
 	"github.com/easy-oidc/easy-oidc/internal/secrets"
@@ -14,9 +15,13 @@ import (
 )
 
 // newMigrateCmd creates the explicit state-schema migration command.
-func newMigrateCmd(configPath *string) *cobra.Command {
+func newMigrateCmd() *cobra.Command {
+	configPath := os.Getenv("EASYOIDC_CONFIG_PATH")
+	if configPath == "" {
+		configPath = "./config.jsonc"
+	}
 	command := &cobra.Command{Use: "migrate", Short: "Apply state database migrations", Args: cobra.NoArgs, RunE: func(command *cobra.Command, _ []string) error {
-		cfg, err := config.Load(*configPath)
+		cfg, err := config.Load(configPath)
 		if err != nil {
 			return fmt.Errorf("configuration error: %w", err)
 		}
@@ -40,6 +45,6 @@ func newMigrateCmd(configPath *string) *cobra.Command {
 		}
 		return statedb.MigratePostgreSQL(connectionString)
 	}}
-	command.Flags().StringVar(configPath, "config", *configPath, "Path to config file")
+	command.Flags().StringVar(&configPath, "config", configPath, "Path to config file")
 	return command
 }

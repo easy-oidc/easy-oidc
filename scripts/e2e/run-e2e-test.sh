@@ -110,7 +110,7 @@ start_replicas() {
     for replica in 0 1; do
         (
             cd "$E2E_TEMP_DIR"
-            exec "$PROJECT_ROOT/bin/easy-oidc" --config "${EASY_OIDC_CONFIGS[$replica]}" --debug
+            exec "$PROJECT_ROOT/bin/easy-oidc" serve --config "${EASY_OIDC_CONFIGS[$replica]}" --debug
         ) >> "${EASY_OIDC_LOGS[$replica]}" 2>&1 &
         EASY_OIDC_PIDS+=("$!")
     done

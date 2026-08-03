@@ -44,7 +44,7 @@ Load `.env` with `direnv` or your preferred shell tooling, then run:
 
 ```bash
 make build
-./bin/easy-oidc --config examples/config/config-local-dev.jsonc --debug
+./bin/easy-oidc serve --config examples/config/config-local-dev.jsonc --debug
 ```
 
 Validate configuration and all effective templates separately without loading
@@ -91,7 +91,7 @@ Load `.env`, start Easy OIDC with the email development configuration, and open
 Mailpit at <http://localhost:8025>:
 
 ```bash
-./bin/easy-oidc --config examples/config/config-email-dev.jsonc --debug
+./bin/easy-oidc serve --config examples/config/config-email-dev.jsonc --debug
 ```
 
 See [`examples/config/config-multiple.jsonc`](examples/config/config-multiple.jsonc)

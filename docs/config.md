@@ -5,8 +5,9 @@ linkTitle: 'Configuration'
 weight: 7
 ---
 
-Easy OIDC reads a JSONC configuration file. Pass its path with `--config` or set
-`EASYOIDC_CONFIG_PATH`; the default is `./config.jsonc`.
+Easy OIDC reads a JSONC configuration file. Run it with
+`easy-oidc serve --config config.jsonc` or set `EASYOIDC_CONFIG_PATH`; the
+default is `./config.jsonc`.
 
 Add the versioned JSON Schema to receive editor validation, completion, and
 field documentation:
