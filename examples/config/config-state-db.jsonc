@@ -1,0 +1,25 @@
+// Easy OIDC <https://easy-oidc.dev>
+// Copyright The Easy OIDC Authors
+// SPDX-License-Identifier: Apache-2.0
+{
+  "$schema": "https://easy-oidc.dev/schema/v2/config.schema.json",
+  "issuer_url": "http://localhost:8080",
+  "http_listen_addr": "127.0.0.1:8080",
+  "secrets": { "provider": "env", "signing_key_name": "EASYOIDC_SIGNING_KEY" },
+  "state_database": {
+    "driver": "postgresql",
+    "connection_string_secret": "EASYOIDC_STATE_DB_URL",
+    "migrations": {
+      "connection_string_secret": "EASYOIDC_STATE_MIGRATION_DB_URL",
+    },
+  },
+  "connectors": {
+    "google": {
+      "type": "google",
+      "display_name": "Google",
+      "credentials_secret": "EASYOIDC_GOOGLE_CREDENTIALS",
+    },
+  },
+  "default_redirect_uris": ["http://localhost:8000"],
+  "clients": { "kubelogin-local": {} },
+}

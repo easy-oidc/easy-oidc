@@ -2,6 +2,7 @@
 # Easy OIDC <https://easy-oidc.dev>
 # Copyright The Easy OIDC Authors
 # SPDX-License-Identifier: Apache-2.0
+# Runs the shared-state end-to-end suite against two Easy OIDC replicas.
 
 set -euo pipefail
 
@@ -11,11 +12,7 @@ DEX_IMAGE="ghcr.io/dexidp/dex@sha256:8499afd690c437f52301efd2b05b2455da5bd2dfc20
 POSTGRES_IMAGE="docker.io/library/postgres@sha256:6567bca8d7bc8c82c5922425a0baee57be8402df92bae5eacad5f01ae9544daa" # 17.5-alpine3.22
 DEX_CONTAINER_NAME="easy-oidc-e2e-dex"
 POSTGRES_CONTAINER_NAME="easy-oidc-e2e-postgres"
-DEX_ISSUER="http://127.0.0.1:5556/dex"
 DEX_SUBJECT="CiQwOGE4Njg0Yi1kYjg4LTRiNzMtOTBhOS0zY2QxNjYxZjU0NjYSBWxvY2Fs"
-EASY_OIDC_ISSUER="http://127.0.0.1:18080"
-EASY_OIDC_TOKEN_URL="$EASY_OIDC_ISSUER/token"
-EASY_OIDC_LISTEN_ADDRESS="127.0.0.1:18000"
 STATIC_TRUST_CLIENT_ID="static-ci-token-exchange-e2e"
 STATIC_TRUST_CLIENT_SECRET="static-ci-token-exchange-e2e-secret"
 STATIC_INTERACTIVE_CLIENT_ID="static-kubelogin-interactive-e2e"
@@ -25,6 +22,45 @@ DB_TRUST_BINDING_ID="db-dex-ci-exchange-e2e"
 DB_INTERACTIVE_CLIENT_ID="db-kubelogin-interactive-e2e"
 ID_TOKEN_TYPE="urn:ietf:params:oauth:token-type:id_token"
 JWT_PAYLOAD_FILTER='split(".")[1] | gsub("-"; "+") | gsub("_"; "/") | . + ("=" * ((4 - (length % 4)) % 4)) | @base64d | fromjson'
+
+TEST_PORTS=()
+pick_port() {
+    local port selected used
+    while true; do
+        port=$((20000 + RANDOM % 20000))
+        used=false
+        for selected in "${TEST_PORTS[@]:-}"; do
+            if [ "$port" = "$selected" ]; then used=true; break; fi
+        done
+        if [ "$used" = false ] && ! (: < "/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
+            TEST_PORTS+=("$port")
+            REPLY="$port"
+            return
+        fi
+    done
+}
+
+pick_port; DEX_PORT="$REPLY"
+pick_port; EASY_OIDC_ISSUER_PORT="$REPLY"
+pick_port; EASY_OIDC_CALLBACK_PORT="$REPLY"
+pick_port; EASY_OIDC_REPLICA_PORTS=("$REPLY")
+pick_port; EASY_OIDC_REPLICA_PORTS+=("$REPLY")
+DEX_ORIGIN="http://127.0.0.1:$DEX_PORT"
+DEX_ISSUER="$DEX_ORIGIN/dex"
+EASY_OIDC_ISSUER="http://127.0.0.1:$EASY_OIDC_ISSUER_PORT"
+EASY_OIDC_TOKEN_URL="$EASY_OIDC_ISSUER/token"
+EASY_OIDC_LISTEN_ADDRESS="127.0.0.1:$EASY_OIDC_CALLBACK_PORT"
+
+E2E_HEADLESS="${E2E_HEADLESS:-}"
+if [ -z "$E2E_HEADLESS" ]; then
+    if [ -t 1 ]; then E2E_HEADLESS=false; else E2E_HEADLESS=true; fi
+fi
+case "$E2E_HEADLESS" in
+    1|true) E2E_HEADLESS=true ;;
+    0|false) E2E_HEADLESS=false ;;
+    *) echo "ERROR: E2E_HEADLESS must be true or false"; exit 1 ;;
+esac
+export E2E_HEADLESS
 
 echo "==> Checking prerequisites..."
 for cmd in curl jq make go kubectl openssl; do
@@ -60,13 +96,68 @@ remove_test_containers() {
 
 cleanup() {
     echo "==> Cleaning up..."
+    for pid in "${EASY_OIDC_PIDS[@]:-}" "${EASY_OIDC_PROXY_PID:-}"; do
+        if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; fi
+    done
     remove_test_containers
-    if [ -n "${EASY_OIDC_PID:-}" ]; then
-        kill "$EASY_OIDC_PID" 2>/dev/null || true
-    fi
     if [ -n "${E2E_TEMP_DIR:-}" ]; then
         rm -rf "$E2E_TEMP_DIR"
     fi
+}
+
+start_replicas() {
+    EASY_OIDC_PIDS=()
+    for replica in 0 1; do
+        (
+            cd "$E2E_TEMP_DIR"
+            exec "$PROJECT_ROOT/bin/easy-oidc" --config "${EASY_OIDC_CONFIGS[$replica]}" --debug
+        ) >> "${EASY_OIDC_LOGS[$replica]}" 2>&1 &
+        EASY_OIDC_PIDS+=("$!")
+    done
+}
+
+stop_replicas() {
+    local pid
+    for pid in "${EASY_OIDC_PIDS[@]:-}"; do
+        if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; fi
+    done
+    for pid in "${EASY_OIDC_PIDS[@]:-}"; do
+        if [ -n "$pid" ]; then wait "$pid" 2>/dev/null || true; fi
+    done
+    EASY_OIDC_PIDS=()
+}
+
+wait_for_replicas() {
+    local replica i ready
+    for replica in 0 1; do
+        ready=false
+        for i in {1..30}; do
+            if curl -sf "http://127.0.0.1:${EASY_OIDC_REPLICA_PORTS[$replica]}/healthz" >/dev/null; then ready=true; break; fi
+            if ! kill -0 "${EASY_OIDC_PIDS[$replica]}" 2>/dev/null; then break; fi
+            sleep 1
+        done
+        if [ "$ready" != true ]; then
+            cat "${EASY_OIDC_LOGS[$replica]}"
+            echo "ERROR: easy-oidc replica $((replica + 1)) failed readiness"
+            exit 1
+        fi
+    done
+}
+
+wait_for_proxy_health() {
+    local expected="$1"
+    local i status
+    for i in {1..30}; do
+        status="$(curl -sS -o /dev/null -w '%{http_code}' "$EASY_OIDC_ISSUER/healthz" || true)"
+        if [ "$status" = "$expected" ]; then return 0; fi
+        sleep 1
+    done
+    echo "ERROR: proxy health did not become HTTP $expected (last HTTP $status)"
+    return 1
+}
+
+show_replica_logs() {
+    cat "${EASY_OIDC_LOGS[@]}"
 }
 
 kubelogin_get_token() {
@@ -98,13 +189,18 @@ kubelogin_get_token() {
         "${mode_args[@]}" > "$output_file"
 }
 
+E2E_TEMP_DIR="$(mktemp -d)"
 trap cleanup EXIT INT TERM
+DEX_CONFIG="$E2E_TEMP_DIR/dex-config.yaml"
+sed -e "s#http://127.0.0.1:5556#$DEX_ORIGIN#" \
+    -e "s#http://127.0.0.1:18080#$EASY_OIDC_ISSUER#" \
+    "$SCRIPT_DIR/dex-config.yaml" > "$DEX_CONFIG"
 
 echo "==> Cleaning up any existing test containers..."
 remove_test_containers
 
 echo "==> Starting PostgreSQL policy database container..."
-$CONTAINER_CMD run -d --rm --name "$POSTGRES_CONTAINER_NAME" -p 55434:5432 \
+$CONTAINER_CMD run -d --name "$POSTGRES_CONTAINER_NAME" -p 55434:5432 \
     -e POSTGRES_PASSWORD=e2e-admin -e POSTGRES_DB=easy_oidc_e2e "$POSTGRES_IMAGE"
 for i in {1..30}; do
     if $CONTAINER_CMD exec "$POSTGRES_CONTAINER_NAME" pg_isready -U postgres -d easy_oidc_e2e >/dev/null 2>&1; then break; fi
@@ -120,6 +216,8 @@ $CONTAINER_CMD exec -i "$POSTGRES_CONTAINER_NAME" psql -v ON_ERROR_STOP=1 \
     -v dex_subject="$DEX_SUBJECT" \
     -U postgres -d easy_oidc_e2e >/dev/null <<'SQL'
 CREATE ROLE easy_oidc_policy LOGIN PASSWORD 'e2e-read-only';
+CREATE ROLE easy_oidc_state_migration LOGIN PASSWORD 'e2e-migration';
+CREATE ROLE easy_oidc_state_runtime LOGIN PASSWORD 'e2e-runtime';
 INSERT INTO easy_oidc_policy.clients VALUES (:'db_interactive_client_id'), (:'db_trust_client_id');
 -- Dex's mockCallback connector returns this fixed, non-configurable identity.
 INSERT INTO easy_oidc_policy.users VALUES (:'db_interactive_client_id', 'kilgore@kilgore.trout', ARRAY['admins','developers']);
@@ -128,17 +226,21 @@ GRANT CONNECT ON DATABASE easy_oidc_e2e TO easy_oidc_policy;
 GRANT USAGE ON SCHEMA easy_oidc_policy TO easy_oidc_policy;
 GRANT SELECT ON ALL TABLES IN SCHEMA easy_oidc_policy TO easy_oidc_policy;
 ALTER ROLE easy_oidc_policy SET default_transaction_read_only = on;
+GRANT CONNECT, CREATE ON DATABASE easy_oidc_e2e TO easy_oidc_state_migration;
+REVOKE ALL ON SCHEMA public FROM PUBLIC;
+GRANT USAGE, CREATE ON SCHEMA public TO easy_oidc_state_migration;
+GRANT CONNECT ON DATABASE easy_oidc_e2e TO easy_oidc_state_runtime;
 SQL
 
 echo "==> Starting Dex container..."
 $CONTAINER_CMD run -d --rm --name "$DEX_CONTAINER_NAME" \
-    -p 5556:5556 \
-    -v "$SCRIPT_DIR/dex-config.yaml:/etc/dex/config.docker.yaml:ro" \
+    -p "127.0.0.1:$DEX_PORT:5556" \
+    -v "$DEX_CONFIG:/etc/dex/config.docker.yaml:ro" \
     "$DEX_IMAGE"
 
 echo "==> Waiting for Dex to be ready..."
 for i in {1..30}; do
-    if curl -s http://127.0.0.1:5556/dex/.well-known/openid-configuration > /dev/null 2>&1; then
+    if curl -s "$DEX_ISSUER/.well-known/openid-configuration" > /dev/null 2>&1; then
         echo "==> Dex is ready!"
         break
     fi
@@ -157,48 +259,46 @@ echo "==> Starting easy-oidc..."
 export EASYOIDC_SIGNING_KEY="$(openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 2>/dev/null)"
 export EASYOIDC_ENCRYPTION_KEY="$(openssl rand -hex 32)"
 export EASYOIDC_DEX_CREDENTIALS='{"client_id":"easy-oidc-interactive-e2e","client_secret":"easy-oidc-interactive-e2e-secret"}'
+export EASYOIDC_STATE_DB_URL='postgresql://easy_oidc_state_runtime:e2e-runtime@127.0.0.1:55434/easy_oidc_e2e?sslmode=disable'
 export EASYOIDC_POLICY_DB_URL='postgresql://easy_oidc_policy:e2e-read-only@127.0.0.1:55434/easy_oidc_e2e?sslmode=disable'
-E2E_TEMP_DIR="$(mktemp -d)"
-EASY_OIDC_LOG="$E2E_TEMP_DIR/easy-oidc.log"
-BROWSER_COMMAND="$E2E_TEMP_DIR/open-browser"
+export EASYOIDC_STATE_MIGRATION_DB_URL='postgresql://easy_oidc_state_migration:e2e-migration@127.0.0.1:55434/easy_oidc_e2e?sslmode=disable'
+EASY_OIDC_LOGS=("$E2E_TEMP_DIR/easy-oidc-1.log" "$E2E_TEMP_DIR/easy-oidc-2.log")
+EASY_OIDC_CONFIGS=("$E2E_TEMP_DIR/easy-oidc-1.jsonc" "$E2E_TEMP_DIR/easy-oidc-2.jsonc")
+BROWSER_COMMAND="$SCRIPT_DIR/browser-command.sh"
 # See README.md for sequence diagrams of both E2E login flows.
-cat > "$BROWSER_COMMAND" <<'EOF'
-#!/usr/bin/env bash
-echo "Open this URL to complete the E2E login:"
-echo "$1"
-open "$1"
-EOF
-chmod +x "$BROWSER_COMMAND"
 
-(
-    cd "$E2E_TEMP_DIR"
-    exec "$PROJECT_ROOT/bin/easy-oidc" --config "$SCRIPT_DIR/easy-oidc-config.jsonc" --debug
-) > "$EASY_OIDC_LOG" 2>&1 &
-EASY_OIDC_PID=$!
-
-echo "==> Waiting for easy-oidc to be ready..."
-for i in {1..30}; do
-    if curl -s "$EASY_OIDC_ISSUER/.well-known/openid-configuration" > /dev/null 2>&1; then
-        echo "==> easy-oidc is ready!"
-        break
-    fi
-    if ! kill -0 "$EASY_OIDC_PID" 2>/dev/null; then
-        wait "$EASY_OIDC_PID" 2>/dev/null || true
-        cat "$EASY_OIDC_LOG"
-        echo "ERROR: easy-oidc exited before becoming ready"
-        exit 1
-    fi
-    if [ "$i" -eq 30 ]; then
-        echo "ERROR: easy-oidc failed to start"
-        exit 1
-    fi
-    sleep 1
+for replica in 0 1; do
+    sed -e "s#\"http_listen_addr\": \"127.0.0.1:18080\"#\"http_listen_addr\": \"127.0.0.1:${EASY_OIDC_REPLICA_PORTS[$replica]}\"#" \
+        -e "s#http://127.0.0.1:18080#$EASY_OIDC_ISSUER#g" \
+        -e "s#http://127.0.0.1:5556/dex#$DEX_ISSUER#g" \
+        -e "s#http://localhost:18000#http://localhost:$EASY_OIDC_CALLBACK_PORT#g" \
+        "$SCRIPT_DIR/easy-oidc-config.jsonc" > "${EASY_OIDC_CONFIGS[$replica]}"
 done
+
+go build -o "$E2E_TEMP_DIR/proxy" "$PROJECT_ROOT/scripts/test-rr-proxy"
+
+echo "==> Migrating PostgreSQL state database with the migration-only role..."
+"$PROJECT_ROOT/bin/easy-oidc" migrate --config "${EASY_OIDC_CONFIGS[0]}"
+$CONTAINER_CMD exec -i "$POSTGRES_CONTAINER_NAME" psql -v ON_ERROR_STOP=1 -U postgres -d easy_oidc_e2e >/dev/null <<'SQL'
+GRANT USAGE ON SCHEMA easy_oidc_state TO easy_oidc_state_runtime;
+GRANT USAGE ON SCHEMA public TO easy_oidc_state_runtime;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA easy_oidc_state TO easy_oidc_state_runtime;
+GRANT SELECT ON TABLE public.schema_migrations TO easy_oidc_state_runtime;
+SQL
+
+echo "==> Starting two easy-oidc replicas and the round-robin issuer proxy..."
+start_replicas
+wait_for_replicas
+(cd "$E2E_TEMP_DIR" && exec ./proxy -listen "127.0.0.1:$EASY_OIDC_ISSUER_PORT" \
+    "http://127.0.0.1:${EASY_OIDC_REPLICA_PORTS[0]}" \
+    "http://127.0.0.1:${EASY_OIDC_REPLICA_PORTS[1]}") > "$E2E_TEMP_DIR/proxy.log" 2>&1 &
+EASY_OIDC_PROXY_PID=$!
+wait_for_proxy_health 200
 
 echo "==> Testing OIDC discovery endpoint..."
 if ! curl -sf "$EASY_OIDC_ISSUER/.well-known/openid-configuration" | jq . > /dev/null; then
     curl -sS -i "$EASY_OIDC_ISSUER/.well-known/openid-configuration" || true
-    cat "$EASY_OIDC_LOG"
+    show_replica_logs
     echo "ERROR: Failed to get OIDC discovery document"
     exit 1
 fi
@@ -227,7 +327,7 @@ STATIC_DEX_TOKEN_FILE="$E2E_TEMP_DIR/static-dex-id-token"
 printf '%s' "$STATIC_DEX_ID_TOKEN" > "$STATIC_DEX_TOKEN_FILE"
 chmod 600 "$STATIC_DEX_TOKEN_FILE"
 
-if ! "$PROJECT_ROOT/bin/easy-oidc" check trust --config "$SCRIPT_DIR/easy-oidc-config.jsonc" --client-id "$STATIC_TRUST_CLIENT_ID" --token-file "$STATIC_DEX_TOKEN_FILE" > /dev/null; then
+if ! "$PROJECT_ROOT/bin/easy-oidc" check trust --config "${EASY_OIDC_CONFIGS[0]}" --client-id "$STATIC_TRUST_CLIENT_ID" --token-file "$STATIC_DEX_TOKEN_FILE" > /dev/null; then
     echo "ERROR: easy-oidc check trust rejected the static client token"
     exit 1
 fi
@@ -286,13 +386,13 @@ if ! jq -er '
     echo "ERROR: refreshed static client token did not preserve configured group overrides"
     exit 1
 fi
-if ! jq -s -e --arg client "$STATIC_INTERACTIVE_CLIENT_ID" 'any(.[]; .msg == "refresh attempt" and .result == 200 and .client_id == $client)' "$EASY_OIDC_LOG" > /dev/null; then
-    cat "$EASY_OIDC_LOG"
+if ! jq -s -e --arg client "$STATIC_INTERACTIVE_CLIENT_ID" 'any(.[]; .msg == "refresh attempt" and .result == 200 and .client_id == $client)' "${EASY_OIDC_LOGS[@]}" > /dev/null; then
+    show_replica_logs
     echo "ERROR: no successful static client refresh exchange was logged"
     exit 1
 fi
-if jq -s -e --arg trust "$STATIC_TRUST_CLIENT_ID" --arg interactive "$STATIC_INTERACTIVE_CLIENT_ID" 'any(.[]; .msg == "policy database query" and (.client_id == $trust or .client_id == $interactive))' "$EASY_OIDC_LOG" > /dev/null; then
-    cat "$EASY_OIDC_LOG"
+if jq -s -e --arg trust "$STATIC_TRUST_CLIENT_ID" --arg interactive "$STATIC_INTERACTIVE_CLIENT_ID" 'any(.[]; .msg == "policy database query" and (.client_id == $trust or .client_id == $interactive))' "${EASY_OIDC_LOGS[@]}" > /dev/null; then
+    show_replica_logs
     echo "ERROR: a statically configured client caused a policy database query"
     exit 1
 fi
@@ -316,7 +416,7 @@ DB_DEX_TOKEN_FILE="$E2E_TEMP_DIR/db-dex-id-token"
 printf '%s' "$DB_DEX_ID_TOKEN" > "$DB_DEX_TOKEN_FILE"
 chmod 600 "$DB_DEX_TOKEN_FILE"
 
-if ! "$PROJECT_ROOT/bin/easy-oidc" check trust --config "$SCRIPT_DIR/easy-oidc-config.jsonc" --client-id "$DB_TRUST_CLIENT_ID" --token-file "$DB_DEX_TOKEN_FILE" > /dev/null; then
+if ! "$PROJECT_ROOT/bin/easy-oidc" check trust --config "${EASY_OIDC_CONFIGS[0]}" --client-id "$DB_TRUST_CLIENT_ID" --token-file "$DB_DEX_TOKEN_FILE" > /dev/null; then
     echo "ERROR: easy-oidc check trust rejected the client supplied by database policy"
     exit 1
 fi
@@ -332,7 +432,7 @@ DB_EXCHANGE_STATUS="$(curl -sS -D "$DB_EXCHANGE_HEADERS" -o "$DB_EXCHANGE_RESPON
     "$EASY_OIDC_TOKEN_URL")"
 unset DB_DEX_ID_TOKEN
 if [ "$DB_EXCHANGE_STATUS" != 200 ]; then
-    cat "$EASY_OIDC_LOG"
+    show_replica_logs
     echo "ERROR: Easy OIDC rejected the trusted service login using database policy (HTTP $DB_EXCHANGE_STATUS)"
     exit 1
 fi
@@ -420,6 +520,16 @@ fi
 echo "==> Waiting for the initial ID token to expire..."
 sleep 6
 
+echo "==> Restarting both easy-oidc replicas before refresh to prove PostgreSQL state persistence..."
+stop_replicas
+start_replicas
+wait_for_replicas
+wait_for_proxy_health 200
+if find "$E2E_TEMP_DIR" -type f -name '*.db' | grep -q .; then
+    echo "ERROR: SQLite state file was created while PostgreSQL state was configured"
+    exit 1
+fi
+
 echo "==> Updating live user groups in the policy database before refresh..."
 $CONTAINER_CMD exec -i "$POSTGRES_CONTAINER_NAME" psql -v ON_ERROR_STOP=1 \
     -v db_interactive_client_id="$DB_INTERACTIVE_CLIENT_ID" -U postgres -d easy_oidc_e2e >/dev/null <<'SQL'
@@ -441,11 +551,37 @@ if ! jq -er '
     echo "ERROR: refreshed ID token did not contain current database policy groups"
     exit 1
 fi
-if ! jq -s -e --arg client "$DB_INTERACTIVE_CLIENT_ID" 'any(.[]; .msg == "refresh attempt" and .result == 200 and .client_id == $client)' "$EASY_OIDC_LOG" > /dev/null; then
-    cat "$EASY_OIDC_LOG"
+if ! jq -s -e --arg client "$DB_INTERACTIVE_CLIENT_ID" 'any(.[]; .msg == "refresh attempt" and .result == 200 and .client_id == $client)' "${EASY_OIDC_LOGS[@]}" > /dev/null; then
+    show_replica_logs
     echo "ERROR: no successful kubelogin refresh exchange was logged"
     exit 1
 fi
 
 printf '\n✅ ID token received and refreshed by kubelogin without another browser login.\n'
+
+echo "==> Stopping PostgreSQL to verify fail-closed behavior and live recovery..."
+$CONTAINER_CMD stop "$POSTGRES_CONTAINER_NAME" >/dev/null
+wait_for_proxy_health 503
+OUTAGE_RESPONSE="$E2E_TEMP_DIR/outage-response"
+OUTAGE_STATUS="$(curl -sS -o "$OUTAGE_RESPONSE" -w '%{http_code}' \
+    --data-urlencode grant_type=refresh_token \
+    --data-urlencode client_id="$DB_INTERACTIVE_CLIENT_ID" \
+    --data-urlencode refresh_token='ert1.AAAAAAAAAAAAAAAAAAAAAA.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' \
+    "$EASY_OIDC_TOKEN_URL" || true)"
+if [ "$OUTAGE_STATUS" -lt 500 ] || grep -Eiq 'postgres|easy_oidc|127\.0\.0\.1|55434|e2e-runtime|password' "$OUTAGE_RESPONSE"; then
+    cat "$OUTAGE_RESPONSE"
+    echo "ERROR: stateful operation did not fail closed without database details (HTTP $OUTAGE_STATUS)"
+    exit 1
+fi
+
+echo "==> Restarting PostgreSQL and waiting for replicas to recover without restart..."
+$CONTAINER_CMD start "$POSTGRES_CONTAINER_NAME" >/dev/null
+for i in {1..30}; do
+    if $CONTAINER_CMD exec "$POSTGRES_CONTAINER_NAME" pg_isready -U postgres -d easy_oidc_e2e >/dev/null 2>&1; then break; fi
+    if [ "$i" -eq 30 ]; then echo "ERROR: PostgreSQL failed to recover"; exit 1; fi
+    sleep 1
+done
+wait_for_replicas
+wait_for_proxy_health 200
+echo "✅ Both replicas failed closed during the database outage and recovered in place."
 printf '\n✅ E2E Test PASSED!\n'

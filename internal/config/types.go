@@ -58,7 +58,6 @@ type Config struct {
 	Schema              string                         `json:"$schema,omitempty"`
 	IssuerURL           string                         `json:"issuer_url"`
 	HTTPListenAddr      string                         `json:"http_listen_addr"`
-	DataDir             string                         `json:"data_dir"`
 	SigningAlgorithm    string                         `json:"signing_algorithm,omitempty"`
 	JWKSKID             string                         `json:"jwks_kid,omitempty"`
 	AccessTokenTTL      Duration                       `json:"access_token_ttl,omitempty"`
@@ -72,7 +71,23 @@ type Config struct {
 	GroupsOverrides     map[string]map[string][]string `json:"groups_overrides"`
 	Clients             map[string]ClientConfig        `json:"clients"`
 	OIDCTrust           OIDCTrustConfig                `json:"oidc_trust,omitempty"`
+	StateDatabase       *StateDatabaseConfig           `json:"state_database,omitempty"`
 	PolicyDatabase      *PolicyDatabaseConfig          `json:"policy_database,omitempty"`
+}
+
+// StateDatabaseConfig configures the authoritative protocol-state database.
+type StateDatabaseConfig struct {
+	Driver                 string                         `json:"driver,omitempty"`
+	Path                   string                         `json:"path,omitempty"`
+	ConnectionStringSecret string                         `json:"connection_string_secret,omitempty"`
+	MaxConnections         int                            `json:"max_connections,omitempty"`
+	QueryTimeout           Duration                       `json:"query_timeout,omitempty"`
+	Migrations             *StateDatabaseMigrationsConfig `json:"migrations,omitempty"`
+}
+
+// StateDatabaseMigrationsConfig configures the optional migration-only database credential.
+type StateDatabaseMigrationsConfig struct {
+	ConnectionStringSecret string `json:"connection_string_secret,omitempty"`
 }
 
 // PolicyDatabaseConfig configures a supplemental policy database.

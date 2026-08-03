@@ -56,7 +56,6 @@ func TestConfigSchemaContracts(t *testing.T) {
 	base := map[string]any{
 		"issuer_url":       "https://auth.example.com",
 		"http_listen_addr": "127.0.0.1:8080",
-		"data_dir":         "/var/lib/easy-oidc",
 		"secrets": map[string]any{
 			"provider":         "env",
 			"signing_key_name": "EASYOIDC_SIGNING_KEY",
@@ -160,7 +159,7 @@ func TestConfigSchemaContracts(t *testing.T) {
 func TestPolicyDatabaseSchemaAndLoaderValidation(t *testing.T) {
 	schema := compileConfigSchema(t)
 	base := map[string]any{
-		"issuer_url": "https://auth.example.com", "http_listen_addr": "127.0.0.1:8080", "data_dir": "/tmp/easy-oidc",
+		"issuer_url": "https://auth.example.com", "http_listen_addr": "127.0.0.1:8080",
 		"secrets":    map[string]any{"provider": "env", "signing_key_name": "SIGNING"},
 		"connectors": map[string]any{"google": map[string]any{"type": "google", "display_name": "Google", "credentials_secret": "GOOGLE"}},
 		"policy_database": map[string]any{
@@ -287,6 +286,79 @@ func TestPolicyDatabaseQueryDefaultsMatchSchema(t *testing.T) {
 		if got := queries[name].(map[string]any)["default"]; got != expected {
 			t.Errorf("%s schema default = %q, want %q", name, got, expected)
 		}
+	}
+}
+
+// TestStateDatabaseSchemaAndLoaderValidation covers state database defaults and validation.
+func TestStateDatabaseSchemaAndLoaderValidation(t *testing.T) {
+	schema := compileConfigSchema(t)
+	base := map[string]any{
+		"issuer_url": "https://auth.example.com", "http_listen_addr": "127.0.0.1:8080",
+		"secrets":               map[string]any{"provider": "env", "signing_key_name": "SIGNING"},
+		"connectors":            map[string]any{"google": map[string]any{"type": "google", "display_name": "Google", "credentials_secret": "GOOGLE"}},
+		"default_redirect_uris": []any{"http://localhost:8000"}, "clients": map[string]any{"client": map[string]any{}},
+		"state_database": map[string]any{"driver": "postgresql", "connection_string_secret": "STATE_DATABASE_URL"},
+	}
+	tests := []struct {
+		name  string
+		valid bool
+		edit  func(map[string]any)
+	}{
+		{"defaults", true, func(map[string]any) {}},
+		{"migration secret", true, func(c map[string]any) {
+			c["state_database"].(map[string]any)["migrations"] = map[string]any{"connection_string_secret": "STATE_MIGRATION_DATABASE_URL"}
+		}},
+		{"sqlite", true, func(c map[string]any) {
+			c["state_database"] = map[string]any{"driver": "sqlite", "path": "/tmp/easy-oidc.db"}
+		}},
+		{"sqlite defaults", true, func(c map[string]any) { c["state_database"] = map[string]any{} }},
+		{"omitted state database", true, func(c map[string]any) { delete(c, "state_database") }},
+		{"null state database", false, func(c map[string]any) { c["state_database"] = nil }},
+		{"empty driver", false, func(c map[string]any) { c["state_database"] = map[string]any{"driver": ""} }},
+		{"unknown driver", false, func(c map[string]any) { c["state_database"].(map[string]any)["driver"] = "mysql" }},
+		{"missing secret", false, func(c map[string]any) { delete(c["state_database"].(map[string]any), "connection_string_secret") }},
+		{"blank secret", false, func(c map[string]any) { c["state_database"].(map[string]any)["connection_string_secret"] = " " }},
+		{"sqlite with PostgreSQL field", false, func(c map[string]any) { c["state_database"].(map[string]any)["driver"] = "sqlite" }},
+		{"sqlite with zero PostgreSQL field", false, func(c map[string]any) { c["state_database"] = map[string]any{"max_connections": json.Number("0")} }},
+		{"sqlite empty path", false, func(c map[string]any) { c["state_database"] = map[string]any{"path": ""} }},
+		{"sqlite null path", false, func(c map[string]any) { c["state_database"] = map[string]any{"path": nil} }},
+		{"sqlite blank path", false, func(c map[string]any) { c["state_database"] = map[string]any{"path": " "} }},
+		{"PostgreSQL with SQLite path", false, func(c map[string]any) { c["state_database"].(map[string]any)["path"] = "/tmp/easy-oidc.db" }},
+		{"PostgreSQL with empty SQLite path", false, func(c map[string]any) { c["state_database"].(map[string]any)["path"] = "" }},
+		{"zero connections", false, func(c map[string]any) { c["state_database"].(map[string]any)["max_connections"] = json.Number("0") }},
+		{"nonpositive connections", false, func(c map[string]any) { c["state_database"].(map[string]any)["max_connections"] = json.Number("-1") }},
+		{"zero timeout", false, func(c map[string]any) { c["state_database"].(map[string]any)["query_timeout"] = "0s" }},
+		{"nonpositive timeout", false, func(c map[string]any) { c["state_database"].(map[string]any)["query_timeout"] = "-1s" }},
+		{"null migrations", false, func(c map[string]any) { c["state_database"].(map[string]any)["migrations"] = nil }},
+		{"blank migration secret", false, func(c map[string]any) {
+			c["state_database"].(map[string]any)["migrations"] = map[string]any{"connection_string_secret": " "}
+		}},
+		{"noncanonical field name", false, func(c map[string]any) {
+			c["state_database"].(map[string]any)["MAX_CONNECTIONS"] = nil
+		}},
+		{"unknown field", false, func(c map[string]any) { c["state_database"].(map[string]any)["typo"] = true }},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			instance := cloneJSONValue(t, base).(map[string]any)
+			tc.edit(instance)
+			schemaOK := schema.Validate(instance) == nil
+			data, _ := json.Marshal(instance)
+			path := filepath.Join(t.TempDir(), "config.jsonc")
+			if err := os.WriteFile(path, data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			loaded, err := Load(path)
+			if schemaOK != tc.valid || (err == nil) != tc.valid {
+				t.Fatalf("schema=%v loader error=%v, want valid=%v", schemaOK, err, tc.valid)
+			}
+			if tc.name == "defaults" && loaded != nil && (loaded.StateDatabase.MaxConnections != 16 || loaded.StateDatabase.QueryTimeout.Duration() != 5*time.Second) {
+				t.Fatalf("unexpected PostgreSQL defaults: %#v", loaded.StateDatabase)
+			}
+			if (tc.name == "sqlite defaults" || tc.name == "omitted state database") && loaded != nil && (loaded.StateDatabase.Driver != "sqlite" || loaded.StateDatabase.Path != "data/easy-oidc-state.db") {
+				t.Fatalf("unexpected SQLite defaults: %#v", loaded.StateDatabase)
+			}
+		})
 	}
 }
 

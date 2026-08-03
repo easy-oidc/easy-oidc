@@ -12,7 +12,7 @@ import (
 	"github.com/easy-oidc/easy-oidc/internal/config"
 	"github.com/easy-oidc/easy-oidc/internal/email"
 	"github.com/easy-oidc/easy-oidc/internal/refresh"
-	"github.com/easy-oidc/easy-oidc/internal/storage"
+	"github.com/easy-oidc/easy-oidc/internal/statedb"
 	"github.com/easy-oidc/easy-oidc/internal/templates"
 	"github.com/easy-oidc/easy-oidc/internal/tokens"
 	"github.com/easy-oidc/easy-oidc/internal/trust"
@@ -33,7 +33,7 @@ type Server struct {
 	signer         *tokens.Signer
 	jwksData       []byte
 	logger         *slog.Logger
-	store          *storage.Store
+	store          *statedb.Store
 	templates      *templates.Manager
 	mailer         email.Sender
 	challenge      challenge.Verifier
@@ -46,7 +46,7 @@ type Server struct {
 }
 
 // NewServer creates an OIDC server with the provided dependencies.
-func NewServer(cfg *config.Config, connectors map[string]upstream.Connector, authCodeMgr *AuthCodeManager, signer *tokens.Signer, jwksData []byte, logger *slog.Logger, store *storage.Store, tm *templates.Manager, mailer email.Sender, challengeVerifier challenge.Verifier, otpSecret, selectionKey, encryptionKey []byte, resolver policyResolver) *Server {
+func NewServer(cfg *config.Config, connectors map[string]upstream.Connector, authCodeMgr *AuthCodeManager, signer *tokens.Signer, jwksData []byte, logger *slog.Logger, store *statedb.Store, tm *templates.Manager, mailer email.Sender, challengeVerifier challenge.Verifier, otpSecret, selectionKey, encryptionKey []byte, resolver policyResolver) *Server {
 	if resolver == nil {
 		resolver = authpolicy.NewResolver(cfg, nil)
 	}

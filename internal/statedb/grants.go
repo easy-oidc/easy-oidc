@@ -2,7 +2,7 @@
 // Copyright The Easy OIDC Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package storage
+package statedb
 
 import (
 	"crypto/sha256"
@@ -64,10 +64,20 @@ func (s *Store) ConsumeGrantActionAndRevoke(token, email, sid, action string, no
 	defer func() { _ = tx.Rollback() }()
 	var storedEmail, storedSID, storedAction string
 	var expiry time.Time
-	if err = tx.QueryRow(`SELECT email,sid,action,expires_at FROM grant_actions WHERE action_hash=?`, h[:]).Scan(&storedEmail, &storedSID, &storedAction, &expiry); err == sql.ErrNoRows {
+	if err = tx.QueryRow(`SELECT sid FROM grant_actions WHERE action_hash=?`, h[:]).Scan(&storedSID); err == sql.ErrNoRows {
 		return ErrInvalidGrant
 	} else if err != nil {
-		return fmt.Errorf("load grant action: %w", err)
+		return fmt.Errorf("discover grant action: %w", err)
+	}
+	if err = tx.QueryRow(`SELECT sid FROM refresh_grants WHERE sid=?`+s.lockRows(), storedSID).Scan(&storedSID); err == sql.ErrNoRows {
+		return ErrInvalidGrant
+	} else if err != nil {
+		return fmt.Errorf("lock managed grant: %w", err)
+	}
+	if err = tx.QueryRow(`SELECT email,sid,action,expires_at FROM grant_actions WHERE action_hash=?`+s.lockRows(), h[:]).Scan(&storedEmail, &storedSID, &storedAction, &expiry); err == sql.ErrNoRows {
+		return ErrInvalidGrant
+	} else if err != nil {
+		return fmt.Errorf("reload grant action: %w", err)
 	}
 	if storedEmail != strings.ToLower(email) || storedSID != sid || storedAction != action || !now.Before(expiry) {
 		return ErrInvalidGrant
@@ -113,7 +123,7 @@ func (s *Store) ConsumeIdentitySelection(token string, now time.Time) (string, s
 	defer func() { _ = tx.Rollback() }()
 	var state, connector, subject string
 	var data []byte
-	if err = tx.QueryRow(`SELECT state_token,connector_id,subject,emails_json FROM identity_selections WHERE token_hash=? AND expires_at>?`, h[:], now).Scan(&state, &connector, &subject, &data); err != nil {
+	if err = tx.QueryRow(`SELECT state_token,connector_id,subject,emails_json FROM identity_selections WHERE token_hash=? AND expires_at>?`+s.lockRows(), h[:], now).Scan(&state, &connector, &subject, &data); err != nil {
 		return "", "", "", nil, ErrInvalidGrant
 	}
 	if _, err = tx.Exec(`DELETE FROM identity_selections WHERE token_hash=?`, h[:]); err != nil {

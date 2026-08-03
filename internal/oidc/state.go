@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/easy-oidc/easy-oidc/internal/storage"
+	"github.com/easy-oidc/easy-oidc/internal/statedb"
 )
 
 // OAuthState represents the OAuth2 state parameter data.
@@ -31,13 +31,13 @@ type OAuthState struct {
 // EncodeState creates a new random state token and stores the OAuth state data.
 // The token expires in 10 minutes and is used to prevent CSRF attacks.
 func (m *AuthCodeManager) EncodeState(state OAuthState) (string, error) {
-	stateToken, err := storage.GenerateStateToken()
+	stateToken, err := statedb.GenerateStateToken()
 	if err != nil {
 		return "", fmt.Errorf("failed to generate state token: %w", err)
 	}
 
 	now := time.Now()
-	oauthState := &storage.OAuthState{
+	oauthState := &statedb.OAuthState{
 		StateToken:    stateToken,
 		ClientID:      state.ClientID,
 		RedirectURI:   state.RedirectURI,
@@ -79,6 +79,6 @@ func (m *AuthCodeManager) PeekState(stateToken string) (*OAuthState, error) {
 }
 
 // oauthStateFromStored converts a persisted state to its OIDC representation.
-func oauthStateFromStored(storedState *storage.OAuthState) *OAuthState {
+func oauthStateFromStored(storedState *statedb.OAuthState) *OAuthState {
 	return &OAuthState{FlowID: storedState.StateToken, ClientID: storedState.ClientID, RedirectURI: storedState.RedirectURI, CodeChallenge: storedState.CodeChallenge, Nonce: storedState.Nonce, OIDCState: storedState.OIDCState, ConnectorID: storedState.ConnectorID, Scopes: storedState.Scopes, RefreshMode: storedState.RefreshMode, AuthTime: storedState.AuthTime, OfflineConsent: storedState.OfflineConsent, Purpose: storedState.Purpose}
 }

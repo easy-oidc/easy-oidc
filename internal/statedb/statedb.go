@@ -2,25 +2,26 @@
 // Copyright The Easy OIDC Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package storage
+package statedb
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
 	"fmt"
 	"log/slog"
-	"net/url"
-	"strings"
 	"time"
-
-	_ "github.com/mattn/go-sqlite3"
 )
 
 // Store provides persistent storage for OAuth flows with replay protection.
 type Store struct {
-	db     *sql.DB
-	logger *slog.Logger
+	db         *database
+	logger     *slog.Logger
+	cancel     context.CancelFunc
+	cleanupCtx context.Context
+	done       chan struct{}
+	postgresql bool
 }
 
 // OAuthState represents stored OAuth state parameters.
@@ -60,134 +61,27 @@ type AuthCode struct {
 	OfflineConsent  bool
 }
 
-// New creates a new SQLite-backed storage instance.
-// The database file is created at the specified path.
-func New(dbPath string, logger *slog.Logger) (*Store, error) {
-	dsn := dbPath
-	if dbPath != ":memory:" {
-		dsn = "file:" + url.PathEscape(dbPath)
-	}
-	separator := "?"
-	if strings.Contains(dsn, "?") {
-		separator = "&"
-	}
-	dsn += separator + "_foreign_keys=on&_busy_timeout=5000&_journal_mode=WAL&_synchronous=FULL&_txlock=immediate"
-	db, err := sql.Open("sqlite3", dsn)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
-	}
-	db.SetMaxOpenConns(8)
-
-	// Enable WAL mode for better concurrency
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("failed to enable WAL mode: %w", err)
-	}
-	for _, pragma := range []string{"PRAGMA synchronous=FULL", "PRAGMA foreign_keys=ON", "PRAGMA busy_timeout=5000"} {
-		if _, err := db.Exec(pragma); err != nil {
-			_ = db.Close()
-			return nil, fmt.Errorf("failed to configure SQLite durability: %w", err)
-		}
-	}
-
-	// Create tables if they don't exist
-	if err := initSchema(db); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("failed to initialize schema: %w", err)
-	}
-
-	s := &Store{
-		db:     db,
-		logger: logger,
-	}
-
-	// Start cleanup goroutine
-	go s.cleanupExpired()
-
-	return s, nil
-}
-
 // Close closes the database connection.
 func (s *Store) Close() error {
+	if s.cancel != nil {
+		s.cancel()
+		<-s.done
+	}
 	return s.db.Close()
 }
 
-// initSchema creates the required tables.
-func initSchema(db *sql.DB) error {
-	schema := `
-	CREATE TABLE IF NOT EXISTS oauth_states (
-		state_token TEXT PRIMARY KEY,
-		client_id TEXT NOT NULL,
-		redirect_uri TEXT NOT NULL,
-		code_challenge TEXT NOT NULL,
-		nonce TEXT,
-		oidc_state TEXT NOT NULL,
-		created_at DATETIME NOT NULL,
-		expires_at DATETIME NOT NULL,
-		connector_id TEXT NOT NULL DEFAULT '', scopes TEXT NOT NULL, refresh_mode TEXT NOT NULL, auth_time DATETIME NOT NULL, offline_consent INTEGER NOT NULL DEFAULT 0, purpose TEXT NOT NULL DEFAULT 'authorize'
-	);
-
-	CREATE INDEX IF NOT EXISTS idx_states_expires_at ON oauth_states(expires_at);
-
-	CREATE TABLE IF NOT EXISTS auth_codes (
-		code TEXT PRIMARY KEY,
-		client_id TEXT NOT NULL,
-		redirect_uri TEXT NOT NULL,
-		code_challenge TEXT NOT NULL,
-		email TEXT NOT NULL,
-		email_verified INTEGER NOT NULL,
-		nonce TEXT,
-		created_at DATETIME NOT NULL,
-		expires_at DATETIME NOT NULL,
-		scopes TEXT NOT NULL, refresh_mode TEXT NOT NULL, auth_time DATETIME NOT NULL,
-		connector_id TEXT NOT NULL DEFAULT '', upstream_subject TEXT NOT NULL DEFAULT '', offline_consent INTEGER NOT NULL DEFAULT 0
-	);
-
-	CREATE INDEX IF NOT EXISTS idx_codes_expires_at ON auth_codes(expires_at);
-	CREATE TABLE IF NOT EXISTS flow_credentials (
-		flow_id TEXT PRIMARY KEY, client_id TEXT NOT NULL, connector_id TEXT NOT NULL,
-		nonce BLOB NOT NULL, ciphertext BLOB NOT NULL, expires_at DATETIME NOT NULL
-	);
-	CREATE TABLE IF NOT EXISTS upstream_credentials (
-		connector_id TEXT NOT NULL, subject TEXT NOT NULL, email TEXT NOT NULL,
-		verified_at DATETIME NOT NULL, local_verified INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(connector_id, subject, email)
-	);
-	CREATE TABLE IF NOT EXISTS otp_challenges (
-		challenge_id TEXT PRIMARY KEY, email TEXT NOT NULL, code_hmac BLOB NOT NULL,
-		context TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, sends INTEGER NOT NULL DEFAULT 1,
-		created_at DATETIME NOT NULL, sent_at DATETIME NOT NULL, expires_at DATETIME NOT NULL
-	);
-	CREATE TABLE IF NOT EXISTS otp_sends (email TEXT NOT NULL, sent_at DATETIME NOT NULL);
-	CREATE INDEX IF NOT EXISTS idx_otp_sends_email_time ON otp_sends(email, sent_at);
-	CREATE TABLE IF NOT EXISTS refresh_grants (
-		sid TEXT PRIMARY KEY, client_id TEXT NOT NULL, email TEXT NOT NULL, email_verified INTEGER NOT NULL,
-		scopes TEXT NOT NULL, connector_id TEXT, upstream_subject TEXT, credential_nonce BLOB, credential_ciphertext BLOB,
-		mode TEXT NOT NULL CHECK(mode IN ('session','offline')), auth_time DATETIME NOT NULL, created_at DATETIME NOT NULL,
-		last_used_at DATETIME NOT NULL, idle_ttl_ns INTEGER NOT NULL, idle_expires_at DATETIME NOT NULL,
-		absolute_expires_at DATETIME NOT NULL, revoked_at DATETIME, revoke_reason TEXT,
-		upstream_access_expires_at DATETIME, upstream_refresh_expires_at DATETIME, upstream_access_nonexpiring INTEGER NOT NULL DEFAULT 0,
-		claim_id TEXT, claim_expires_at DATETIME, upstream_refresh_started INTEGER NOT NULL DEFAULT 0, dpop_jkt TEXT
-	);
-	CREATE INDEX IF NOT EXISTS idx_refresh_grants_email ON refresh_grants(email, absolute_expires_at);
-	CREATE TABLE IF NOT EXISTS refresh_tokens (
-		handle_hash BLOB PRIMARY KEY, token_hash BLOB NOT NULL, sid TEXT NOT NULL REFERENCES refresh_grants(sid) ON DELETE CASCADE,
-		issued_at DATETIME NOT NULL, expires_at DATETIME NOT NULL, consumed_at DATETIME, replacement_hash BLOB
-	);
-	CREATE INDEX IF NOT EXISTS idx_refresh_tokens_sid ON refresh_tokens(sid);
-	CREATE TABLE IF NOT EXISTS grant_actions (
-		action_hash BLOB PRIMARY KEY, email TEXT NOT NULL, sid TEXT NOT NULL REFERENCES refresh_grants(sid) ON DELETE CASCADE,
-		action TEXT NOT NULL, created_at DATETIME NOT NULL, expires_at DATETIME NOT NULL
-	);
-	CREATE INDEX IF NOT EXISTS idx_grant_actions_expiry ON grant_actions(expires_at);
-	CREATE TABLE IF NOT EXISTS identity_selections (
-		token_hash BLOB PRIMARY KEY, state_token TEXT NOT NULL, connector_id TEXT NOT NULL,
-		subject TEXT NOT NULL, emails_json TEXT NOT NULL, expires_at DATETIME NOT NULL
-	);
-	CREATE INDEX IF NOT EXISTS idx_identity_selections_expiry ON identity_selections(expires_at);
-	`
-
-	if _, err := db.Exec(schema); err != nil {
-		return err
+// Ready reports whether the authoritative database can answer within its query timeout.
+func (s *Store) Ready(ctx context.Context) error {
+	ctx, cancel := s.db.operationContext(ctx)
+	defer cancel()
+	var err error
+	if s.postgresql {
+		err = CheckRuntime(ctx, s.db)
+	} else {
+		err = s.db.PingContext(ctx)
+	}
+	if err != nil {
+		return fmt.Errorf("state database unavailable: %w", err)
 	}
 	return nil
 }
@@ -247,7 +141,7 @@ func (s *Store) GetAndDeleteState(stateToken string) (*OAuthState, error) {
 	query := `
 		SELECT state_token, client_id, redirect_uri, code_challenge, nonce, oidc_state, created_at, expires_at, connector_id, scopes, refresh_mode, auth_time, offline_consent, purpose
 		FROM oauth_states
-		WHERE state_token = ?
+		WHERE state_token = ?` + s.lockRows() + `
 	`
 	err = tx.QueryRow(query, stateToken).Scan(
 		&state.StateToken,
@@ -308,8 +202,13 @@ func (s *Store) PeekState(stateToken string) (*OAuthState, error) {
 
 // SaveCredential records a credential only after its email has been accepted.
 func (s *Store) SaveCredential(connectorID, subject, email string, local bool, verifiedAt time.Time) error {
-	_, err := s.db.Exec(`INSERT INTO upstream_credentials(connector_id,subject,email,verified_at,local_verified) VALUES(?,?,?,?,?)
-		ON CONFLICT(connector_id,subject,email) DO UPDATE SET verified_at=excluded.verified_at,local_verified=MAX(local_verified,excluded.local_verified)`, connectorID, subject, email, verifiedAt, local)
+	query := `INSERT INTO upstream_credentials(connector_id,subject,email,verified_at,local_verified) VALUES(?,?,?,?,?)
+		ON CONFLICT(connector_id,subject,email) DO UPDATE SET verified_at=excluded.verified_at,local_verified=MAX(local_verified,excluded.local_verified)`
+	if s.postgresql {
+		query = `INSERT INTO upstream_credentials(connector_id,subject,email,verified_at,local_verified) VALUES(?,?,?,?,?)
+			ON CONFLICT(connector_id,subject,email) DO UPDATE SET verified_at=excluded.verified_at,local_verified=(upstream_credentials.local_verified OR excluded.local_verified)`
+	}
+	_, err := s.db.Exec(query, connectorID, subject, email, verifiedAt, local)
 	if err != nil {
 		return fmt.Errorf("failed to save upstream credential: %w", err)
 	}
@@ -377,7 +276,7 @@ func (s *Store) GetAndDeleteAuthCode(codeStr string) (*AuthCode, error) {
 	query := `
 		SELECT code, client_id, redirect_uri, code_challenge, email, email_verified, nonce, created_at, expires_at, scopes, refresh_mode, auth_time, connector_id, upstream_subject, offline_consent
 		FROM auth_codes
-		WHERE code = ?
+		WHERE code = ?` + s.lockRows() + `
 	`
 	err = tx.QueryRow(query, codeStr).Scan(
 		&code.Code,
@@ -420,37 +319,76 @@ func (s *Store) GetAndDeleteAuthCode(codeStr string) (*AuthCode, error) {
 }
 
 // cleanupExpired periodically removes expired state tokens and authorization codes.
-func (s *Store) cleanupExpired() {
+func (s *Store) cleanupExpired(ctx context.Context) {
+	defer close(s.done)
 	ticker := time.NewTicker(10 * time.Minute)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		s.cleanupExpiredAt(time.Now())
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.cleanupExpiredAtContext(ctx, time.Now())
+		}
 	}
 }
 
 // cleanupExpiredAt removes records whose safe retention period has elapsed.
 func (s *Store) cleanupExpiredAt(now time.Time) {
-	result, err := s.db.Exec("DELETE FROM oauth_states WHERE expires_at < ?", now)
+	s.cleanupExpiredAtContext(context.Background(), now)
+}
+
+// cleanupExpiredAtContext removes expired records using a cancellable cleanup context.
+func (s *Store) cleanupExpiredAtContext(ctx context.Context, now time.Time) {
+	result, err := s.deleteExpiredBatchContext(ctx, "oauth_states", "expires_at < ?", now)
 	if err != nil {
 		s.logger.Error("failed to clean up expired states", "error", err)
 	} else if count, rowsErr := result.RowsAffected(); rowsErr == nil && count > 0 {
 		s.logger.Debug("cleaned up expired states", "count", count)
 	}
 
-	result, err = s.db.Exec("DELETE FROM auth_codes WHERE expires_at < ?", now)
+	result, err = s.deleteExpiredBatchContext(ctx, "auth_codes", "expires_at < ?", now)
 	if err != nil {
 		s.logger.Error("failed to clean up expired auth codes", "error", err)
 	} else if count, rowsErr := result.RowsAffected(); rowsErr == nil && count > 0 {
 		s.logger.Debug("cleaned up expired auth codes", "count", count)
 	}
-	_, _ = s.db.Exec("DELETE FROM otp_challenges WHERE expires_at < ?", now)
-	_, _ = s.db.Exec("DELETE FROM otp_sends WHERE sent_at < ?", now.Add(-time.Hour))
-	_, _ = s.db.Exec("DELETE FROM grant_actions WHERE expires_at <= ?", now)
-	_, _ = s.db.Exec("DELETE FROM identity_selections WHERE expires_at <= ?", now)
-	_, _ = s.db.Exec("DELETE FROM flow_credentials WHERE expires_at <= ?", now)
-	_, _ = s.db.Exec("DELETE FROM refresh_grants WHERE absolute_expires_at <= ?", now)
-	if _, err := s.db.Exec("PRAGMA optimize"); err != nil {
-		s.logger.Error("failed to optimize database", "error", err)
+	_, _ = s.deleteExpiredBatchContext(ctx, "otp_challenges", "expires_at < ?", now)
+	_, _ = s.deleteExpiredBatchContext(ctx, "otp_sends", "sent_at < ?", now.Add(-time.Hour))
+	_, _ = s.deleteExpiredBatchContext(ctx, "grant_actions", "expires_at <= ?", now)
+	_, _ = s.deleteExpiredBatchContext(ctx, "identity_selections", "expires_at <= ?", now)
+	_, _ = s.deleteExpiredBatchContext(ctx, "flow_credentials", "expires_at <= ?", now)
+	_, _ = s.deleteExpiredBatchContext(ctx, "refresh_grants", "absolute_expires_at <= ?", now)
+	if !s.postgresql {
+		if _, err := s.db.ExecContext(ctx, "PRAGMA optimize"); err != nil {
+			s.logger.Error("failed to optimize database", "error", err)
+		}
 	}
+}
+
+// lockRows returns the PostgreSQL row-locking clause used by consuming reads.
+func (s *Store) lockRows() string {
+	if s.postgresql {
+		return " FOR UPDATE"
+	}
+	return ""
+}
+
+// lockJoinedRows returns the PostgreSQL row-locking clause for grant/token reads.
+func (s *Store) lockJoinedRows() string {
+	if s.postgresql {
+		return " FOR UPDATE OF g,t"
+	}
+	return ""
+}
+
+// deleteExpiredBatchContext removes an eligible batch with caller cancellation.
+func (s *Store) deleteExpiredBatchContext(ctx context.Context, table, predicate string, value any) (sql.Result, error) {
+	if s.postgresql {
+		query := fmt.Sprintf("DELETE FROM %s WHERE ctid IN (SELECT ctid FROM %s WHERE %s LIMIT 500 FOR UPDATE SKIP LOCKED)", table, table, predicate)
+		return s.db.ExecContext(ctx, query, value)
+	}
+	query := fmt.Sprintf("DELETE FROM %s WHERE rowid IN (SELECT rowid FROM %s WHERE %s LIMIT 500)", table, table, predicate)
+	return s.db.ExecContext(ctx, query, value)
 }

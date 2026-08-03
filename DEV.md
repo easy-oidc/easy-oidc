@@ -102,6 +102,31 @@ because it exposes the SMTP sender to abuse.
 
 The `.env` file is ignored by Git and must never be committed.
 
+## PostgreSQL state tests
+
+Run the real PostgreSQL migration, concurrency, timeout, and readiness tests
+against the pinned local container (an existing `easy-oidc-state-test` container
+on port 55435 is reused):
+
+```bash
+make test-postgresql
+```
+
+The equivalent explicit command is:
+
+```bash
+EASYOIDC_STATE_TEST_DB_URL='postgresql://easy_oidc:easy_oidc@127.0.0.1:55435/easy_oidc_state?sslmode=disable' \
+  go test -v -race ./internal/statedb -run PostgreSQL
+```
+
+Run the opt-in representative state-operation benchmarks against the same real
+PostgreSQL database (the benchmark resets only `easy_oidc_state`):
+
+```bash
+EASYOIDC_STATE_TEST_DB_URL='postgresql://easy_oidc:easy_oidc@127.0.0.1:55435/easy_oidc_state?sslmode=disable' \
+  go test ./internal/statedb -run '^$' -bench '^BenchmarkPostgreSQL' -benchmem
+```
+
 ## Troubleshooting
 
 ### Environment variable is not set

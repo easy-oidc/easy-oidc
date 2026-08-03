@@ -51,6 +51,7 @@ jobs:
       - name: Test
         run: make test
         env:
+          EASYOIDC_STATE_TEST_DB_URL: postgresql://easy_oidc_test:easy_oidc_test@localhost:5432/easy_oidc_test?sslmode=disable
           EASYOIDC_POLICY_TEST_DB_URL: postgresql://easy_oidc_test:easy_oidc_test@localhost:5432/easy_oidc_test?sslmode=disable
 
       - name: Upload coverage

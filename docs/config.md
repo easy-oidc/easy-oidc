@@ -26,6 +26,9 @@ See the [example configurations](https://github.com/easy-oidc/easy-oidc/tree/mai
 including `config-multiple.jsonc` for multiple connectors, email codes, SMTP, and
 Turnstile.
 
+For shared PostgreSQL protocol state, see the [state database guide](state-database.md)
+and `config-state-db.jsonc`.
+
 For clients, users, groups, and trust bindings supplied by database policy, see
 the [policy database guide](policy-database.md) and `config-policy-db.jsonc`.
 
@@ -106,7 +109,7 @@ the approved workflow or step; and assign a dedicated least-privilege Kubernetes
 This page is the source of truth for Easy OIDC application configuration. The
 official OpenTofu/Terraform modules accept the same settings as an
 `easy_oidc_config` object and add deployment-owned values such as the issuer,
-listen address, data directory, and cloud secrets provider.
+listen address, state database, and cloud secrets provider.
 
 - [AWS module inputs](https://github.com/easy-oidc/terraform-aws-easy-oidc#variables)
 - [Google Cloud module inputs](https://github.com/easy-oidc/terraform-google-easy-oidc#variables)
@@ -122,13 +125,18 @@ in each deployment module.
 |---|---:|---|
 | `issuer_url` | yes | Public issuer URL. HTTPS is required except on localhost. |
 | `http_listen_addr` | yes | Address used by the built-in HTTP server. |
-| `data_dir` | yes | Directory containing the SQLite database. |
+| `state_database` | no | Protocol-state database. Defaults to SQLite at `./data/easy-oidc-state.db`. |
 | `signing_algorithm` | no | Defaults to `RS256`. Supports the asymmetric algorithms advertised by Easy OIDC. |
 | `jwks_kid` | no | Signing key ID. Derived from the public key when omitted. |
 | `access_token_ttl` | no | Access-token lifetime using Go duration syntax; defaults to `15m`. |
 | `id_token_ttl` | no | ID-token lifetime using Go duration syntax; defaults to `15m`. |
 | `require_groups` | no | Require a non-empty group result; defaults to `true`. |
 | `templates_dir` | no | Directory containing template overrides. `EASYOIDC_TEMPLATES_DIR` takes precedence. |
+
+`state_database.driver` is `sqlite` (the default) or `postgresql`. SQLite accepts
+`path`; production deployments should use an absolute path. PostgreSQL accepts
+`connection_string_secret`, `max_connections`, `query_timeout`, and a migration-only
+secret under `migrations.connection_string_secret`. See the [state database guide](state-database.md).
 
 ## Secrets
 

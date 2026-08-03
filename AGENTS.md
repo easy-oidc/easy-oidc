@@ -57,7 +57,7 @@ make check          # Run fmt, lint, and test
 │   ├── config/             # Configuration loading and validation
 │   ├── secrets/            # Secrets providers (AWS, GCP, Azure, env)
 │   ├── oidc/               # OIDC server and handlers
-│   ├── storage/            # SQLite-backed OAuth state and auth codes
+│   ├── statedb/            # SQLite/PostgreSQL OAuth protocol state
 │   ├── upstream/           # Google/GitHub connectors
 │   └── tokens/             # Token signing, JWKS, groups
 ├── examples/               # Example configs and deployment files
@@ -83,10 +83,10 @@ The repository does not currently commit generated source files. Go module sums 
 ## Key Design Decisions
 
 - **Kubernetes-compatible signing**: RS256 by default; all Kubernetes-supported asymmetric algorithms plus EdDSA are available
-- **Opaque auth codes**: Cryptographically random, single-use values stored in SQLite
-- **No sessions or cookies**: Browser state and authorization codes are persisted in SQLite, not client sessions
+- **Opaque auth codes**: Cryptographically random, single-use values stored in the state database
+- **No sessions or cookies**: Browser state and authorization codes are persisted in the state database, not client sessions
 - **Email as `sub` claim**: Human-readable, stable across IdP changes
-- **Single-use auth codes**: Atomically consumed from SQLite with expiry
+- **Single-use auth codes**: Atomically consumed from the state database with expiry
 
 ## Upstream Connectors
 

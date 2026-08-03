@@ -8,7 +8,6 @@
   // Local email authentication with Mailpit. See DEV.md for setup instructions.
   "issuer_url": "http://localhost:8080",
   "http_listen_addr": "127.0.0.1:8080",
-  "data_dir": "temp",
   "signing_algorithm": "RS256",
   "require_groups": false,
 
@@ -16,6 +15,8 @@
     "provider": "env",
     "signing_key_name": "EASYOIDC_SIGNING_KEY",
   },
+
+  "state_database": { "driver": "sqlite", "path": "temp/easy-oidc-state.db" },
 
   "connectors": {
     "email": {

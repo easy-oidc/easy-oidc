@@ -16,15 +16,15 @@ import (
 	"time"
 
 	"github.com/easy-oidc/easy-oidc/internal/config"
-	"github.com/easy-oidc/easy-oidc/internal/storage"
+	"github.com/easy-oidc/easy-oidc/internal/statedb"
 	"github.com/easy-oidc/easy-oidc/internal/templates"
 )
 
 // grantsServer creates a grant-management handler with real storage and templates.
-func grantsServer(t *testing.T) (*Server, *storage.Store) {
+func grantsServer(t *testing.T) (*Server, *statedb.Store) {
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	store, err := storage.New(t.TempDir()+"/test.db", logger)
+	store, err := statedb.NewSQLite(t.TempDir()+"/test.db", logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestRenderGrantsCreatesUsableSingleUseAction(t *testing.T) {
 	if revokeResponse.Code != http.StatusOK || !strings.Contains(revokeResponse.Body.String(), "grant was revoked") {
 		t.Fatalf("revoke response = %d %q", revokeResponse.Code, revokeResponse.Body.String())
 	}
-	if _, _, err := store.PrepareRefresh(material, "managed-client", time.Now()); err != storage.ErrInvalidGrant {
+	if _, _, err := store.PrepareRefresh(material, "managed-client", time.Now()); err != statedb.ErrInvalidGrant {
 		t.Fatalf("managed grant after revocation = %v, want ErrInvalidGrant", err)
 	}
 

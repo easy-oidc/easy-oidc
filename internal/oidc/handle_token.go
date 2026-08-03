@@ -14,7 +14,7 @@ import (
 	"time"
 
 	refreshdomain "github.com/easy-oidc/easy-oidc/internal/refresh"
-	"github.com/easy-oidc/easy-oidc/internal/storage"
+	"github.com/easy-oidc/easy-oidc/internal/statedb"
 	"github.com/easy-oidc/easy-oidc/internal/tokens"
 	"github.com/easy-oidc/easy-oidc/internal/trust"
 	"github.com/easy-oidc/easy-oidc/internal/upstream"
@@ -143,7 +143,7 @@ func (s *Server) exchangeCode(w http.ResponseWriter, r *http.Request) {
 	}
 	stored, err := s.authCodeMgr.Peek(r.PostForm.Get("code"))
 	if err != nil {
-		if errors.Is(err, storage.ErrInvalidGrant) {
+		if errors.Is(err, statedb.ErrInvalidGrant) {
 			oauthError(w, http.StatusBadRequest, "invalid_grant", "authorization code is invalid")
 		} else {
 			oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable", "storage unavailable")
@@ -155,7 +155,7 @@ func (s *Server) exchangeCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	codeChallenge, _ := pkceChallenge(r.PostForm.Get("code_verifier"))
-	binding := storage.AuthCodeBinding{ClientID: r.PostForm.Get("client_id"), RedirectURI: r.PostForm.Get("redirect_uri"), CodeChallenge: codeChallenge}
+	binding := statedb.AuthCodeBinding{ClientID: r.PostForm.Get("client_id"), RedirectURI: r.PostForm.Get("redirect_uri"), CodeChallenge: codeChallenge}
 	payload := AuthCodePayload{ClientID: stored.ClientID, RedirectURI: stored.RedirectURI, CodeChallenge: stored.CodeChallenge, Email: stored.Email, EmailVerified: stored.EmailVerified, Nonce: stored.Nonce, Scopes: stored.Scopes, RefreshMode: stored.RefreshMode, AuthTime: stored.AuthTime, ConnectorID: stored.ConnectorID, UpstreamSubject: stored.UpstreamSubject, OfflineConsent: stored.OfflineConsent}
 	resolved, resolveErr := s.policyResolver.ResolveClient(r.Context(), payload.ClientID, true)
 	if errors.Is(resolveErr, authpolicy.ErrDenied) {
@@ -191,13 +191,13 @@ func (s *Server) exchangeCode(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC()
 	sid, refresh := "", ""
 	accessExpiry, idExpiry := now.Add(s.config.AccessTokenTTL.Duration()), now.Add(s.config.IDTokenTTL.Duration())
-	var initialGrant *storage.RefreshGrant
-	var material storage.RefreshMaterial
+	var initialGrant *statedb.RefreshGrant
+	var material statedb.RefreshMaterial
 	var credentialPlain []byte
 	if payload.RefreshMode != "" && client.RefreshTokens.Enabled && connectorExists {
 		credentialNonce, credentialCiphertext, credentialErr := s.store.LoadFlowCredential(stored.Code, payload.ClientID, payload.ConnectorID, now)
 		credentialBacked := credentialErr == nil
-		if credentialErr != nil && !errors.Is(credentialErr, storage.ErrInvalidGrant) {
+		if credentialErr != nil && !errors.Is(credentialErr, statedb.ErrInvalidGrant) {
 			oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable", "storage unavailable")
 			return
 		}
@@ -205,12 +205,12 @@ func (s *Server) exchangeCode(w http.ResponseWriter, r *http.Request) {
 			oauthError(w, http.StatusBadRequest, "invalid_grant", "authorization code is invalid")
 			return
 		}
-		sid, err = storage.GenerateStateToken()
+		sid, err = statedb.GenerateStateToken()
 		if err != nil {
 			oauthError(w, http.StatusInternalServerError, "server_error", "token generation failed")
 			return
 		}
-		material, err = storage.GenerateRefreshMaterial()
+		material, err = statedb.GenerateRefreshMaterial()
 		if err != nil {
 			oauthError(w, http.StatusInternalServerError, "server_error", "token generation failed")
 			return
@@ -221,9 +221,9 @@ func (s *Server) exchangeCode(w http.ResponseWriter, r *http.Request) {
 			idle, absolute = policy.OfflineIdleTTL.Duration(), policy.OfflineAbsoluteTTL.Duration()
 		}
 		absoluteExpiry := payload.AuthTime.Add(absolute)
-		grant := storage.RefreshGrant{SID: sid, ClientID: payload.ClientID, Email: payload.Email, EmailVerified: payload.EmailVerified, Scopes: payload.Scopes, ConnectorID: payload.ConnectorID, UpstreamSubject: payload.UpstreamSubject, Mode: payload.RefreshMode, AuthTime: payload.AuthTime, IdleTTL: idle, AbsoluteExpiry: absoluteExpiry}
+		grant := statedb.RefreshGrant{SID: sid, ClientID: payload.ClientID, Email: payload.Email, EmailVerified: payload.EmailVerified, Scopes: payload.Scopes, ConnectorID: payload.ConnectorID, UpstreamSubject: payload.UpstreamSubject, Mode: payload.RefreshMode, AuthTime: payload.AuthTime, IdleTTL: idle, AbsoluteExpiry: absoluteExpiry}
 		if credentialBacked {
-			plain, loadErr := storage.DecryptTemporaryCredential(s.encryptionKey, stored.Code, payload.ClientID, payload.ConnectorID, credentialNonce, credentialCiphertext)
+			plain, loadErr := statedb.DecryptTemporaryCredential(s.encryptionKey, stored.Code, payload.ClientID, payload.ConnectorID, credentialNonce, credentialCiphertext)
 			if loadErr != nil {
 				oauthError(w, http.StatusBadRequest, "invalid_grant", "authorization code is invalid")
 				return
@@ -249,7 +249,7 @@ func (s *Server) exchangeCode(w http.ResponseWriter, r *http.Request) {
 					idExpiry = credential.AccessExpiry
 				}
 			}
-			nonce, ciphertext, loadErr := storage.EncryptCredential(material.Secret, sid, payload.ClientID, payload.ConnectorID, plain)
+			nonce, ciphertext, loadErr := statedb.EncryptCredential(material.Secret, sid, payload.ClientID, payload.ConnectorID, plain)
 			if loadErr != nil {
 				oauthError(w, http.StatusInternalServerError, "server_error", "credential encryption failed")
 				return
@@ -286,15 +286,15 @@ func (s *Server) exchangeCode(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		err = s.store.ConsumeAuthCode(*stored, binding, initialGrant, material, completion)
-		if !errors.Is(err, storage.ErrRefreshCollision) || attempt+1 == maxRefreshMaterialAttempts {
+		if !errors.Is(err, statedb.ErrRefreshCollision) || attempt+1 == maxRefreshMaterialAttempts {
 			break
 		}
-		material, err = storage.GenerateRefreshMaterial()
+		material, err = statedb.GenerateRefreshMaterial()
 		if err != nil {
 			break
 		}
 		if initialGrant != nil && len(credentialPlain) != 0 {
-			initialGrant.CredentialNonce, initialGrant.CredentialCiphertext, err = storage.EncryptCredential(material.Secret, sid, payload.ClientID, payload.ConnectorID, credentialPlain)
+			initialGrant.CredentialNonce, initialGrant.CredentialCiphertext, err = statedb.EncryptCredential(material.Secret, sid, payload.ClientID, payload.ConnectorID, credentialPlain)
 			if err != nil {
 				break
 			}
@@ -302,7 +302,7 @@ func (s *Server) exchangeCode(w http.ResponseWriter, r *http.Request) {
 		refresh = material.Token
 	}
 	if err != nil {
-		if errors.Is(err, storage.ErrInvalidGrant) {
+		if errors.Is(err, statedb.ErrInvalidGrant) {
 			oauthError(w, http.StatusBadRequest, "invalid_grant", "authorization code is invalid")
 		} else {
 			oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable", "storage unavailable")

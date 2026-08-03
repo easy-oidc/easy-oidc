@@ -3,7 +3,18 @@
 The E2E test runs four login flows against one Dex server, in this order. The
 static flows run first, followed by their database policy equivalents. Distinct
 client IDs ensure both policy sources are exercised in the same Easy OIDC
-process.
+replica pair.
+
+PostgreSQL supplies both read-only policy and authoritative protocol state. Two
+Easy OIDC replicas share it and all secrets behind a local round-robin proxy, so
+the complete login and refresh flows naturally cross replicas. The script
+restarts both replicas before refresh, rejects any SQLite `.db` file, then stops
+PostgreSQL to verify fail-closed readiness and protocol behavior before proving
+both running replicas recover when PostgreSQL returns.
+
+The test opens Dex interactively in a terminal and runs its mock connector
+headlessly under CI or other non-interactive runners. Set `E2E_HEADLESS=true` or
+`E2E_HEADLESS=false` to override detection.
 
 ## Trusted Service Login
 

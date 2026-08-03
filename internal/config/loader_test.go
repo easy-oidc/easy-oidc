@@ -74,8 +74,7 @@ func TestLoadRejectsUnknownFields(t *testing.T) {
 	data := []byte(`{
 		"issuer_url": "https://auth.example.com",
 		"http_listen_addr": "127.0.0.1:8080",
-		"data_dir": "data",
-		"unknown_setting": true
+		"data_dir": "data"
 	}`)
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
@@ -413,7 +412,6 @@ func TestValidate(t *testing.T) {
 				HTTPListenAddr:   "127.0.0.1:8080",
 				SigningAlgorithm: DefaultSigningAlgorithm,
 				JWKSKID:          "key-1",
-				DataDir:          "temp",
 				Secrets: SecretsConfig{
 					Provider:       "env",
 					SigningKeyName: "SIGNING_KEY",
@@ -433,7 +431,6 @@ func TestValidate(t *testing.T) {
 			config: Config{
 				IssuerURL:        "https://auth.example.com",
 				HTTPListenAddr:   "127.0.0.1:8080",
-				DataDir:          "temp",
 				SigningAlgorithm: "HS256",
 			},
 			expectError: true,
@@ -533,7 +530,6 @@ func validTestConfig() Config {
 	return Config{
 		IssuerURL:        "https://auth.example.com",
 		HTTPListenAddr:   "127.0.0.1:8080",
-		DataDir:          "/tmp/easy-oidc",
 		SigningAlgorithm: "RS256",
 		Secrets: SecretsConfig{
 			Provider:       "env",
@@ -657,7 +653,6 @@ func setupTestConfig(t *testing.T) {
 		"issuer_url": "https://auth.example.com",
 		"http_listen_addr": "127.0.0.1:8080",
 		"jwks_kid": "test-key",
-		"data_dir": "temp",
 		"secrets": {
 			"provider": "env",
 			"signing_key_name": "SIGNING_KEY"

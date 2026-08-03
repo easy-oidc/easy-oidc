@@ -7,12 +7,16 @@
 
   "issuer_url": "https://auth.example.com",
   "http_listen_addr": "127.0.0.1:8080",
-  "data_dir": "/var/lib/easy-oidc",
   "require_groups": false,
 
   "secrets": {
     "provider": "env",
     "signing_key_name": "EASYOIDC_SIGNING_KEY",
+  },
+
+  "state_database": {
+    "driver": "sqlite",
+    "path": "/var/lib/easy-oidc/easy-oidc-state.db",
   },
 
   "connectors": {

@@ -42,6 +42,7 @@ Deploy using the OpenTofu/Terraform module for:
 
 - **[Local development](DEV.md)** - Set up dependencies and run Easy OIDC locally
 - **[Configuration](docs/config.md)** - Connectors, email verification, secrets, clients, and templates
+- **[State Database](docs/state-database.md)** - PostgreSQL protocol state for replicas and durable operations
 - **[Policy Database](docs/policy-database.md)** - Clients, users, groups, and trust bindings supplied by database policy
 - **[Example configurations](examples/config/)** - AWS, Azure, GCP, GitHub, Google, and generic connector examples
 - **[Documentation](docs/)** - Deployment, Kubernetes integration, and operational guides

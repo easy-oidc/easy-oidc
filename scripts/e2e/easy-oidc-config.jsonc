@@ -5,7 +5,6 @@
 {
   "issuer_url": "http://127.0.0.1:18080",
   "http_listen_addr": "127.0.0.1:18080",
-  "data_dir": "./temp",
   "signing_algorithm": "RS256",
   "access_token_ttl": "5s",
   "id_token_ttl": "5s",
@@ -14,6 +13,12 @@
     "provider": "env",
     "signing_key_name": "EASYOIDC_SIGNING_KEY",
     "encryption_key_name": "EASYOIDC_ENCRYPTION_KEY",
+  },
+
+  "state_database": {
+    "driver": "postgresql",
+    "connection_string_secret": "EASYOIDC_STATE_DB_URL",
+    "migrations": { "connection_string_secret": "EASYOIDC_STATE_MIGRATION_DB_URL" },
   },
 
   "policy_database": {

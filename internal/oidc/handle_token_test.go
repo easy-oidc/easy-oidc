@@ -23,7 +23,7 @@ import (
 
 	"github.com/easy-oidc/easy-oidc/internal/authpolicy"
 	"github.com/easy-oidc/easy-oidc/internal/config"
-	"github.com/easy-oidc/easy-oidc/internal/storage"
+	"github.com/easy-oidc/easy-oidc/internal/statedb"
 	"github.com/easy-oidc/easy-oidc/internal/tokens"
 	"github.com/easy-oidc/easy-oidc/internal/upstream"
 	"github.com/lestrrat-go/jwx/v2/jwa"
@@ -124,7 +124,7 @@ func TestHandleToken_RequireGroups(t *testing.T) {
 			}
 
 			logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-			store, err := storage.New(t.TempDir()+"/test.db", logger)
+			store, err := statedb.NewSQLite(t.TempDir()+"/test.db", logger)
 			if err != nil {
 				t.Fatalf("failed to create storage: %v", err)
 			}
@@ -206,10 +206,10 @@ func boolPtr(b bool) *bool {
 }
 
 // refreshTokenServer creates a token endpoint configured for one direct-email connector.
-func refreshTokenServer(t *testing.T) (*Server, *storage.Store, *AuthCodeManager, []byte) {
+func refreshTokenServer(t *testing.T) (*Server, *statedb.Store, *AuthCodeManager, []byte) {
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	store, err := storage.New(t.TempDir()+"/test.db", logger)
+	store, err := statedb.NewSQLite(t.TempDir()+"/test.db", logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +272,7 @@ func TestDynamicCodeRedemptionPreservesCodeUntilDefinitiveAuthorization(t *testi
 	if second.Code != http.StatusOK {
 		t.Fatalf("retry status=%d body=%s", second.Code, second.Body.String())
 	}
-	if _, err = store.PeekAuthCode(code, time.Now()); !errors.Is(err, storage.ErrInvalidGrant) {
+	if _, err = store.PeekAuthCode(code, time.Now()); !errors.Is(err, statedb.ErrInvalidGrant) {
 		t.Fatalf("successful redemption left code: %v", err)
 	}
 	var response struct {
@@ -329,10 +329,10 @@ func (*exitResponseWriter) Write([]byte) (int, error) {
 }
 
 // responseLossServer opens a token endpoint over an existing direct-email refresh database.
-func responseLossServer(t *testing.T, path string) (*Server, *storage.Store) {
+func responseLossServer(t *testing.T, path string) (*Server, *statedb.Store) {
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	store, err := storage.New(path, logger)
+	store, err := statedb.NewSQLite(path, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -367,16 +367,16 @@ func TestResponseWriteCrashProcess(t *testing.T) {
 func TestResponseWriteLossReplaysAndRevokes(t *testing.T) {
 	path := t.TempDir() + "/response-loss.db"
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	store, err := storage.New(path, logger)
+	store, err := statedb.NewSQLite(path, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	material, err := storage.GenerateRefreshMaterial()
+	material, err := statedb.GenerateRefreshMaterial()
 	if err != nil {
 		t.Fatal(err)
 	}
-	grant := storage.RefreshGrant{SID: "response-loss", ClientID: "client", Email: "user@example.com", Scopes: "openid", ConnectorID: "provider", Mode: "session", AuthTime: now, IdleTTL: time.Hour, AbsoluteExpiry: now.Add(2 * time.Hour)}
+	grant := statedb.RefreshGrant{SID: "response-loss", ClientID: "client", Email: "user@example.com", Scopes: "openid", ConnectorID: "provider", Mode: "session", AuthTime: now, IdleTTL: time.Hour, AbsoluteExpiry: now.Add(2 * time.Hour)}
 	if err = store.CreateRefreshGrant(grant, material, nil, nil, now); err != nil {
 		t.Fatal(err)
 	}
@@ -449,7 +449,7 @@ func TestHandleTokenRejectsCredentialProvenanceDrift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	nonce, ciphertext, err := storage.EncryptTemporaryCredential(key, code, "client", "provider", credential)
+	nonce, ciphertext, err := statedb.EncryptTemporaryCredential(key, code, "client", "provider", credential)
 	if err != nil {
 		t.Fatal(err)
 	}

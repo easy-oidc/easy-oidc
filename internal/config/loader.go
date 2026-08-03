@@ -57,6 +57,9 @@ func Load(path string) (*Config, error) {
 	if err := decoder.Decode(&cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
+	if err := validateStateDatabaseFields(data, cfg.StateDatabase); err != nil {
+		return nil, fmt.Errorf("config validation failed: %w", err)
+	}
 
 	applyDurationDefault(&cfg.AccessTokenTTL, 15*time.Minute)
 	applyDurationDefault(&cfg.IDTokenTTL, 15*time.Minute)
@@ -123,12 +126,111 @@ func Load(path string) (*Config, error) {
 			policyDatabase.MaxJSONBytes = 64 << 10
 		}
 	}
+	if cfg.StateDatabase == nil {
+		cfg.StateDatabase = &StateDatabaseConfig{}
+	}
+	stateDatabase := cfg.StateDatabase
+	if stateDatabase.Driver == "" {
+		stateDatabase.Driver = "sqlite"
+	}
+	if stateDatabase.Driver == "sqlite" && stateDatabase.Path == "" {
+		stateDatabase.Path = "data/easy-oidc-state.db"
+	}
+	if stateDatabase.Driver == "postgresql" {
+		applyDurationDefault(&stateDatabase.QueryTimeout, 5*time.Second)
+		if stateDatabase.MaxConnections == 0 {
+			stateDatabase.MaxConnections = 16
+		}
+	}
 
 	if err := validate(&cfg); err != nil {
 		return nil, fmt.Errorf("config validation failed: %w", err)
 	}
 
 	return &cfg, nil
+}
+
+// validateStateDatabaseFields distinguishes omitted fields from explicit zero values.
+func validateStateDatabaseFields(data []byte, database *StateDatabaseConfig) error {
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(data, &document); err != nil {
+		return fmt.Errorf("state_database: decode fields: %w", err)
+	}
+	for name := range document {
+		if strings.EqualFold(name, "state_database") && name != "state_database" {
+			return fmt.Errorf("state_database must use its canonical field name")
+		}
+	}
+	raw, present := document["state_database"]
+	if !present {
+		return nil
+	}
+	if database == nil {
+		return fmt.Errorf("state_database must be an object")
+	}
+
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return fmt.Errorf("state_database: decode fields: %w", err)
+	}
+	for name := range fields {
+		switch name {
+		case "connection_string_secret", "driver", "max_connections", "migrations", "path", "query_timeout":
+		default:
+			return fmt.Errorf("state_database: unknown field %q", name)
+		}
+	}
+	has := func(name string) bool {
+		_, ok := fields[name]
+		return ok
+	}
+	if has("driver") && strings.TrimSpace(database.Driver) == "" {
+		return fmt.Errorf("state_database: driver must not be empty")
+	}
+
+	driver := database.Driver
+	if driver == "" {
+		driver = "sqlite"
+	}
+	switch driver {
+	case "sqlite":
+		for _, field := range []string{"connection_string_secret", "max_connections", "query_timeout", "migrations"} {
+			if has(field) {
+				return fmt.Errorf("state_database: %s is not valid for sqlite", field)
+			}
+		}
+		if has("path") && strings.TrimSpace(database.Path) == "" {
+			return fmt.Errorf("state_database: path must not be empty")
+		}
+	case "postgresql":
+		if has("path") {
+			return fmt.Errorf("state_database: path is not valid for postgresql")
+		}
+		if has("max_connections") && database.MaxConnections <= 0 {
+			return fmt.Errorf("state_database: max_connections must be positive")
+		}
+		if has("query_timeout") && database.QueryTimeout.Duration() <= 0 {
+			return fmt.Errorf("state_database: query_timeout must be positive")
+		}
+		if migrationRaw, migrationPresent := fields["migrations"]; migrationPresent {
+			if database.Migrations == nil {
+				return fmt.Errorf("state_database: migrations must be an object")
+			}
+			var migrationFields map[string]json.RawMessage
+			if err := json.Unmarshal(migrationRaw, &migrationFields); err != nil {
+				return fmt.Errorf("state_database: decode migrations fields: %w", err)
+			}
+			for name := range migrationFields {
+				if name != "connection_string_secret" {
+					return fmt.Errorf("state_database: migrations: unknown field %q", name)
+				}
+			}
+			if _, secretPresent := migrationFields["connection_string_secret"]; secretPresent && strings.TrimSpace(database.Migrations.ConnectionStringSecret) == "" {
+				return fmt.Errorf("state_database: migrations.connection_string_secret must not be empty")
+			}
+		}
+	}
+	return nil
 }
 
 // applyDurationDefault applies a documented default only when the field was omitted.
@@ -153,10 +255,6 @@ func validate(cfg *Config) error {
 
 	if cfg.HTTPListenAddr == "" {
 		return fmt.Errorf("http_listen_addr is required")
-	}
-
-	if cfg.DataDir == "" {
-		return fmt.Errorf("data_dir is required")
 	}
 
 	if _, ok := supportedSigningAlgorithms[cfg.SigningAlgorithm]; !ok {
@@ -256,6 +354,11 @@ func validate(cfg *Config) error {
 			return fmt.Errorf("policy_database: %w", err)
 		}
 	}
+	if database := cfg.StateDatabase; database != nil {
+		if err := validateStateDatabase(database); err != nil {
+			return fmt.Errorf("state_database: %w", err)
+		}
+	}
 
 	for clientID, client := range cfg.Clients {
 		if client.RefreshTokens.AllowOfflineAccess && !client.RefreshTokens.Enabled {
@@ -279,6 +382,38 @@ func validate(cfg *Config) error {
 		return fmt.Errorf("oidc_trust: %w", err)
 	}
 
+	return nil
+}
+
+// validateStateDatabase validates the effective state database configuration.
+func validateStateDatabase(database *StateDatabaseConfig) error {
+	switch database.Driver {
+	case "sqlite":
+		if strings.TrimSpace(database.Path) == "" {
+			return fmt.Errorf("path is required for sqlite")
+		}
+		if database.ConnectionStringSecret != "" || database.MaxConnections != 0 || database.QueryTimeout != 0 || database.Migrations != nil {
+			return fmt.Errorf("PostgreSQL settings are not valid for sqlite")
+		}
+	case "postgresql":
+		if database.Path != "" {
+			return fmt.Errorf("path is not valid for postgresql")
+		}
+		if strings.TrimSpace(database.ConnectionStringSecret) == "" {
+			return fmt.Errorf("connection_string_secret is required for postgresql")
+		}
+		if database.MaxConnections <= 0 {
+			return fmt.Errorf("max_connections must be positive")
+		}
+		if database.QueryTimeout.Duration() <= 0 {
+			return fmt.Errorf("query_timeout must be positive")
+		}
+		if database.Migrations != nil && database.Migrations.ConnectionStringSecret != "" && strings.TrimSpace(database.Migrations.ConnectionStringSecret) == "" {
+			return fmt.Errorf("migrations.connection_string_secret must not be blank")
+		}
+	default:
+		return fmt.Errorf("driver must be sqlite or postgresql")
+	}
 	return nil
 }
 

@@ -40,5 +40,6 @@ config.jsonc
 *.log
 
 # Development files
+/data/
 temp/
 /templates/

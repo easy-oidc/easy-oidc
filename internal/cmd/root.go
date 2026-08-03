@@ -26,7 +26,7 @@ import (
 	"github.com/easy-oidc/easy-oidc/internal/email"
 	"github.com/easy-oidc/easy-oidc/internal/oidc"
 	"github.com/easy-oidc/easy-oidc/internal/secrets"
-	"github.com/easy-oidc/easy-oidc/internal/storage"
+	"github.com/easy-oidc/easy-oidc/internal/statedb"
 	"github.com/easy-oidc/easy-oidc/internal/templates"
 	"github.com/easy-oidc/easy-oidc/internal/tokens"
 	"github.com/easy-oidc/easy-oidc/internal/upstream"
@@ -66,7 +66,7 @@ It delegates authentication to upstream identity providers and maps users to gro
 	cmd.Flags().BoolVarP(&debugMode, "debug", "v", false, "Enable debug logging")
 	cmd.Flags().BoolVar(&showVersion, "version", false, "Show version and exit")
 	cmd.Flags().StringVar(&configPath, "config", configPath, "Path to config file")
-	cmd.AddCommand(newCheckCmd(), newDevCmd())
+	cmd.AddCommand(newCheckCmd(), newDevCmd(), newMigrateCmd(&configPath))
 	return cmd
 }
 
@@ -237,12 +237,22 @@ func run(ctx context.Context, output io.Writer, configPath string, debug bool) e
 		return err
 	}
 
-	// Set up SQLite storage, creating its data directory when needed.
-	if err = os.MkdirAll(cfg.DataDir, 0755); err != nil {
-		logger.Error("failed to create data directory", "error", err, "path", cfg.DataDir)
-		return err
+	// Set up authoritative protocol state storage.
+	var store *statedb.Store
+	if cfg.StateDatabase.Driver == "postgresql" {
+		connectionString, getErr := secretsProvider.GetSecret(ctx, cfg.StateDatabase.ConnectionStringSecret)
+		if getErr != nil {
+			return fmt.Errorf("load state database connection string: %w", getErr)
+		}
+		store, err = statedb.NewPostgreSQL(ctx, connectionString, cfg.StateDatabase.MaxConnections, cfg.StateDatabase.QueryTimeout.Duration(), logger)
+	} else {
+		directory := filepath.Dir(cfg.StateDatabase.Path)
+		if err = os.MkdirAll(directory, 0755); err != nil {
+			logger.Error("failed to create state database directory", "error", err, "path", directory)
+			return err
+		}
+		store, err = statedb.NewSQLite(cfg.StateDatabase.Path, logger)
 	}
-	store, err := storage.New(filepath.Join(cfg.DataDir, "easy-oidc.db"), logger)
 	if err != nil {
 		logger.Error("failed to initialize storage", "error", err)
 		return err

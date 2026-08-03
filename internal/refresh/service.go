@@ -14,7 +14,7 @@ import (
 
 	"github.com/easy-oidc/easy-oidc/internal/authpolicy"
 	"github.com/easy-oidc/easy-oidc/internal/config"
-	"github.com/easy-oidc/easy-oidc/internal/storage"
+	"github.com/easy-oidc/easy-oidc/internal/statedb"
 	"github.com/easy-oidc/easy-oidc/internal/tokens"
 	"github.com/easy-oidc/easy-oidc/internal/upstream"
 )
@@ -58,7 +58,7 @@ type Result struct {
 // Service executes refresh grants against current policy and upstream state.
 type Service struct {
 	cfg            *config.Config
-	store          *storage.Store
+	store          *statedb.Store
 	signer         *tokens.Signer
 	connectors     map[string]upstream.Connector
 	logger         *slog.Logger
@@ -66,27 +66,27 @@ type Service struct {
 }
 
 // NewService creates a refresh exchange service.
-func NewService(cfg *config.Config, store *storage.Store, signer *tokens.Signer, connectors map[string]upstream.Connector, logger *slog.Logger, resolver policyResolver) *Service {
+func NewService(cfg *config.Config, store *statedb.Store, signer *tokens.Signer, connectors map[string]upstream.Connector, logger *slog.Logger, resolver policyResolver) *Service {
 	return &Service{cfg: cfg, store: store, signer: signer, connectors: connectors, logger: logger, policyResolver: resolver}
 }
 
 // Exchange validates, narrows, and rotates one refresh grant.
 func (s *Service) Exchange(ctx context.Context, req Request) (Result, *Failure) {
-	current, err := storage.ParseRefreshToken(req.Token)
+	current, err := statedb.ParseRefreshToken(req.Token)
 	if err != nil {
 		return Result{}, &Failure{Code: InvalidGrant, Description: "refresh token is invalid"}
 	}
 	now := time.Now().UTC()
 	grant, expiry, err := s.store.PrepareRefresh(current, req.ClientID, now)
 	if err != nil {
-		if errors.Is(err, storage.ErrRefreshReplay) {
+		if errors.Is(err, statedb.ErrRefreshReplay) {
 			s.logger.Warn("refresh token replay detected", "client_id", req.ClientID, "sid", grant.SID)
-			_, _, rotateErr := s.store.RotateRefreshToken(current, storage.RefreshMaterial{}, req.ClientID, now)
-			if rotateErr != nil && !errors.Is(rotateErr, storage.ErrRefreshReplay) && !errors.Is(rotateErr, storage.ErrInvalidGrant) {
+			_, _, rotateErr := s.store.RotateRefreshToken(current, statedb.RefreshMaterial{}, req.ClientID, now)
+			if rotateErr != nil && !errors.Is(rotateErr, statedb.ErrRefreshReplay) && !errors.Is(rotateErr, statedb.ErrInvalidGrant) {
 				return Result{}, &Failure{Code: Temporary, Description: "storage unavailable"}
 			}
 		}
-		if errors.Is(err, storage.ErrInvalidGrant) || errors.Is(err, storage.ErrRefreshReplay) {
+		if errors.Is(err, statedb.ErrInvalidGrant) || errors.Is(err, statedb.ErrRefreshReplay) {
 			return Result{SID: grant.SID}, &Failure{Code: InvalidGrant, Description: "refresh token is invalid"}
 		}
 		return Result{}, &Failure{Code: Temporary, Description: "storage unavailable"}
@@ -135,7 +135,7 @@ func (s *Service) Exchange(ctx context.Context, req Request) (Result, *Failure) 
 }
 
 // direct rotates a direct-email grant without upstream state.
-func (s *Service) direct(current storage.RefreshMaterial, grant storage.RefreshGrant, expiry time.Time, scopes string, narrowed bool, groups []string, now time.Time) (Result, *Failure) {
+func (s *Service) direct(current statedb.RefreshMaterial, grant statedb.RefreshGrant, expiry time.Time, scopes string, narrowed bool, groups []string, now time.Time) (Result, *Failure) {
 	access, id := now.Add(s.cfg.AccessTokenTTL.Duration()), now.Add(s.cfg.IDTokenTTL.Duration())
 	if access.After(expiry) {
 		access = expiry
@@ -147,9 +147,9 @@ func (s *Service) direct(current storage.RefreshMaterial, grant storage.RefreshG
 	if err != nil {
 		return Result{}, &Failure{Code: Temporary, Description: "token signing failed"}
 	}
-	var replacement storage.RefreshMaterial
+	var replacement statedb.RefreshMaterial
 	for attempt := 0; attempt < maxRefreshMaterialAttempts; attempt++ {
-		replacement, err = storage.GenerateRefreshMaterial()
+		replacement, err = statedb.GenerateRefreshMaterial()
 		if err != nil {
 			return Result{}, &Failure{Code: Temporary, Description: "token generation failed"}
 		}
@@ -158,7 +158,7 @@ func (s *Service) direct(current storage.RefreshMaterial, grant storage.RefreshG
 			return Result{}, &Failure{Code: InvalidGrant, Description: "refresh token is invalid"}
 		}
 		_, _, err = s.store.RotateRefreshToken(current, replacement, grant.ClientID, completion)
-		if !errors.Is(err, storage.ErrRefreshCollision) {
+		if !errors.Is(err, statedb.ErrRefreshCollision) {
 			break
 		}
 	}
@@ -173,14 +173,14 @@ func (s *Service) direct(current storage.RefreshMaterial, grant storage.RefreshG
 }
 
 // connector revalidates and atomically persists a connector-backed grant.
-func (s *Service) connector(ctx context.Context, current storage.RefreshMaterial, prepared storage.RefreshGrant, scopes string, narrowed bool, groups []string) (Result, *Failure) {
-	var grant storage.RefreshGrant
-	var claim storage.RefreshClaim
+func (s *Service) connector(ctx context.Context, current statedb.RefreshMaterial, prepared statedb.RefreshGrant, scopes string, narrowed bool, groups []string) (Result, *Failure) {
+	var grant statedb.RefreshGrant
+	var claim statedb.RefreshClaim
 	var err error
 	waitUntil := time.Now().Add(refreshBusyWait)
 	for {
 		grant, claim, _, err = s.store.ClaimRefresh(current, prepared.ClientID, time.Now().UTC(), 30*time.Second)
-		if !errors.Is(err, storage.ErrRefreshBusy) {
+		if !errors.Is(err, statedb.ErrRefreshBusy) {
 			break
 		}
 		remaining := time.Until(waitUntil)
@@ -197,14 +197,14 @@ func (s *Service) connector(ctx context.Context, current storage.RefreshMaterial
 		}
 	}
 	if err != nil {
-		if errors.Is(err, storage.ErrRefreshReplay) {
+		if errors.Is(err, statedb.ErrRefreshReplay) {
 			s.logger.Warn("refresh token replay detected", "client_id", prepared.ClientID, "sid", prepared.SID)
 		}
 		return Result{SID: prepared.SID}, s.storageError(err)
 	}
 	now := time.Now().UTC()
 	release := func() { _ = s.store.ReleaseRefreshClaim(grant.SID, claim) }
-	plain, err := storage.DecryptCredential(current.Secret, grant.SID, grant.ClientID, grant.ConnectorID, grant.CredentialNonce, grant.CredentialCiphertext)
+	plain, err := statedb.DecryptCredential(current.Secret, grant.SID, grant.ClientID, grant.ConnectorID, grant.CredentialNonce, grant.CredentialCiphertext)
 	var credential upstream.Credential
 	if err != nil || json.Unmarshal(plain, &credential) != nil {
 		return Result{}, s.revoke(grant, "credential", time.Now().UTC())
@@ -219,7 +219,7 @@ func (s *Service) connector(ctx context.Context, current storage.RefreshMaterial
 	started := false
 	refreshCredential := func() *Failure {
 		if e := s.store.MarkUpstreamRefreshStarted(grant.SID, claim, time.Now().UTC()); e != nil {
-			if errors.Is(e, storage.ErrCredentialIndeterminate) {
+			if errors.Is(e, statedb.ErrCredentialIndeterminate) {
 				return s.revoke(grant, "indeterminate_upstream_credential", time.Now().UTC())
 			}
 			return &Failure{Code: Temporary, Description: "storage unavailable"}
@@ -352,24 +352,24 @@ func (s *Service) connector(ctx context.Context, current storage.RefreshMaterial
 		return Result{}, &Failure{Code: Temporary, Description: "token signing failed"}
 	}
 	grant.UpstreamAccessExpiry, grant.UpstreamRefreshExpiry, grant.UpstreamAccessNonExpiring = credential.AccessExpiry, credential.RefreshExpiry, credential.AccessNonExpiring
-	var replacement storage.RefreshMaterial
+	var replacement statedb.RefreshMaterial
 	for attempt := 0; attempt < maxRefreshMaterialAttempts; attempt++ {
-		replacement, err = storage.GenerateRefreshMaterial()
+		replacement, err = statedb.GenerateRefreshMaterial()
 		if err != nil {
 			break
 		}
-		nonce, ciphertext, encryptErr := storage.EncryptCredential(replacement.Secret, grant.SID, grant.ClientID, grant.ConnectorID, encoded)
+		nonce, ciphertext, encryptErr := statedb.EncryptCredential(replacement.Secret, grant.SID, grant.ClientID, grant.ConnectorID, encoded)
 		if encryptErr != nil {
 			err = encryptErr
 			break
 		}
 		completion := time.Now().UTC()
 		if !access.After(completion) || !id.After(completion) || !expiry.After(completion) {
-			err = storage.ErrInvalidGrant
+			err = statedb.ErrInvalidGrant
 			break
 		}
 		_, err = s.store.CompleteClaimedRefresh(current, replacement, grant, claim, nonce, ciphertext, absolute, completion)
-		if !errors.Is(err, storage.ErrRefreshCollision) {
+		if !errors.Is(err, statedb.ErrRefreshCollision) {
 			break
 		}
 	}
@@ -388,7 +388,7 @@ func (s *Service) connector(ctx context.Context, current storage.RefreshMaterial
 }
 
 // revoke revokes a family and returns a sanitized invalid-grant outcome.
-func (s *Service) revoke(grant storage.RefreshGrant, reason string, now time.Time) *Failure {
+func (s *Service) revoke(grant statedb.RefreshGrant, reason string, now time.Time) *Failure {
 	if err := s.store.RevokeGrant(grant.SID, grant.ClientID, reason, now.UTC()); err != nil {
 		return &Failure{Code: Temporary, Description: "storage unavailable"}
 	}
@@ -397,10 +397,10 @@ func (s *Service) revoke(grant storage.RefreshGrant, reason string, now time.Tim
 
 // storageError maps storage domain and infrastructure failures.
 func (s *Service) storageError(err error) *Failure {
-	if errors.Is(err, storage.ErrInvalidGrant) || errors.Is(err, storage.ErrRefreshReplay) || errors.Is(err, storage.ErrCredentialIndeterminate) {
+	if errors.Is(err, statedb.ErrInvalidGrant) || errors.Is(err, statedb.ErrRefreshReplay) || errors.Is(err, statedb.ErrCredentialIndeterminate) {
 		return &Failure{Code: InvalidGrant, Description: "refresh token is invalid"}
 	}
-	if errors.Is(err, storage.ErrRefreshBusy) {
+	if errors.Is(err, statedb.ErrRefreshBusy) {
 		return &Failure{Code: Temporary, Description: "refresh is already in progress", RetryAfter: "1"}
 	}
 	return &Failure{Code: Temporary, Description: "storage unavailable"}

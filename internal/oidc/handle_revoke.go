@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/easy-oidc/easy-oidc/internal/storage"
+	"github.com/easy-oidc/easy-oidc/internal/statedb"
 	"github.com/easy-oidc/easy-oidc/internal/tokens"
 )
 
@@ -37,7 +37,7 @@ func (s *Server) HandleRevoke(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, 400, "invalid_request", "token and client_id are required exactly once")
 		return
 	}
-	material, err := storage.ParseRefreshToken(r.PostForm.Get("token"))
+	material, err := statedb.ParseRefreshToken(r.PostForm.Get("token"))
 	if err == nil {
 		if err := s.store.RevokeRefreshToken(material, r.PostForm.Get("client_id"), "application", time.Now().UTC()); err != nil {
 			oauthError(w, 503, "temporarily_unavailable", "storage unavailable")

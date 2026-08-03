@@ -19,7 +19,7 @@ import (
 
 	"github.com/easy-oidc/easy-oidc/internal/challenge"
 	"github.com/easy-oidc/easy-oidc/internal/config"
-	"github.com/easy-oidc/easy-oidc/internal/storage"
+	"github.com/easy-oidc/easy-oidc/internal/statedb"
 	"github.com/easy-oidc/easy-oidc/internal/templates"
 )
 
@@ -35,7 +35,7 @@ func TestBeginOTPDoesNotExposeSMTPFailure(t *testing.T) {
 	statuses := make([]int, 0, 2)
 	for i, mailErr := range []error{nil, errors.New("recipient rejected")} {
 		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-		store, err := storage.New(t.TempDir()+"/test.db", logger)
+		store, err := statedb.NewSQLite(t.TempDir()+"/test.db", logger)
 		if err != nil {
 			t.Fatal(err)
 		}

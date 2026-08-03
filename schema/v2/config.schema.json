@@ -9,7 +9,6 @@
   "required": [
     "issuer_url",
     "http_listen_addr",
-    "data_dir",
     "secrets",
     "connectors"
   ],
@@ -26,11 +25,6 @@
       "type": "string",
       "minLength": 1,
       "description": "Address and port on which Easy OIDC listens for HTTP requests."
-    },
-    "data_dir": {
-      "type": "string",
-      "minLength": 1,
-      "description": "Directory containing Easy OIDC's persistent SQLite data."
     },
     "signing_algorithm": {
       "type": "string",
@@ -54,8 +48,8 @@
       "minLength": 1,
       "description": "Optional signing-key ID. By default it is derived from the signing key."
     },
-	"access_token_ttl": { "$ref": "#/$defs/duration", "default": "15m" },
-	"id_token_ttl": { "$ref": "#/$defs/duration", "default": "15m" },
+    "access_token_ttl": { "$ref": "#/$defs/duration", "default": "15m" },
+    "id_token_ttl": { "$ref": "#/$defs/duration", "default": "15m" },
     "require_groups": {
       "type": "boolean",
       "default": true,
@@ -130,6 +124,11 @@
       "$ref": "#/$defs/oidcTrust",
       "description": "External OIDC issuers and reusable trust policies."
     },
+    "state_database": {
+      "$ref": "#/$defs/stateDatabase",
+      "default": { "driver": "sqlite", "path": "data/easy-oidc-state.db" },
+      "description": "Authoritative protocol-state database. Defaults to SQLite under data in the working directory."
+    },
     "policy_database": {
       "$ref": "#/$defs/policyDatabase",
       "description": "Optional policy database."
@@ -138,8 +137,8 @@
   "allOf": [
     {
       "anyOf": [
-        {"required": ["clients"]},
-        {"required": ["policy_database"]}
+        { "required": ["clients"] },
+        { "required": ["policy_database"] }
       ]
     },
     {
@@ -328,6 +327,7 @@
       "type": "string",
       "minLength": 2,
       "pattern": "^[0-9]+(?:\\.[0-9]+)?(?:ns|us|µs|ms|s|m|h)(?:[0-9]+(?:\\.[0-9]+)?(?:ns|us|µs|ms|s|m|h))*$",
+      "not": { "pattern": "^(?:0+(?:\\.0+)?(?:ns|us|µs|ms|s|m|h))+$" },
       "description": "A positive duration using Go time.ParseDuration syntax, such as 5m, 1h30m, or 720h."
     },
     "secrets": {
@@ -401,10 +401,18 @@
       "required": ["type", "display_name", "credentials_secret"],
       "properties": {
         "type": { "const": "google" },
-        "display_name": { "$ref": "#/$defs/connectorCommonProperties/properties/display_name" },
-        "order": { "$ref": "#/$defs/connectorCommonProperties/properties/order" },
-        "credentials_secret": { "$ref": "#/$defs/connectorCommonProperties/properties/credentials_secret" },
-        "scopes": { "$ref": "#/$defs/connectorCommonProperties/properties/scopes" },
+        "display_name": {
+          "$ref": "#/$defs/connectorCommonProperties/properties/display_name"
+        },
+        "order": {
+          "$ref": "#/$defs/connectorCommonProperties/properties/order"
+        },
+        "credentials_secret": {
+          "$ref": "#/$defs/connectorCommonProperties/properties/credentials_secret"
+        },
+        "scopes": {
+          "$ref": "#/$defs/connectorCommonProperties/properties/scopes"
+        },
         "google": {
           "type": "object",
           "additionalProperties": false,
@@ -424,10 +432,18 @@
       "required": ["type", "display_name", "credentials_secret"],
       "properties": {
         "type": { "const": "github" },
-        "display_name": { "$ref": "#/$defs/connectorCommonProperties/properties/display_name" },
-        "order": { "$ref": "#/$defs/connectorCommonProperties/properties/order" },
-        "credentials_secret": { "$ref": "#/$defs/connectorCommonProperties/properties/credentials_secret" },
-        "scopes": { "$ref": "#/$defs/connectorCommonProperties/properties/scopes" },
+        "display_name": {
+          "$ref": "#/$defs/connectorCommonProperties/properties/display_name"
+        },
+        "order": {
+          "$ref": "#/$defs/connectorCommonProperties/properties/order"
+        },
+        "credentials_secret": {
+          "$ref": "#/$defs/connectorCommonProperties/properties/credentials_secret"
+        },
+        "scopes": {
+          "$ref": "#/$defs/connectorCommonProperties/properties/scopes"
+        },
         "github": {
           "type": "object",
           "additionalProperties": false,
@@ -448,10 +464,18 @@
       "required": ["type", "display_name", "credentials_secret", "generic"],
       "properties": {
         "type": { "const": "generic" },
-        "display_name": { "$ref": "#/$defs/connectorCommonProperties/properties/display_name" },
-        "order": { "$ref": "#/$defs/connectorCommonProperties/properties/order" },
-        "credentials_secret": { "$ref": "#/$defs/connectorCommonProperties/properties/credentials_secret" },
-        "scopes": { "$ref": "#/$defs/connectorCommonProperties/properties/scopes" },
+        "display_name": {
+          "$ref": "#/$defs/connectorCommonProperties/properties/display_name"
+        },
+        "order": {
+          "$ref": "#/$defs/connectorCommonProperties/properties/order"
+        },
+        "credentials_secret": {
+          "$ref": "#/$defs/connectorCommonProperties/properties/credentials_secret"
+        },
+        "scopes": {
+          "$ref": "#/$defs/connectorCommonProperties/properties/scopes"
+        },
         "generic": {
           "type": "object",
           "additionalProperties": false,
@@ -494,10 +518,26 @@
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "scopes": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+                "scopes": {
+                  "type": "array",
+                  "items": { "type": "string", "minLength": 1 }
+                },
                 "authorization_params": {
                   "type": "object",
-                  "propertyNames": { "not": { "enum": ["client_id", "redirect_uri", "response_type", "scope", "state", "nonce", "code_challenge", "code_challenge_method"] } },
+                  "propertyNames": {
+                    "not": {
+                      "enum": [
+                        "client_id",
+                        "redirect_uri",
+                        "response_type",
+                        "scope",
+                        "state",
+                        "nonce",
+                        "code_challenge",
+                        "code_challenge_method"
+                      ]
+                    }
+                  },
                   "additionalProperties": { "type": "string" }
                 }
               }
@@ -512,8 +552,12 @@
       "required": ["type", "display_name"],
       "properties": {
         "type": { "const": "email" },
-        "display_name": { "$ref": "#/$defs/connectorCommonProperties/properties/display_name" },
-        "order": { "$ref": "#/$defs/connectorCommonProperties/properties/order" }
+        "display_name": {
+          "$ref": "#/$defs/connectorCommonProperties/properties/display_name"
+        },
+        "order": {
+          "$ref": "#/$defs/connectorCommonProperties/properties/order"
+        }
       }
     },
     "email": {
@@ -631,103 +675,284 @@
           "type": "boolean",
           "description": "Client-specific override for the global require_groups setting."
         },
-		"trust_bindings": {
-		  "type": "array", "maxItems": 100,
-		  "items": { "$ref": "#/$defs/trustBinding" }
-		},
-		"refresh_tokens": {
-		  "type": "object",
-		  "additionalProperties": false,
-		  "properties": {
-			"enabled": { "type": "boolean", "default": false },
-			"allow_offline_access": { "type": "boolean", "default": false },
-			"session_idle_ttl": { "$ref": "#/$defs/duration", "default": "30m" },
-			"session_absolute_ttl": { "$ref": "#/$defs/duration", "default": "10h" },
-			"offline_idle_ttl": { "$ref": "#/$defs/duration", "default": "720h" },
-			"offline_absolute_ttl": { "$ref": "#/$defs/duration", "default": "2160h" }
-		  }
-		}
+        "trust_bindings": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/trustBinding" }
+        },
+        "refresh_tokens": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": false },
+            "allow_offline_access": { "type": "boolean", "default": false },
+            "session_idle_ttl": {
+              "$ref": "#/$defs/duration",
+              "default": "30m"
+            },
+            "session_absolute_ttl": {
+              "$ref": "#/$defs/duration",
+              "default": "10h"
+            },
+            "offline_idle_ttl": {
+              "$ref": "#/$defs/duration",
+              "default": "720h"
+            },
+            "offline_absolute_ttl": {
+              "$ref": "#/$defs/duration",
+              "default": "2160h"
+            }
+          }
+        }
       }
+    },
+    "stateDatabase": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "driver": { "const": "sqlite", "default": "sqlite" },
+            "path": { "type": "string", "minLength": 1, "pattern": "\\S", "default": "data/easy-oidc-state.db" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["driver", "connection_string_secret"],
+          "properties": {
+            "driver": { "const": "postgresql" },
+            "connection_string_secret": { "type": "string", "minLength": 1, "pattern": "\\S" },
+            "max_connections": { "type": "integer", "minimum": 1, "default": 16 },
+            "query_timeout": { "$ref": "#/$defs/duration", "default": "5s" },
+            "migrations": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "connection_string_secret": { "type": "string", "minLength": 1, "pattern": "\\S" }
+              }
+            }
+          }
+        }
+      ]
     },
     "policyDatabase": {
       "type": "object",
       "additionalProperties": false,
       "required": ["driver", "connection_string_secret", "redirect_uris"],
       "properties": {
-        "driver": {"const": "postgresql"},
-        "connection_string_secret": {"type": "string", "minLength": 1},
-        "redirect_uris": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/publicURI"}},
+        "driver": { "const": "postgresql" },
+        "connection_string_secret": { "type": "string", "minLength": 1 },
+        "redirect_uris": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/publicURI" }
+        },
         "client_defaults": {
-          "type": "object", "additionalProperties": false,
+          "type": "object",
+          "additionalProperties": false,
           "properties": {
-            "require_groups": {"type": "boolean"},
-            "refresh_tokens": {"$ref": "#/$defs/client/properties/refresh_tokens"}
+            "require_groups": { "type": "boolean" },
+            "refresh_tokens": {
+              "$ref": "#/$defs/client/properties/refresh_tokens"
+            }
           },
-          "allOf": [{"if": {"properties": {"refresh_tokens": {"properties": {"allow_offline_access": {"const": true}}, "required": ["allow_offline_access"]}}, "required": ["refresh_tokens"]}, "then": {"properties": {"refresh_tokens": {"properties": {"enabled": {"const": true}}, "required": ["enabled"]}}}}]
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "refresh_tokens": {
+                    "properties": { "allow_offline_access": { "const": true } },
+                    "required": ["allow_offline_access"]
+                  }
+                },
+                "required": ["refresh_tokens"]
+              },
+              "then": {
+                "properties": {
+                  "refresh_tokens": {
+                    "properties": { "enabled": { "const": true } },
+                    "required": ["enabled"]
+                  }
+                }
+              }
+            }
+          ]
         },
         "queries": {
-          "type": "object", "additionalProperties": false,
+          "type": "object",
+          "additionalProperties": false,
           "description": "Optional query overrides. Omitted queries use the built-in easy_oidc_policy PostgreSQL schema.",
           "properties": {
-            "client_exists": {"type": "string", "minLength": 1, "default": "SELECT EXISTS (SELECT 1 FROM easy_oidc_policy.clients WHERE client_id = $1) AS exists"},
-            "user_access": {"type": "string", "minLength": 1, "default": "SELECT users.subject IS NOT NULL AS allowed, COALESCE(users.groups, ARRAY[]::text[]) AS groups FROM (VALUES ($1::text, $2::text)) AS input(client_id, subject) LEFT JOIN easy_oidc_policy.users USING (client_id, subject)"},
-            "trust_bindings": {"type": "string", "minLength": 1, "default": "SELECT client_id, issuer_id, binding_id, subject, required_claims, policy_claims, binding_claims, groups FROM easy_oidc_policy.trust_bindings WHERE client_id = $1 AND issuer_id = $2 ORDER BY binding_id"}
+            "client_exists": {
+              "type": "string",
+              "minLength": 1,
+              "default": "SELECT EXISTS (SELECT 1 FROM easy_oidc_policy.clients WHERE client_id = $1) AS exists"
+            },
+            "user_access": {
+              "type": "string",
+              "minLength": 1,
+              "default": "SELECT users.subject IS NOT NULL AS allowed, COALESCE(users.groups, ARRAY[]::text[]) AS groups FROM (VALUES ($1::text, $2::text)) AS input(client_id, subject) LEFT JOIN easy_oidc_policy.users USING (client_id, subject)"
+            },
+            "trust_bindings": {
+              "type": "string",
+              "minLength": 1,
+              "default": "SELECT client_id, issuer_id, binding_id, subject, required_claims, policy_claims, binding_claims, groups FROM easy_oidc_policy.trust_bindings WHERE client_id = $1 AND issuer_id = $2 ORDER BY binding_id"
+            }
           }
         },
-        "client_lookup_cache": {"type": "object", "additionalProperties": false, "properties": {
-          "ttl": {"$ref": "#/$defs/duration", "default": "5m"},
-          "negative_ttl": {"$ref": "#/$defs/duration", "default": "30s"},
-          "max_entries": {"type": "integer", "minimum": 1, "maximum": 100000, "default": 10000}
-        }},
-        "policy_build_cache": {"type": "object", "additionalProperties": false, "properties": {
-          "max_entries": {"type": "integer", "minimum": 1, "maximum": 100000, "default": 10000}
-        }},
-        "query_timeout": {"$ref": "#/$defs/duration", "default": "500ms"},
-        "max_connections": {"type": "integer", "minimum": 1, "maximum": 32, "default": 4},
-        "max_trust_rows": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100},
-        "max_groups": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100},
-        "max_group_bytes": {"type": "integer", "minimum": 1, "maximum": 4096, "default": 256},
-        "max_json_bytes": {"type": "integer", "minimum": 1024, "maximum": 1048576, "default": 65536}
+        "client_lookup_cache": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ttl": { "$ref": "#/$defs/duration", "default": "5m" },
+            "negative_ttl": { "$ref": "#/$defs/duration", "default": "30s" },
+            "max_entries": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100000,
+              "default": 10000
+            }
+          }
+        },
+        "policy_build_cache": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "max_entries": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100000,
+              "default": 10000
+            }
+          }
+        },
+        "query_timeout": { "$ref": "#/$defs/duration", "default": "500ms" },
+        "max_connections": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32,
+          "default": 4
+        },
+        "max_trust_rows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "default": 100
+        },
+        "max_groups": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "default": 100
+        },
+        "max_group_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096,
+          "default": 256
+        },
+        "max_json_bytes": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 1048576,
+          "default": 65536
+        }
       }
     },
     "claimSchema": {
       "description": "A bounded Draft 2020-12 schema fragment. References, vocabularies, and content keywords are rejected at startup."
     },
     "claimSchemas": {
-      "type": "object", "maxProperties": 64,
+      "type": "object",
+      "maxProperties": 64,
       "propertyNames": { "minLength": 1, "maxLength": 256 },
       "additionalProperties": { "$ref": "#/$defs/claimSchema" }
     },
     "oidcTrust": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "properties": {
-        "issuers": { "type": "object", "propertyNames": { "minLength": 1, "maxLength": 64 }, "additionalProperties": { "$ref": "#/$defs/trustIssuer" } },
-        "policies": { "type": "object", "propertyNames": { "minLength": 1, "maxLength": 64 }, "additionalProperties": { "$ref": "#/$defs/trustPolicy" } }
+        "issuers": {
+          "type": "object",
+          "propertyNames": { "minLength": 1, "maxLength": 64 },
+          "additionalProperties": { "$ref": "#/$defs/trustIssuer" }
+        },
+        "policies": {
+          "type": "object",
+          "propertyNames": { "minLength": 1, "maxLength": 64 },
+          "additionalProperties": { "$ref": "#/$defs/trustPolicy" }
+        }
       }
     },
     "trustIssuer": {
-      "type": "object", "additionalProperties": false, "required": ["provider"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider"],
       "properties": {
         "provider": { "enum": ["github", "buildkite", "oidc"] },
         "issuer_url": { "$ref": "#/$defs/publicURI" },
-        "signing_algs": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["RS256","RS384","RS512","ES256","ES384","ES512","PS256","PS384","PS512","EdDSA"] } },
+        "signing_algs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "RS256",
+              "RS384",
+              "RS512",
+              "ES256",
+              "ES384",
+              "ES512",
+              "PS256",
+              "PS384",
+              "PS512",
+              "EdDSA"
+            ]
+          }
+        },
         "max_token_age": { "$ref": "#/$defs/duration" }
       },
-      "allOf": [{ "if": { "properties": { "provider": { "const": "oidc" } } }, "then": { "required": ["issuer_url","signing_algs","max_token_age"] } }]
+      "allOf": [
+        {
+          "if": { "properties": { "provider": { "const": "oidc" } } },
+          "then": {
+            "required": ["issuer_url", "signing_algs", "max_token_age"]
+          }
+        }
+      ]
     },
     "trustPolicy": {
-      "type": "object", "additionalProperties": false, "required": ["issuer"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["issuer"],
       "properties": {
-        "issuer": { "type": "string", "minLength": 1 }, "subject": { "type": "string", "pattern": "^trusted:" },
-        "groups": { "type": "array", "minItems": 1, "maxItems": 100, "items": { "type": "string", "minLength": 1, "maxLength": 256 } },
-        "required_claims": { "$ref": "#/$defs/claimSchemas" }, "claims": { "$ref": "#/$defs/claimSchemas" }
+        "issuer": { "type": "string", "minLength": 1 },
+        "subject": { "type": "string", "pattern": "^trusted:" },
+        "groups": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": { "type": "string", "minLength": 1, "maxLength": 256 }
+        },
+        "required_claims": { "$ref": "#/$defs/claimSchemas" },
+        "claims": { "$ref": "#/$defs/claimSchemas" }
       }
     },
     "trustBinding": {
-      "type": "object", "additionalProperties": false, "required": ["id","trust_policy"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "trust_policy"],
       "properties": {
-        "id": { "type": "string", "minLength": 1, "maxLength": 64 }, "trust_policy": { "type": "string", "minLength": 1 },
-        "subject": { "type": "string", "pattern": "^trusted:" }, "groups": { "type": "array", "minItems": 1, "maxItems": 100, "items": { "type": "string", "minLength": 1, "maxLength": 256 } },
+        "id": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "trust_policy": { "type": "string", "minLength": 1 },
+        "subject": { "type": "string", "pattern": "^trusted:" },
+        "groups": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": { "type": "string", "minLength": 1, "maxLength": 256 }
+        },
         "claims": { "$ref": "#/$defs/claimSchemas" }
       }
     }

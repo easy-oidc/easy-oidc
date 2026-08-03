@@ -9,14 +9,14 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/easy-oidc/easy-oidc/internal/storage"
+	"github.com/easy-oidc/easy-oidc/internal/statedb"
 	"github.com/easy-oidc/easy-oidc/internal/templates"
 	"github.com/easy-oidc/easy-oidc/internal/upstream"
 )
 
 // renderIdentitySelection renders all authenticated upstream email candidates.
 func (s *Server) renderIdentitySelection(w http.ResponseWriter, stateToken, connectorID string, identity upstream.Identity) {
-	token, err := storage.GenerateStateToken()
+	token, err := statedb.GenerateStateToken()
 	if err == nil {
 		err = s.store.CreateIdentitySelection(token, stateToken, connectorID, identity.Subject, identity.Emails, time.Now().Add(5*time.Minute))
 	}

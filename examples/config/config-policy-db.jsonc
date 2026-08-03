@@ -6,12 +6,12 @@
   "$schema": "https://easy-oidc.dev/schema/v2/config.schema.json",
   "issuer_url": "http://localhost:8080",
   "http_listen_addr": "127.0.0.1:8080",
-  "data_dir": "temp",
   "secrets": {
     "provider": "env",
     "signing_key_name": "EASYOIDC_SIGNING_KEY",
     "encryption_key_name": "EASYOIDC_ENCRYPTION_KEY",
   },
+  "state_database": { "driver": "sqlite", "path": "temp/easy-oidc-state.db" },
   "connectors": {
     "google": {
       "type": "google",

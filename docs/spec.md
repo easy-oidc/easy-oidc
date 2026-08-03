@@ -139,12 +139,16 @@ A representative multiple-connector configuration is:
 {
   "issuer_url": "https://auth.example.com",
   "http_listen_addr": "127.0.0.1:8080",
-  "data_dir": "/var/lib/easy-oidc",
   "signing_algorithm": "RS256",
 
   "secrets": {
     "provider": "env",
     "signing_key_name": "EASYOIDC_SIGNING_KEY"
+  },
+
+  "state_database": {
+    "driver": "sqlite",
+    "path": "/var/lib/easy-oidc/easy-oidc-state.db"
   },
 
   "connectors": {
@@ -329,10 +333,11 @@ the default for broad Kubernetes compatibility.
 
 ## Persistence and lifecycle
 
-The SQLite database lives under `data_dir` and allows authorization state,
-authorization codes, OTP challenges, and verification records to survive process
-restarts. Signing-key rotation currently requires replacing the configured key
-and restarting Easy OIDC.
+By default, SQLite state lives at `./data/easy-oidc-state.db`; configure
+`state_database.path` to move it. PostgreSQL supports shared replicas.
+Authorization state, codes, OTP challenges, and
+verification records survive process restarts. Signing-key rotation currently
+requires replacing the configured key and restarting Easy OIDC.
 
 Configuration, secrets, and templates are loaded at startup. The process exits
 instead of serving requests if configuration validation, secret loading,

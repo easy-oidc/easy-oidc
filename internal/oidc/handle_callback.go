@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/easy-oidc/easy-oidc/internal/authpolicy"
-	"github.com/easy-oidc/easy-oidc/internal/storage"
+	"github.com/easy-oidc/easy-oidc/internal/statedb"
 	"github.com/easy-oidc/easy-oidc/internal/templates"
 	"github.com/easy-oidc/easy-oidc/internal/upstream"
 )
@@ -52,7 +52,7 @@ func (s *Server) HandleCallback(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "credential persistence unavailable", http.StatusInternalServerError)
 			return
 		}
-		nonce, ciphertext, encryptErr := storage.EncryptTemporaryCredential(s.encryptionKey, stateToken, state.ClientID, id, credential)
+		nonce, ciphertext, encryptErr := statedb.EncryptTemporaryCredential(s.encryptionKey, stateToken, state.ClientID, id, credential)
 		if encryptErr != nil || s.store.SaveFlowCredential("", stateToken, state.ClientID, id, nonce, ciphertext, time.Now().Add(10*time.Minute)) != nil {
 			http.Error(w, "credential persistence unavailable", http.StatusInternalServerError)
 			return
@@ -153,9 +153,9 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request, state OAuthSta
 		nonce, ciphertext, loadErr := s.store.LoadFlowCredential(state.FlowID, state.ClientID, state.ConnectorID, time.Now().UTC())
 		if loadErr == nil {
 			credentialBacked = true
-			credential, loadErr = storage.DecryptTemporaryCredential(s.encryptionKey, state.FlowID, state.ClientID, state.ConnectorID, nonce, ciphertext)
+			credential, loadErr = statedb.DecryptTemporaryCredential(s.encryptionKey, state.FlowID, state.ClientID, state.ConnectorID, nonce, ciphertext)
 		}
-		if loadErr != nil && !errors.Is(loadErr, storage.ErrInvalidGrant) {
+		if loadErr != nil && !errors.Is(loadErr, statedb.ErrInvalidGrant) {
 			http.Error(w, "internal error", 500)
 			return
 		}
@@ -170,7 +170,7 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request, state OAuthSta
 		return
 	}
 	if credentialBacked {
-		nonce, ciphertext, saveErr := storage.EncryptTemporaryCredential(s.encryptionKey, code, state.ClientID, state.ConnectorID, credential)
+		nonce, ciphertext, saveErr := statedb.EncryptTemporaryCredential(s.encryptionKey, code, state.ClientID, state.ConnectorID, credential)
 		if saveErr != nil || s.store.SaveFlowCredential(state.FlowID, code, state.ClientID, state.ConnectorID, nonce, ciphertext, time.Now().UTC().Add(5*time.Minute)) != nil {
 			http.Error(w, "internal error", 500)
 			return

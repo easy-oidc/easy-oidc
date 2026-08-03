@@ -2,5 +2,5 @@
 // Copyright The Easy OIDC Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Package storage provides SQLite-backed protocol state storage.
-package storage
+// Package statedb provides SQLite and PostgreSQL protocol state storage.
+package statedb

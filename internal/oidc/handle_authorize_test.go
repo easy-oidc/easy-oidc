@@ -15,7 +15,7 @@ import (
 
 	"github.com/easy-oidc/easy-oidc/internal/authpolicy"
 	"github.com/easy-oidc/easy-oidc/internal/config"
-	"github.com/easy-oidc/easy-oidc/internal/storage"
+	"github.com/easy-oidc/easy-oidc/internal/statedb"
 	"github.com/easy-oidc/easy-oidc/internal/templates"
 	"github.com/easy-oidc/easy-oidc/internal/upstream"
 	"golang.org/x/oauth2"
@@ -53,7 +53,7 @@ func (c *captureConnector) GetIdentity(context.Context, *oauth2.Token) (upstream
 func authorizeServer(t *testing.T, connectors map[string]config.ConnectorConfig) (*Server, map[string]*captureConnector) {
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	store, err := storage.New(t.TempDir()+"/test.db", logger)
+	store, err := statedb.NewSQLite(t.TempDir()+"/test.db", logger)
 	if err != nil {
 		t.Fatal(err)
 	}

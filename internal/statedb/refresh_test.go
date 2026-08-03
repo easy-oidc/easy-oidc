@@ -2,7 +2,7 @@
 // Copyright The Easy OIDC Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package storage
+package statedb
 
 import (
 	"errors"
@@ -275,7 +275,7 @@ func TestRefreshCrashProcess(t *testing.T) {
 		t.Skip("subprocess helper")
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	store, err := New(os.Getenv("EASY_OIDC_CRASH_DB"), logger)
+	store, err := NewSQLite(os.Getenv("EASY_OIDC_CRASH_DB"), logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -319,7 +319,7 @@ func TestRefreshCrashRestartBoundaries(t *testing.T) {
 	newGrant := func(t *testing.T, sid string) (string, RefreshGrant, RefreshMaterial, time.Time) {
 		t.Helper()
 		path := t.TempDir() + "/restart.db"
-		store, err := New(path, logger)
+		store, err := NewSQLite(path, logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -339,7 +339,7 @@ func TestRefreshCrashRestartBoundaries(t *testing.T) {
 	}
 	open := func(t *testing.T, path string) *Store {
 		t.Helper()
-		store, err := New(path, logger)
+		store, err := NewSQLite(path, logger)
 		if err != nil {
 			t.Fatal(err)
 		}

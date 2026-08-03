@@ -15,15 +15,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/easy-oidc/easy-oidc/internal/storage"
+	"github.com/easy-oidc/easy-oidc/internal/statedb"
 	"github.com/easy-oidc/easy-oidc/internal/tokens"
 )
 
 // revokeServer creates a revocation handler with a real SQLite store and signer.
-func revokeServer(t *testing.T) (*Server, *storage.Store, *tokens.Signer) {
+func revokeServer(t *testing.T) (*Server, *statedb.Store, *tokens.Signer) {
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	store, err := storage.New(t.TempDir()+"/test.db", logger)
+	store, err := statedb.NewSQLite(t.TempDir()+"/test.db", logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,14 +33,14 @@ func revokeServer(t *testing.T) (*Server, *storage.Store, *tokens.Signer) {
 }
 
 // createRevocableGrant inserts one active refresh family for handler tests.
-func createRevocableGrant(t *testing.T, store *storage.Store, sid, clientID string) storage.RefreshMaterial {
+func createRevocableGrant(t *testing.T, store *statedb.Store, sid, clientID string) statedb.RefreshMaterial {
 	t.Helper()
 	now := time.Now().UTC()
-	material, err := storage.GenerateRefreshMaterial()
+	material, err := statedb.GenerateRefreshMaterial()
 	if err != nil {
 		t.Fatal(err)
 	}
-	grant := storage.RefreshGrant{SID: sid, ClientID: clientID, Email: "user@example.com", Scopes: "openid", ConnectorID: "email", Mode: "session", AuthTime: now, IdleTTL: time.Hour, AbsoluteExpiry: now.Add(2 * time.Hour)}
+	grant := statedb.RefreshGrant{SID: sid, ClientID: clientID, Email: "user@example.com", Scopes: "openid", ConnectorID: "email", Mode: "session", AuthTime: now, IdleTTL: time.Hour, AbsoluteExpiry: now.Add(2 * time.Hour)}
 	if err = store.CreateRefreshGrant(grant, material, nil, nil, now); err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestHandleRevokeRevokesRefreshFamily(t *testing.T) {
 	if response.Code != http.StatusOK || response.Body.Len() != 0 {
 		t.Fatalf("response = %d %q, want empty 200", response.Code, response.Body.String())
 	}
-	if _, _, err := store.PrepareRefresh(material, "client", time.Now()); err != storage.ErrInvalidGrant {
+	if _, _, err := store.PrepareRefresh(material, "client", time.Now()); err != statedb.ErrInvalidGrant {
 		t.Fatalf("grant after revocation = %v, want ErrInvalidGrant", err)
 	}
 	if response.Header().Get("Cache-Control") != "no-store" || response.Header().Get("Pragma") != "no-cache" {
@@ -98,7 +98,7 @@ func TestHandleRevokeAcceptsJWTAndHidesUnknownTokens(t *testing.T) {
 	if response.Code != http.StatusOK || response.Body.Len() != 0 {
 		t.Fatalf("JWT response = %d %q, want empty 200", response.Code, response.Body.String())
 	}
-	if _, _, err = store.PrepareRefresh(material, "client", time.Now()); err != storage.ErrInvalidGrant {
+	if _, _, err = store.PrepareRefresh(material, "client", time.Now()); err != statedb.ErrInvalidGrant {
 		t.Fatalf("grant after JWT revocation = %v, want ErrInvalidGrant", err)
 	}
 }
@@ -115,7 +115,7 @@ func TestHandleRevokeAcceptsIDToken(t *testing.T) {
 	if response.Code != http.StatusOK || response.Body.Len() != 0 {
 		t.Fatalf("ID token response = %d %q, want empty 200", response.Code, response.Body.String())
 	}
-	if _, _, err = store.PrepareRefresh(material, "client", time.Now()); !errors.Is(err, storage.ErrInvalidGrant) {
+	if _, _, err = store.PrepareRefresh(material, "client", time.Now()); !errors.Is(err, statedb.ErrInvalidGrant) {
 		t.Fatalf("grant after ID token revocation = %v", err)
 	}
 }

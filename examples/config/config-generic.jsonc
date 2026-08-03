@@ -8,13 +8,17 @@
   // Core settings
   "issuer_url": "https://auth.example.com",
   "http_listen_addr": "127.0.0.1:8080",
-  "data_dir": "/var/lib/easy-oidc",
   "signing_algorithm": "RS256",
 
   // Secrets configuration
   "secrets": {
     "provider": "env", // "aws-secrets-manager", "aws-parameter-store", "google-secret-manager", "azure", or "env" for local dev
     "signing_key_name": "EASYOIDC_SIGNING_KEY",
+  },
+
+  "state_database": {
+    "driver": "sqlite",
+    "path": "/var/lib/easy-oidc/easy-oidc-state.db",
   },
 
   // Upstream connector - Generic OAuth2/OIDC provider

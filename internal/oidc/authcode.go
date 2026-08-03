@@ -8,13 +8,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/easy-oidc/easy-oidc/internal/storage"
+	"github.com/easy-oidc/easy-oidc/internal/statedb"
 )
 
-// AuthCodeManager handles the creation and validation of authorization codes using SQLite storage.
+// AuthCodeManager handles authorization code creation and validation using the state database.
 // It provides replay protection through single-use enforcement and automatic cleanup of expired codes.
 type AuthCodeManager struct {
-	store *storage.Store
+	store *statedb.Store
 }
 
 // AuthCodePayload contains the information embedded in an authorization code.
@@ -33,8 +33,8 @@ type AuthCodePayload struct {
 	OfflineConsent  bool
 }
 
-// NewAuthCodeManager creates and initializes a new authorization code manager with SQLite storage.
-func NewAuthCodeManager(store *storage.Store) (*AuthCodeManager, error) {
+// NewAuthCodeManager creates and initializes an authorization code manager.
+func NewAuthCodeManager(store *statedb.Store) (*AuthCodeManager, error) {
 	mgr := &AuthCodeManager{
 		store: store,
 	}
@@ -45,13 +45,13 @@ func NewAuthCodeManager(store *storage.Store) (*AuthCodeManager, error) {
 // GenerateCode creates a new authorization code containing the provided payload.
 // The code is a cryptographically secure random token that expires in 5 minutes.
 func (m *AuthCodeManager) GenerateCode(payload AuthCodePayload) (string, error) {
-	code, err := storage.GenerateAuthCode()
+	code, err := statedb.GenerateAuthCode()
 	if err != nil {
 		return "", fmt.Errorf("failed to generate auth code: %w", err)
 	}
 
 	now := time.Now()
-	authCode := &storage.AuthCode{
+	authCode := &statedb.AuthCode{
 		Code:          code,
 		ClientID:      payload.ClientID,
 		RedirectURI:   payload.RedirectURI,
@@ -74,7 +74,7 @@ func (m *AuthCodeManager) GenerateCode(payload AuthCodePayload) (string, error) 
 }
 
 // Peek validates an authorization code without consuming it.
-func (m *AuthCodeManager) Peek(code string) (*storage.AuthCode, error) {
+func (m *AuthCodeManager) Peek(code string) (*statedb.AuthCode, error) {
 	return m.store.PeekAuthCode(code, time.Now())
 }
 

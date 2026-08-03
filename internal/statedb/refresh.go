@@ -2,7 +2,7 @@
 // Copyright The Easy OIDC Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package storage
+package statedb
 
 import (
 	"crypto/aes"
@@ -81,6 +81,18 @@ func nullableTime(value time.Time) any {
 	return value
 }
 
+// lockRefreshParent discovers a token's family and locks its grant before child rows.
+func (s *Store) lockRefreshParent(tx *transaction, handleHash []byte) (string, error) {
+	var sid string
+	if err := tx.QueryRow(`SELECT sid FROM refresh_tokens WHERE handle_hash=?`, handleHash).Scan(&sid); err != nil {
+		return "", err
+	}
+	if err := tx.QueryRow(`SELECT sid FROM refresh_grants WHERE sid=?`+s.lockRows(), sid).Scan(&sid); err != nil {
+		return "", err
+	}
+	return sid, nil
+}
+
 // ClaimRefresh verifies a complete token and durably claims its active grant.
 func (s *Store) ClaimRefresh(current RefreshMaterial, clientID string, now time.Time, ttl time.Duration) (RefreshGrant, RefreshClaim, time.Time, error) {
 	tx, err := s.db.Begin()
@@ -88,6 +100,11 @@ func (s *Store) ClaimRefresh(current RefreshMaterial, clientID string, now time.
 		return RefreshGrant{}, RefreshClaim{}, time.Time{}, fmt.Errorf("begin refresh claim: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	if _, err = s.lockRefreshParent(tx, current.HandleHash[:]); err == sql.ErrNoRows {
+		return RefreshGrant{}, RefreshClaim{}, time.Time{}, ErrInvalidGrant
+	} else if err != nil {
+		return RefreshGrant{}, RefreshClaim{}, time.Time{}, fmt.Errorf("lock refresh grant: %w", err)
+	}
 	var grant RefreshGrant
 	var stored []byte
 	var consumed, revoked, claimExpiry sql.NullTime
@@ -95,7 +112,7 @@ func (s *Store) ClaimRefresh(current RefreshMaterial, clientID string, now time.
 	var claimID sql.NullString
 	var started bool
 	var upstreamAccess, upstreamRefresh sql.NullTime
-	err = tx.QueryRow(`SELECT t.token_hash,t.consumed_at,t.expires_at,g.sid,g.client_id,g.email,g.email_verified,g.scopes,COALESCE(g.connector_id,''),COALESCE(g.upstream_subject,''),g.mode,g.auth_time,g.idle_ttl_ns,g.idle_expires_at,g.absolute_expires_at,g.revoked_at,g.credential_nonce,g.credential_ciphertext,g.claim_id,g.claim_expires_at,g.upstream_refresh_started,g.upstream_access_expires_at,g.upstream_refresh_expires_at,g.upstream_access_nonexpiring FROM refresh_tokens t JOIN refresh_grants g ON g.sid=t.sid WHERE t.handle_hash=?`, current.HandleHash[:]).Scan(&stored, &consumed, &tokenExpiry, &grant.SID, &grant.ClientID, &grant.Email, &grant.EmailVerified, &grant.Scopes, &grant.ConnectorID, &grant.UpstreamSubject, &grant.Mode, &grant.AuthTime, &grant.IdleTTL, &idleExpiry, &grant.AbsoluteExpiry, &revoked, &grant.CredentialNonce, &grant.CredentialCiphertext, &claimID, &claimExpiry, &started, &upstreamAccess, &upstreamRefresh, &grant.UpstreamAccessNonExpiring)
+	err = tx.QueryRow(`SELECT t.token_hash,t.consumed_at,t.expires_at,g.sid,g.client_id,g.email,g.email_verified,g.scopes,COALESCE(g.connector_id,''),COALESCE(g.upstream_subject,''),g.mode,g.auth_time,g.idle_ttl_ns,g.idle_expires_at,g.absolute_expires_at,g.revoked_at,g.credential_nonce,g.credential_ciphertext,g.claim_id,g.claim_expires_at,g.upstream_refresh_started,g.upstream_access_expires_at,g.upstream_refresh_expires_at,g.upstream_access_nonexpiring FROM refresh_tokens t JOIN refresh_grants g ON g.sid=t.sid WHERE t.handle_hash=?`+s.lockJoinedRows(), current.HandleHash[:]).Scan(&stored, &consumed, &tokenExpiry, &grant.SID, &grant.ClientID, &grant.Email, &grant.EmailVerified, &grant.Scopes, &grant.ConnectorID, &grant.UpstreamSubject, &grant.Mode, &grant.AuthTime, &grant.IdleTTL, &idleExpiry, &grant.AbsoluteExpiry, &revoked, &grant.CredentialNonce, &grant.CredentialCiphertext, &claimID, &claimExpiry, &started, &upstreamAccess, &upstreamRefresh, &grant.UpstreamAccessNonExpiring)
 	if err == sql.ErrNoRows {
 		return RefreshGrant{}, RefreshClaim{}, time.Time{}, ErrInvalidGrant
 	}
@@ -107,7 +124,7 @@ func (s *Store) ClaimRefresh(current RefreshMaterial, clientID string, now time.
 		return RefreshGrant{}, RefreshClaim{}, time.Time{}, ErrInvalidGrant
 	}
 	if consumed.Valid {
-		if _, err = tx.Exec(`UPDATE refresh_grants SET revoked_at=?,revoke_reason='replay',claim_id=NULL,claim_expires_at=NULL,upstream_refresh_started=0 WHERE sid=? AND revoked_at IS NULL`, now, grant.SID); err != nil {
+		if _, err = tx.Exec(`UPDATE refresh_grants SET revoked_at=?,revoke_reason='replay',claim_id=NULL,claim_expires_at=NULL,upstream_refresh_started=FALSE WHERE sid=? AND revoked_at IS NULL`, now, grant.SID); err != nil {
 			return RefreshGrant{}, RefreshClaim{}, time.Time{}, fmt.Errorf("revoke claimed replay: %w", err)
 		}
 		if err = tx.Commit(); err != nil {
@@ -135,7 +152,7 @@ func (s *Store) ClaimRefresh(current RefreshMaterial, clientID string, now time.
 		return RefreshGrant{}, RefreshClaim{}, time.Time{}, err
 	}
 	claim := RefreshClaim{ID: id, ExpiresAt: now.Add(ttl)}
-	if _, err = tx.Exec(`UPDATE refresh_grants SET claim_id=?,claim_expires_at=?,upstream_refresh_started=0 WHERE sid=?`, claim.ID, claim.ExpiresAt, grant.SID); err != nil {
+	if _, err = tx.Exec(`UPDATE refresh_grants SET claim_id=?,claim_expires_at=?,upstream_refresh_started=FALSE WHERE sid=?`, claim.ID, claim.ExpiresAt, grant.SID); err != nil {
 		return RefreshGrant{}, RefreshClaim{}, time.Time{}, fmt.Errorf("save refresh claim: %w", err)
 	}
 	if err = tx.Commit(); err != nil {
@@ -150,7 +167,7 @@ func (s *Store) ClaimRefresh(current RefreshMaterial, clientID string, now time.
 
 // MarkUpstreamRefreshStarted durably records that provider rotation may occur.
 func (s *Store) MarkUpstreamRefreshStarted(sid string, claim RefreshClaim, now time.Time) error {
-	r, err := s.db.Exec(`UPDATE refresh_grants SET upstream_refresh_started=1 WHERE sid=? AND claim_id=? AND claim_expires_at>? AND revoked_at IS NULL`, sid, claim.ID, now)
+	r, err := s.db.Exec(`UPDATE refresh_grants SET upstream_refresh_started=TRUE WHERE sid=? AND claim_id=? AND claim_expires_at>? AND revoked_at IS NULL`, sid, claim.ID, now)
 	if err != nil {
 		return fmt.Errorf("mark upstream refresh started: %w", err)
 	}
@@ -163,7 +180,7 @@ func (s *Store) MarkUpstreamRefreshStarted(sid string, claim RefreshClaim, now t
 
 // ReleaseRefreshClaim releases a claim only when upstream rotation has not started.
 func (s *Store) ReleaseRefreshClaim(sid string, claim RefreshClaim) error {
-	_, err := s.db.Exec(`UPDATE refresh_grants SET claim_id=NULL,claim_expires_at=NULL,upstream_refresh_started=0 WHERE sid=? AND claim_id=? AND upstream_refresh_started=0`, sid, claim.ID)
+	_, err := s.db.Exec(`UPDATE refresh_grants SET claim_id=NULL,claim_expires_at=NULL,upstream_refresh_started=FALSE WHERE sid=? AND claim_id=? AND upstream_refresh_started=FALSE`, sid, claim.ID)
 	if err != nil {
 		return fmt.Errorf("release refresh claim: %w", err)
 	}
@@ -172,7 +189,7 @@ func (s *Store) ReleaseRefreshClaim(sid string, claim RefreshClaim) error {
 
 // AbortUpstreamRefresh releases a claim after a definitive provider response proves no rotation occurred.
 func (s *Store) AbortUpstreamRefresh(sid string, claim RefreshClaim) error {
-	r, err := s.db.Exec(`UPDATE refresh_grants SET claim_id=NULL,claim_expires_at=NULL,upstream_refresh_started=0 WHERE sid=? AND claim_id=? AND revoked_at IS NULL`, sid, claim.ID)
+	r, err := s.db.Exec(`UPDATE refresh_grants SET claim_id=NULL,claim_expires_at=NULL,upstream_refresh_started=FALSE WHERE sid=? AND claim_id=? AND revoked_at IS NULL`, sid, claim.ID)
 	if err != nil {
 		return fmt.Errorf("abort upstream refresh: %w", err)
 	}
@@ -190,8 +207,13 @@ func (s *Store) CompleteClaimedRefresh(current, replacement RefreshMaterial, gra
 		return time.Time{}, fmt.Errorf("begin claimed refresh: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	if _, err = s.lockRefreshParent(tx, current.HandleHash[:]); err == sql.ErrNoRows {
+		return time.Time{}, ErrInvalidGrant
+	} else if err != nil {
+		return time.Time{}, fmt.Errorf("lock claimed refresh grant: %w", err)
+	}
 	var tokenExpiry, idleExpiry, storedAbsolute time.Time
-	if err = tx.QueryRow(`SELECT t.expires_at,g.idle_expires_at,g.absolute_expires_at FROM refresh_tokens t JOIN refresh_grants g ON g.sid=t.sid WHERE t.handle_hash=? AND t.token_hash=? AND t.consumed_at IS NULL AND g.sid=? AND g.claim_id=? AND g.revoked_at IS NULL`, current.HandleHash[:], current.TokenHash[:], grant.SID, claim.ID).Scan(&tokenExpiry, &idleExpiry, &storedAbsolute); err != nil {
+	if err = tx.QueryRow(`SELECT t.expires_at,g.idle_expires_at,g.absolute_expires_at FROM refresh_tokens t JOIN refresh_grants g ON g.sid=t.sid WHERE t.handle_hash=? AND t.token_hash=? AND t.consumed_at IS NULL AND g.sid=? AND g.claim_id=? AND g.revoked_at IS NULL`+s.lockJoinedRows(), current.HandleHash[:], current.TokenHash[:], grant.SID, claim.ID).Scan(&tokenExpiry, &idleExpiry, &storedAbsolute); err != nil {
 		if err == sql.ErrNoRows {
 			return time.Time{}, ErrInvalidGrant
 		}
@@ -215,7 +237,7 @@ func (s *Store) CompleteClaimedRefresh(current, replacement RefreshMaterial, gra
 	if n != 1 {
 		return time.Time{}, ErrInvalidGrant
 	}
-	r, err = tx.Exec(`UPDATE refresh_grants SET credential_nonce=?,credential_ciphertext=?,absolute_expires_at=?,upstream_access_expires_at=?,upstream_refresh_expires_at=?,upstream_access_nonexpiring=?,last_used_at=?,idle_expires_at=?,claim_id=NULL,claim_expires_at=NULL,upstream_refresh_started=0 WHERE sid=? AND claim_id=? AND claim_expires_at>? AND revoked_at IS NULL`, nonce, ciphertext, absoluteExpiry, nullableTime(grant.UpstreamAccessExpiry), nullableTime(grant.UpstreamRefreshExpiry), grant.UpstreamAccessNonExpiring, now, newExpiry, grant.SID, claim.ID, now)
+	r, err = tx.Exec(`UPDATE refresh_grants SET credential_nonce=?,credential_ciphertext=?,absolute_expires_at=?,upstream_access_expires_at=?,upstream_refresh_expires_at=?,upstream_access_nonexpiring=?,last_used_at=?,idle_expires_at=?,claim_id=NULL,claim_expires_at=NULL,upstream_refresh_started=FALSE WHERE sid=? AND claim_id=? AND claim_expires_at>? AND revoked_at IS NULL`, nonce, ciphertext, absoluteExpiry, nullableTime(grant.UpstreamAccessExpiry), nullableTime(grant.UpstreamRefreshExpiry), grant.UpstreamAccessNonExpiring, now, newExpiry, grant.SID, claim.ID, now)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("update claimed grant: %w", err)
 	}
@@ -240,7 +262,7 @@ func (s *Store) ConsumeAuthCode(expected AuthCode, binding AuthCodeBinding, gran
 	}
 	defer func() { _ = tx.Rollback() }()
 	var actual AuthCode
-	err = tx.QueryRow(`SELECT code,client_id,redirect_uri,code_challenge,email,email_verified,nonce,created_at,expires_at,scopes,refresh_mode,auth_time,connector_id,upstream_subject,offline_consent FROM auth_codes WHERE code=?`, expected.Code).Scan(&actual.Code, &actual.ClientID, &actual.RedirectURI, &actual.CodeChallenge, &actual.Email, &actual.EmailVerified, &actual.Nonce, &actual.CreatedAt, &actual.ExpiresAt, &actual.Scopes, &actual.RefreshMode, &actual.AuthTime, &actual.ConnectorID, &actual.UpstreamSubject, &actual.OfflineConsent)
+	err = tx.QueryRow(`SELECT code,client_id,redirect_uri,code_challenge,email,email_verified,nonce,created_at,expires_at,scopes,refresh_mode,auth_time,connector_id,upstream_subject,offline_consent FROM auth_codes WHERE code=?`+s.lockRows(), expected.Code).Scan(&actual.Code, &actual.ClientID, &actual.RedirectURI, &actual.CodeChallenge, &actual.Email, &actual.EmailVerified, &actual.Nonce, &actual.CreatedAt, &actual.ExpiresAt, &actual.Scopes, &actual.RefreshMode, &actual.AuthTime, &actual.ConnectorID, &actual.UpstreamSubject, &actual.OfflineConsent)
 	if err == sql.ErrNoRows {
 		return ErrInvalidGrant
 	}
@@ -412,7 +434,11 @@ func (s *Store) SaveFlowCredential(from, to, clientID, connectorID string, nonce
 			return fmt.Errorf("delete predecessor credential: %w", err)
 		}
 	}
-	if _, err = tx.Exec(`INSERT OR REPLACE INTO flow_credentials(flow_id,client_id,connector_id,nonce,ciphertext,expires_at) VALUES(?,?,?,?,?,?)`, to, clientID, connectorID, nonce, ciphertext, expires); err != nil {
+	query := `INSERT OR REPLACE INTO flow_credentials(flow_id,client_id,connector_id,nonce,ciphertext,expires_at) VALUES(?,?,?,?,?,?)`
+	if s.postgresql {
+		query = `INSERT INTO flow_credentials(flow_id,client_id,connector_id,nonce,ciphertext,expires_at) VALUES(?,?,?,?,?,?) ON CONFLICT(flow_id) DO UPDATE SET client_id=excluded.client_id,connector_id=excluded.connector_id,nonce=excluded.nonce,ciphertext=excluded.ciphertext,expires_at=excluded.expires_at`
+	}
+	if _, err = tx.Exec(query, to, clientID, connectorID, nonce, ciphertext, expires); err != nil {
 		return fmt.Errorf("save flow credential: %w", err)
 	}
 	if err = tx.Commit(); err != nil {
@@ -519,12 +545,17 @@ func (s *Store) RotateRefreshToken(current, replacement RefreshMaterial, clientI
 		return RefreshGrant{}, time.Time{}, fmt.Errorf("begin refresh rotation: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	if _, err = s.lockRefreshParent(tx, current.HandleHash[:]); err == sql.ErrNoRows {
+		return RefreshGrant{}, time.Time{}, ErrInvalidGrant
+	} else if err != nil {
+		return RefreshGrant{}, time.Time{}, fmt.Errorf("lock refresh grant: %w", err)
+	}
 	var grant RefreshGrant
 	var storedHash []byte
 	var consumed sql.NullTime
 	var tokenExpiry, idleExpiry time.Time
 	var revoked sql.NullTime
-	err = tx.QueryRow(`SELECT t.token_hash,t.consumed_at,t.expires_at,g.sid,g.client_id,g.email,g.email_verified,g.scopes,COALESCE(g.connector_id,''),COALESCE(g.upstream_subject,''),g.mode,g.auth_time,g.idle_ttl_ns,g.idle_expires_at,g.absolute_expires_at,g.revoked_at FROM refresh_tokens t JOIN refresh_grants g ON g.sid=t.sid WHERE t.handle_hash=?`, current.HandleHash[:]).Scan(&storedHash, &consumed, &tokenExpiry, &grant.SID, &grant.ClientID, &grant.Email, &grant.EmailVerified, &grant.Scopes, &grant.ConnectorID, &grant.UpstreamSubject, &grant.Mode, &grant.AuthTime, &grant.IdleTTL, &idleExpiry, &grant.AbsoluteExpiry, &revoked)
+	err = tx.QueryRow(`SELECT t.token_hash,t.consumed_at,t.expires_at,g.sid,g.client_id,g.email,g.email_verified,g.scopes,COALESCE(g.connector_id,''),COALESCE(g.upstream_subject,''),g.mode,g.auth_time,g.idle_ttl_ns,g.idle_expires_at,g.absolute_expires_at,g.revoked_at FROM refresh_tokens t JOIN refresh_grants g ON g.sid=t.sid WHERE t.handle_hash=?`+s.lockJoinedRows(), current.HandleHash[:]).Scan(&storedHash, &consumed, &tokenExpiry, &grant.SID, &grant.ClientID, &grant.Email, &grant.EmailVerified, &grant.Scopes, &grant.ConnectorID, &grant.UpstreamSubject, &grant.Mode, &grant.AuthTime, &grant.IdleTTL, &idleExpiry, &grant.AbsoluteExpiry, &revoked)
 	if err == sql.ErrNoRows {
 		return RefreshGrant{}, time.Time{}, ErrInvalidGrant
 	}
@@ -579,7 +610,7 @@ func (s *Store) RotateRefreshToken(current, replacement RefreshMaterial, clientI
 }
 
 // insertRefreshToken reports generated handle collisions separately from storage failures.
-func insertRefreshToken(tx *sql.Tx, material RefreshMaterial, sid string, issued, expires time.Time) error {
+func insertRefreshToken(tx *transaction, material RefreshMaterial, sid string, issued, expires time.Time) error {
 	result, err := tx.Exec(`INSERT INTO refresh_tokens(handle_hash,token_hash,sid,issued_at,expires_at) VALUES(?,?,?,?,?) ON CONFLICT(handle_hash) DO NOTHING`, material.HandleHash[:], material.TokenHash[:], sid, issued, expires)
 	if err != nil {
 		return fmt.Errorf("insert refresh token: %w", err)

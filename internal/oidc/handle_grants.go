@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/easy-oidc/easy-oidc/internal/storage"
+	"github.com/easy-oidc/easy-oidc/internal/statedb"
 	"github.com/easy-oidc/easy-oidc/internal/templates"
 )
 
@@ -32,7 +32,7 @@ func (s *Server) renderGrants(w http.ResponseWriter, email string) {
 	}
 	data := templates.GrantsData{Title: "Active grants", Email: email}
 	for _, grant := range grants {
-		token, e := storage.GenerateStateToken()
+		token, e := statedb.GenerateStateToken()
 		if e != nil {
 			http.Error(w, "grant management unavailable", 500)
 			return
@@ -62,7 +62,7 @@ func (s *Server) HandleGrantRevoke(w http.ResponseWriter, r *http.Request) {
 	}
 	email, err := normalizeEmail(r.FormValue("email"))
 	if err != nil {
-		err = storage.ErrInvalidGrant
+		err = statedb.ErrInvalidGrant
 	} else {
 		err = s.store.ConsumeGrantActionAndRevoke(r.FormValue("action_token"), email, r.FormValue("sid"), "revoke", time.Now().UTC())
 	}
@@ -70,7 +70,7 @@ func (s *Server) HandleGrantRevoke(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		status = http.StatusBadRequest
 		message = "This revocation action is invalid, expired, or already used."
-		if !errors.Is(err, storage.ErrInvalidGrant) {
+		if !errors.Is(err, statedb.ErrInvalidGrant) {
 			status = http.StatusServiceUnavailable
 			message = "Grant management is temporarily unavailable."
 		}

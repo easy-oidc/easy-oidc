@@ -13,7 +13,7 @@ The `terraform-aws-easy-oidc` module provisions:
 - **EC2 Instance**: Single ARM64 or AMD64 instance (t4g.nano by default) running Debian 13 (Trixie)
     - **Easy OIDC Binary**: Downloaded and installed via systemd service
     - **Caddy Reverse Proxy**: Provides automatic HTTPS via Let's Encrypt
-    - **SQLite Database**: Stored at `/var/lib/easy-oidc/easy-oidc.db` for OAuth state and authorization codes
+    - **SQLite Database**: Stored at `/var/lib/easy-oidc/easy-oidc-state.db` for OAuth state and authorization codes
 - **Security Group**: Allows HTTP (80) and HTTPS (443) from configurable CIDRs
 - **IAM Role**: Grants read-only access to explicitly listed Parameter Store parameters or Secrets Manager secrets
 - **Subnet** (optional): Auto-created with dual-stack IPv4/IPv6 support if not provided
@@ -252,9 +252,10 @@ kubectl oidc-login setup \
 ## Configuration boundaries
 
 The module owns infrastructure and injects `issuer_url`, `http_listen_addr`,
-`data_dir`, `secrets.provider`, and `secrets.aws_region`. Put the remaining Easy
-OIDC settings under `easy_oidc_config`. The module derives least-privilege IAM
-resources from every parameter or secret referenced by that object.
+`state_database`, `secrets.provider`, and `secrets.aws_region`. Put the
+remaining Easy OIDC settings under `easy_oidc_config`. The module derives
+least-privilege IAM resources from every parameter or secret referenced by
+that object.
 
 Use the module's [complete input reference](https://github.com/easy-oidc/terraform-aws-easy-oidc#variables)
 for networking, KMS, SSH, tagging, and version controls. See the

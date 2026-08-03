@@ -1,0 +1,102 @@
+---
+title: 'State Database'
+weight: 8
+---
+
+# State database
+
+By default, Easy OIDC uses SQLite for persisting OIDC protocol state such as
+authorization codes, OTPs, and refresh grants. This is the easiest option
+for single VM deployments and can scale vertically.
+
+However, if you need to horizontally scale Easy OIDC, it also supports using
+PostgreSQL instead of SQLite for persisting OIDC protocol state. To enable
+this, add a `state_database` block to your config file:
+
+## Configuration
+
+If `state_database` is omitted, it uses `./data/easy-oidc-state.db` e.g:
+
+```jsonc
+"state_database": {
+  "driver": "sqlite",
+  "path": "/var/lib/easy-oidc/easy-oidc-state.db"
+}
+```
+
+Set an absolute `path` in production. SQLite is suitable for one Easy OIDC
+replica and scales vertically.
+
+To use PostgreSQL, explicitly configure `state_database` with the
+`postgresql` driver and relevant settings:
+
+```jsonc
+"state_database": {
+  "driver": "postgresql",
+  "connection_string_secret": "EASYOIDC_STATE_DB_URL",
+  "max_connections": 16,
+  "query_timeout": "5s",
+  "migrations": {
+    "connection_string_secret": "EASYOIDC_STATE_MIGRATION_DB_URL"
+  }
+}
+```
+
+## Run migrations before deployment
+
+Before every new version rollout, run:
+
+```console
+easy-oidc migrate --config config.jsonc
+```
+
+Migrations are forward-only. Easy OIDC refuses to start when the schema is
+missing, dirty, older, or newer than the binary expects.
+
+In the uncommon event of a migration failing:
+
+- stop the rollout;
+- investigate the failed statement and restore from backup if necessary; and
+- repair dirty migration metadata only after confirming the schema state—never
+  guess a version.
+
+## Use separate database roles
+
+For least privilege, give migration and runtime operations different roles:
+
+- **Migration role:** database `CREATE`, `USAGE, CREATE` on `public`, and
+  ownership of `public.schema_migrations` and `easy_oidc_state`.
+- **Runtime role:** database `CONNECT`, `USAGE` on `public` and
+  `easy_oidc_state`, `SELECT` on `public.schema_migrations`, and `SELECT`,
+  `INSERT`, `UPDATE`, `DELETE` on every state table.
+
+`USAGE` on `public` is still required if its default PUBLIC privilege has been
+revoked. Reapply runtime table grants after migrations when needed.
+
+## Production checklist
+
+- Require certificate-verified TLS. Plaintext connections are accepted only on
+  loopback addresses for development.
+- Set `max_connections` per replica so their combined pools remain below the
+  PostgreSQL limit, with capacity left for migrations and administration.
+- Choose a `query_timeout` that covers expected database latency. It bounds pool
+  waits and queries; an unavailable or exhausted database fails readiness.
+- Give every replica the same issuer, signing key, encryption key, OTP secret,
+  connector credentials, and state database.
+- Back up the state schema and migration metadata together, and test
+  point-in-time recovery. Restore signing and encryption secrets from their
+  secret manager. In-flight logins may be lost at the recovery boundary.
+
+## Move from SQLite
+
+There is no online importer:
+
+1. Drain traffic and stop all Easy OIDC replicas.
+2. Let short-lived authorization state expire.
+3. Configure PostgreSQL and run the migration command.
+4. Start every replica with the shared configuration and secrets.
+5. Require users with existing refresh grants to sign in again.
+
+Retire the old SQLite file. Never reuse it as a rollback target because it could
+revive consumed codes or revoked grants. A rollback must use a new, empty SQLite
+database, and SQLite and PostgreSQL replicas must never run concurrently.

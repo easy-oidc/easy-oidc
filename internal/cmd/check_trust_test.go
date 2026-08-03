@@ -57,7 +57,7 @@ func newTrustCommandFixture(t *testing.T, repositories ...string) *trustCommandF
 		bindings[i] = config.TrustBindingConfig{ID: "binding-" + name, TrustPolicy: name}
 	}
 	cfg := config.Config{
-		IssuerURL: "https://downstream.example", HTTPListenAddr: ":8080", DataDir: t.TempDir(),
+		IssuerURL: "https://downstream.example", HTTPListenAddr: ":8080",
 		Secrets:             config.SecretsConfig{Provider: "env", SigningKeyName: "SIGNING_KEY"},
 		Connectors:          map[string]config.ConnectorConfig{"google": {Type: "google", DisplayName: "Google", CredentialsSecret: "GOOGLE_CREDENTIALS", Scopes: []string{"openid", "email"}}},
 		DefaultRedirectURIs: []string{"http://localhost/callback"}, GroupsOverrides: map[string]map[string][]string{},

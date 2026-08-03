@@ -18,7 +18,7 @@ import (
 
 	"github.com/easy-oidc/easy-oidc/internal/authpolicy"
 	"github.com/easy-oidc/easy-oidc/internal/config"
-	"github.com/easy-oidc/easy-oidc/internal/storage"
+	"github.com/easy-oidc/easy-oidc/internal/statedb"
 	"github.com/easy-oidc/easy-oidc/internal/tokens"
 	"github.com/easy-oidc/easy-oidc/internal/upstream"
 	"github.com/lestrrat-go/jwx/v2/jwa"
@@ -98,7 +98,7 @@ func TestProviderResponseCrashProcess(t *testing.T) {
 		t.Skip("subprocess helper")
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	store, err := storage.New(path, logger)
+	store, err := statedb.NewSQLite(path, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,12 +126,12 @@ func TestProviderResponseCrashProcess(t *testing.T) {
 func TestRestartAfterProviderResponseFencesGrant(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	path := t.TempDir() + "/restart.db"
-	store, err := storage.New(path, logger)
+	store, err := statedb.NewSQLite(path, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	material, err := storage.GenerateRefreshMaterial()
+	material, err := statedb.GenerateRefreshMaterial()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,11 +139,11 @@ func TestRestartAfterProviderResponseFencesGrant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	nonce, ciphertext, err := storage.EncryptCredential(material.Secret, "provider-response", "client", "provider", credential)
+	nonce, ciphertext, err := statedb.EncryptCredential(material.Secret, "provider-response", "client", "provider", credential)
 	if err != nil {
 		t.Fatal(err)
 	}
-	grant := storage.RefreshGrant{SID: "provider-response", ClientID: "client", Email: "user@example.com", Scopes: "openid", ConnectorID: "provider", UpstreamSubject: "subject", Mode: "session", AuthTime: now, IdleTTL: time.Hour, AbsoluteExpiry: now.Add(2 * time.Hour)}
+	grant := statedb.RefreshGrant{SID: "provider-response", ClientID: "client", Email: "user@example.com", Scopes: "openid", ConnectorID: "provider", UpstreamSubject: "subject", Mode: "session", AuthTime: now, IdleTTL: time.Hour, AbsoluteExpiry: now.Add(2 * time.Hour)}
 	if err = store.CreateRefreshGrant(grant, material, nonce, ciphertext, now); err != nil {
 		t.Fatal(err)
 	}
@@ -155,22 +155,22 @@ func TestRestartAfterProviderResponseFencesGrant(t *testing.T) {
 	if output, runErr := command.CombinedOutput(); runErr != nil {
 		t.Fatalf("provider-response crash helper: %v\n%s", runErr, output)
 	}
-	store, err = storage.New(path, logger)
+	store, err = statedb.NewSQLite(path, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err = store.ClaimRefresh(material, "client", time.Now().Add(time.Minute), time.Minute); !errors.Is(err, storage.ErrCredentialIndeterminate) {
+	if _, _, _, err = store.ClaimRefresh(material, "client", time.Now().Add(time.Minute), time.Minute); !errors.Is(err, statedb.ErrCredentialIndeterminate) {
 		t.Fatalf("claim after provider-response crash = %v", err)
 	}
 	if err = store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	store, err = storage.New(path, logger)
+	store, err = statedb.NewSQLite(path, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	if _, _, err = store.PrepareRefresh(material, "client", time.Now()); !errors.Is(err, storage.ErrInvalidGrant) {
+	if _, _, err = store.PrepareRefresh(material, "client", time.Now()); !errors.Is(err, statedb.ErrInvalidGrant) {
 		t.Fatalf("indeterminate grant was not durably revoked: %v", err)
 	}
 }
@@ -178,7 +178,7 @@ func TestRestartAfterProviderResponseFencesGrant(t *testing.T) {
 // testFixture owns concrete refresh dependencies.
 type testFixture struct {
 	service *Service
-	store   *storage.Store
+	store   *statedb.Store
 	signer  *tokens.Signer
 	cfg     *config.Config
 }
@@ -187,7 +187,7 @@ type testFixture struct {
 func newTestFixture(t *testing.T, connectors map[string]upstream.Connector) *testFixture {
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	store, err := storage.New(t.TempDir()+"/test.db", logger)
+	store, err := statedb.NewSQLite(t.TempDir()+"/test.db", logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,14 +215,14 @@ func newTestFixture(t *testing.T, connectors map[string]upstream.Connector) *tes
 }
 
 // createGrant creates one refresh family and encrypts an optional upstream credential.
-func (f *testFixture) createGrant(t *testing.T, sid, connectorID string, credential *upstream.Credential) storage.RefreshMaterial {
+func (f *testFixture) createGrant(t *testing.T, sid, connectorID string, credential *upstream.Credential) statedb.RefreshMaterial {
 	t.Helper()
 	now := time.Now().UTC()
-	material, err := storage.GenerateRefreshMaterial()
+	material, err := statedb.GenerateRefreshMaterial()
 	if err != nil {
 		t.Fatal(err)
 	}
-	grant := storage.RefreshGrant{SID: sid, ClientID: "client", Email: "user@example.com", Scopes: "openid email profile", ConnectorID: connectorID, UpstreamSubject: "user@example.com", Mode: "session", AuthTime: now.Add(-time.Hour), IdleTTL: time.Hour, AbsoluteExpiry: now.Add(4 * time.Hour)}
+	grant := statedb.RefreshGrant{SID: sid, ClientID: "client", Email: "user@example.com", Scopes: "openid email profile", ConnectorID: connectorID, UpstreamSubject: "user@example.com", Mode: "session", AuthTime: now.Add(-time.Hour), IdleTTL: time.Hour, AbsoluteExpiry: now.Add(4 * time.Hour)}
 	var nonce, ciphertext []byte
 	if credential != nil {
 		grant.UpstreamSubject = "subject"
@@ -230,7 +230,7 @@ func (f *testFixture) createGrant(t *testing.T, sid, connectorID string, credent
 		if encodeErr != nil {
 			t.Fatal(encodeErr)
 		}
-		nonce, ciphertext, err = storage.EncryptCredential(material.Secret, sid, "client", connectorID, encoded)
+		nonce, ciphertext, err = statedb.EncryptCredential(material.Secret, sid, "client", connectorID, encoded)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -260,7 +260,7 @@ func TestDirectExchangeRotatesAndNarrows(t *testing.T) {
 	if sid, _ := idToken.Get("sid"); sid != "direct-sid" {
 		t.Fatalf("sid = %v", sid)
 	}
-	if _, _, err = fixture.store.PrepareRefresh(current, "client", time.Now().UTC()); !errors.Is(err, storage.ErrRefreshReplay) {
+	if _, _, err = fixture.store.PrepareRefresh(current, "client", time.Now().UTC()); !errors.Is(err, statedb.ErrRefreshReplay) {
 		t.Fatalf("old token = %v, want replay", err)
 	}
 }
@@ -306,7 +306,7 @@ func TestCurrentPolicyRevokesGrant(t *testing.T) {
 	if _, exchangeErr := fixture.service.Exchange(context.Background(), Request{Token: current.Token, ClientID: "client"}); exchangeErr == nil || exchangeErr.Code != InvalidGrant {
 		t.Fatalf("policy error = %v", exchangeErr)
 	}
-	if _, _, err := fixture.store.PrepareRefresh(current, "client", time.Now().UTC()); !errors.Is(err, storage.ErrInvalidGrant) {
+	if _, _, err := fixture.store.PrepareRefresh(current, "client", time.Now().UTC()); !errors.Is(err, statedb.ErrInvalidGrant) {
 		t.Fatalf("grant remained active: %v", err)
 	}
 }
@@ -379,7 +379,7 @@ func TestConnectorExchangeRevalidatesAndPersists(t *testing.T) {
 	if verified, _ := idToken.Get("email_verified"); verified != true {
 		t.Fatalf("email_verified = %v", verified)
 	}
-	replacement, err := storage.ParseRefreshToken(result.RefreshToken)
+	replacement, err := statedb.ParseRefreshToken(result.RefreshToken)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -387,7 +387,7 @@ func TestConnectorExchangeRevalidatesAndPersists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = storage.DecryptCredential(replacement.Secret, grant.SID, grant.ClientID, grant.ConnectorID, grant.CredentialNonce, grant.CredentialCiphertext); err != nil {
+	if _, err = statedb.DecryptCredential(replacement.Secret, grant.SID, grant.ClientID, grant.ConnectorID, grant.CredentialNonce, grant.CredentialCiphertext); err != nil {
 		t.Fatalf("replacement credential: %v", err)
 	}
 }
@@ -408,12 +408,12 @@ func TestConnectorRefreshPersistsRotatedCredential(t *testing.T) {
 	if connector.refreshCalls != 1 {
 		t.Fatalf("refresh calls = %d", connector.refreshCalls)
 	}
-	replacement, _ := storage.ParseRefreshToken(result.RefreshToken)
+	replacement, _ := statedb.ParseRefreshToken(result.RefreshToken)
 	grant, _, err := fixture.store.PrepareRefresh(replacement, "client", time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
-	plain, err := storage.DecryptCredential(replacement.Secret, grant.SID, grant.ClientID, grant.ConnectorID, grant.CredentialNonce, grant.CredentialCiphertext)
+	plain, err := statedb.DecryptCredential(replacement.Secret, grant.SID, grant.ClientID, grant.ConnectorID, grant.CredentialNonce, grant.CredentialCiphertext)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -452,7 +452,7 @@ func TestPostRotationIdentityFailureFencesFamily(t *testing.T) {
 	if _, exchangeErr := fixture.service.Exchange(context.Background(), Request{Token: current.Token, ClientID: "client"}); exchangeErr == nil || exchangeErr.Code != InvalidGrant {
 		t.Fatalf("post-rotation error = %v", exchangeErr)
 	}
-	if _, _, err := fixture.store.PrepareRefresh(current, "client", time.Now().UTC()); !errors.Is(err, storage.ErrInvalidGrant) {
+	if _, _, err := fixture.store.PrepareRefresh(current, "client", time.Now().UTC()); !errors.Is(err, statedb.ErrInvalidGrant) {
 		t.Fatalf("stale family remained usable: %v", err)
 	}
 }
@@ -524,7 +524,7 @@ func TestIdentityMismatchRevokesGrant(t *testing.T) {
 	if _, exchangeErr := fixture.service.Exchange(context.Background(), Request{Token: current.Token, ClientID: "client"}); exchangeErr == nil || exchangeErr.Code != InvalidGrant {
 		t.Fatalf("mismatch error = %v", exchangeErr)
 	}
-	if _, _, err := fixture.store.PrepareRefresh(current, "client", time.Now().UTC()); !errors.Is(err, storage.ErrInvalidGrant) {
+	if _, _, err := fixture.store.PrepareRefresh(current, "client", time.Now().UTC()); !errors.Is(err, statedb.ErrInvalidGrant) {
 		t.Fatalf("mismatched family remained usable: %v", err)
 	}
 }

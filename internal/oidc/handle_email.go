@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/easy-oidc/easy-oidc/internal/storage"
+	"github.com/easy-oidc/easy-oidc/internal/statedb"
 	"github.com/easy-oidc/easy-oidc/internal/templates"
 )
 
@@ -70,7 +70,7 @@ func (s *Server) HandleEmailStart(w http.ResponseWriter, r *http.Request) {
 
 // beginOTP creates, sends, and renders a new OTP challenge.
 func (s *Server) beginOTP(w http.ResponseWriter, r *http.Request, state OAuthState, id, subject, email string) {
-	challenge, err := storage.GenerateStateToken()
+	challenge, err := statedb.GenerateStateToken()
 	if err != nil {
 		http.Error(w, "internal error", 500)
 		return
@@ -80,7 +80,7 @@ func (s *Server) beginOTP(w http.ResponseWriter, r *http.Request, state OAuthSta
 		http.Error(w, "internal error", 500)
 		return
 	}
-	flow := storage.OTPFlow{FlowID: state.FlowID, ConnectorID: id, Subject: subject, Email: email, ClientID: state.ClientID, RedirectURI: state.RedirectURI, CodeChallenge: state.CodeChallenge, Nonce: state.Nonce, OIDCState: state.OIDCState, Scopes: state.Scopes, RefreshMode: state.RefreshMode, AuthTime: state.AuthTime, OfflineConsent: state.OfflineConsent, Purpose: state.Purpose}
+	flow := statedb.OTPFlow{FlowID: state.FlowID, ConnectorID: id, Subject: subject, Email: email, ClientID: state.ClientID, RedirectURI: state.RedirectURI, CodeChallenge: state.CodeChallenge, Nonce: state.Nonce, OIDCState: state.OIDCState, Scopes: state.Scopes, RefreshMode: state.RefreshMode, AuthTime: state.AuthTime, OfflineConsent: state.OfflineConsent, Purpose: state.Purpose}
 	otpTTL := s.config.Email.OTPTTL.Duration()
 	expiresAt, err := s.store.CreateOTP(challenge, email, code, flow, s.otpSecret, time.Now(), otpTTL)
 	if err != nil {
@@ -120,7 +120,7 @@ func (s *Server) HandleEmailResend(w http.ResponseWriter, r *http.Request) {
 	}
 	id := r.FormValue("challenge")
 	code, err := otpCode()
-	var flow storage.OTPFlow
+	var flow statedb.OTPFlow
 	var expiresAt time.Time
 	if err == nil {
 		otpTTL := s.config.Email.OTPTTL.Duration()

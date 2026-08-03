@@ -2,13 +2,14 @@
 // Copyright The Easy OIDC Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package storage
+package statedb
 
 import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -39,6 +40,7 @@ func otpMAC(secret []byte, challengeID, code string) []byte {
 
 // CreateOTP atomically enforces the address-only hourly quota, creates a challenge, and returns its expiry.
 func (s *Store) CreateOTP(challengeID, email, code string, flow OTPFlow, secret []byte, now time.Time, ttl time.Duration) (time.Time, error) {
+	email = strings.ToLower(email)
 	expiresAt := now.Add(ttl)
 	context, err := json.Marshal(flow)
 	if err != nil {
@@ -49,6 +51,11 @@ func (s *Store) CreateOTP(challengeID, email, code string, flow OTPFlow, secret 
 		return time.Time{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if s.postgresql {
+		if _, err = tx.Exec(`SELECT pg_advisory_xact_lock(hashtextextended(?,0))`, email); err != nil {
+			return time.Time{}, fmt.Errorf("lock OTP quota: %w", err)
+		}
+	}
 	var count int
 	if err = tx.QueryRow(`SELECT count(*) FROM otp_sends WHERE email=? AND sent_at>?`, email, now.Add(-time.Hour)).Scan(&count); err != nil {
 		return time.Time{}, err
@@ -77,11 +84,16 @@ func (s *Store) ResendOTP(challengeID, code string, secret []byte, now time.Time
 	var email string
 	var context []byte
 	var sentAt, expiresAt time.Time
-	if err = tx.QueryRow(`SELECT email,context,sent_at,expires_at FROM otp_challenges WHERE challenge_id=?`, challengeID).Scan(&email, &context, &sentAt, &expiresAt); err != nil {
+	if err = tx.QueryRow(`SELECT email,context,sent_at,expires_at FROM otp_challenges WHERE challenge_id=?`+s.lockRows(), challengeID).Scan(&email, &context, &sentAt, &expiresAt); err != nil {
 		return OTPFlow{}, time.Time{}, fmt.Errorf("invalid challenge")
 	}
 	if !now.Before(expiresAt) || now.Sub(sentAt) < time.Minute {
 		return OTPFlow{}, time.Time{}, fmt.Errorf("resend unavailable")
+	}
+	if s.postgresql {
+		if _, err = tx.Exec(`SELECT pg_advisory_xact_lock(hashtextextended(?,0))`, email); err != nil {
+			return OTPFlow{}, time.Time{}, fmt.Errorf("lock OTP quota: %w", err)
+		}
 	}
 	var count int
 	if err = tx.QueryRow(`SELECT count(*) FROM otp_sends WHERE email=? AND sent_at>?`, email, now.Add(-time.Hour)).Scan(&count); err != nil {
@@ -135,7 +147,7 @@ func (s *Store) ConsumeOTP(challengeID, code string, secret []byte, now time.Tim
 	var context []byte
 	var attempts int
 	var expires time.Time
-	if err = tx.QueryRow(`SELECT code_hmac,context,attempts,expires_at FROM otp_challenges WHERE challenge_id=?`, challengeID).Scan(&mac, &context, &attempts, &expires); err != nil {
+	if err = tx.QueryRow(`SELECT code_hmac,context,attempts,expires_at FROM otp_challenges WHERE challenge_id=?`+s.lockRows(), challengeID).Scan(&mac, &context, &attempts, &expires); err != nil {
 		return OTPFlow{}, fmt.Errorf("invalid challenge")
 	}
 	if !now.Before(expires) || attempts >= 5 {

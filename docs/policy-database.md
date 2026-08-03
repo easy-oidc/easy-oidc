@@ -21,10 +21,11 @@ database policy with the same ID.
 
 The policy database is read-only; it is not Easy OIDC's operational storage.
 Browser and email-verification state, authorization codes, refresh grants, and
-encrypted renewable provider credentials remain in Easy OIDC's SQLite database
-under `data_dir`. Signing keys, connector secrets, and the PostgreSQL connection
-string remain in the configured secrets provider. The connection string is
-loaded at startup, so rotating it requires restarting Easy OIDC.
+encrypted renewable provider credentials remain in Easy OIDC's protocol state
+database (SQLite by default, or configured PostgreSQL). Signing keys,
+connector secrets, and the PostgreSQL connection string remain in the configured
+secrets provider. The connection string is loaded at startup, so rotating it
+requires restarting Easy OIDC.
 
 ## Quick start
 

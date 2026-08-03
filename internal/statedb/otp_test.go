@@ -2,19 +2,27 @@
 // Copyright The Easy OIDC Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package storage
+package statedb
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"testing"
 	"time"
 )
 
+// TestSQLiteReady verifies the zero-configuration backend reports healthy.
+func TestSQLiteReady(t *testing.T) {
+	if err := otpStore(t).Ready(context.Background()); err != nil {
+		t.Fatalf("SQLite readiness: %v", err)
+	}
+}
+
 // otpStore creates a temporary store for an OTP test.
 func otpStore(t *testing.T) *Store {
 	t.Helper()
-	s, err := New(t.TempDir()+"/test.db", slog.New(slog.NewTextHandler(io.Discard, nil)))
+	s, err := NewSQLite(t.TempDir()+"/test.db", slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
