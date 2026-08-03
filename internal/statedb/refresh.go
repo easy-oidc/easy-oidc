@@ -83,11 +83,12 @@ func nullableTime(value time.Time) any {
 
 // lockRefreshParent discovers a token's family and locks its grant before child rows.
 func (s *Store) lockRefreshParent(tx *transaction, handleHash []byte) (string, error) {
-	var sid string
-	if err := tx.QueryRow(`SELECT sid FROM refresh_tokens WHERE handle_hash=?`, handleHash).Scan(&sid); err != nil {
-		return "", err
+	query := `SELECT g.sid FROM refresh_grants g JOIN refresh_tokens t ON t.sid=g.sid WHERE t.handle_hash=?`
+	if s.postgresql {
+		query += ` FOR UPDATE OF g`
 	}
-	if err := tx.QueryRow(`SELECT sid FROM refresh_grants WHERE sid=?`+s.lockRows(), sid).Scan(&sid); err != nil {
+	var sid string
+	if err := tx.QueryRow(query, handleHash).Scan(&sid); err != nil {
 		return "", err
 	}
 	return sid, nil

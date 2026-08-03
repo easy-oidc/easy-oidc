@@ -31,17 +31,19 @@ func (s *Server) renderGrants(w http.ResponseWriter, email string) {
 		return
 	}
 	data := templates.GrantsData{Title: "Active grants", Email: email}
+	actions := make([]statedb.GrantAction, 0, len(grants))
 	for _, grant := range grants {
 		token, e := statedb.GenerateStateToken()
 		if e != nil {
 			http.Error(w, "grant management unavailable", 500)
 			return
 		}
-		if e = s.store.CreateGrantAction(token, email, grant.SID, "revoke", now, now.Add(5*time.Minute)); e != nil {
-			http.Error(w, "grant management unavailable", http.StatusServiceUnavailable)
-			return
-		}
+		actions = append(actions, statedb.GrantAction{Token: token, SID: grant.SID})
 		data.Grants = append(data.Grants, templates.GrantData{SID: grant.SID, ClientID: grant.ClientID, Mode: grant.Mode, ActionToken: token, Email: email, CreatedAt: grant.CreatedAt, LastUsedAt: grant.LastUsedAt, ExpiresAt: grant.ExpiresAt})
+	}
+	if err = s.store.CreateGrantActions(actions, email, "revoke", now, now.Add(5*time.Minute)); err != nil {
+		http.Error(w, "grant management unavailable", http.StatusServiceUnavailable)
+		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")

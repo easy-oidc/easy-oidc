@@ -130,20 +130,13 @@ func (s *Store) SaveState(state *OAuthState) error {
 
 // GetAndDeleteState retrieves and atomically deletes a state token (single-use enforcement).
 func (s *Store) GetAndDeleteState(stateToken string) (*OAuthState, error) {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return nil, fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	// Retrieve the state
 	var state OAuthState
 	query := `
-		SELECT state_token, client_id, redirect_uri, code_challenge, nonce, oidc_state, created_at, expires_at, connector_id, scopes, refresh_mode, auth_time, offline_consent, purpose
-		FROM oauth_states
-		WHERE state_token = ?` + s.lockRows() + `
+		DELETE FROM oauth_states
+		WHERE state_token = ? AND expires_at >= ?
+		RETURNING state_token, client_id, redirect_uri, code_challenge, nonce, oidc_state, created_at, expires_at, connector_id, scopes, refresh_mode, auth_time, offline_consent, purpose
 	`
-	err = tx.QueryRow(query, stateToken).Scan(
+	err := s.db.QueryRow(query, stateToken, time.Now()).Scan(
 		&state.StateToken,
 		&state.ClientID,
 		&state.RedirectURI,
@@ -156,30 +149,14 @@ func (s *Store) GetAndDeleteState(stateToken string) (*OAuthState, error) {
 		&state.Scopes, &state.RefreshMode, &state.AuthTime, &state.OfflineConsent, &state.Purpose,
 	)
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("state token not found or already used")
+		return nil, fmt.Errorf("state token not found, expired, or already used")
 	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to retrieve state: %w", err)
+		return nil, fmt.Errorf("consume state: %w", err)
 	}
-
-	// Check expiry
 	if time.Now().After(state.ExpiresAt) {
 		return nil, fmt.Errorf("state token has expired")
 	}
-
-	// Delete the state (single-use)
-	result, err := tx.Exec("DELETE FROM oauth_states WHERE state_token = ?", stateToken)
-	if err != nil {
-		return nil, fmt.Errorf("failed to delete state: %w", err)
-	}
-	if affected, rowsErr := result.RowsAffected(); rowsErr != nil || affected != 1 {
-		return nil, fmt.Errorf("state token not found or already used")
-	}
-
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
 	return &state, nil
 }
 
@@ -265,20 +242,13 @@ func (s *Store) PeekAuthCode(codeStr string, now time.Time) (*AuthCode, error) {
 
 // GetAndDeleteAuthCode retrieves and atomically deletes an authorization code (single-use enforcement).
 func (s *Store) GetAndDeleteAuthCode(codeStr string) (*AuthCode, error) {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return nil, fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	// Retrieve the code
 	var code AuthCode
 	query := `
-		SELECT code, client_id, redirect_uri, code_challenge, email, email_verified, nonce, created_at, expires_at, scopes, refresh_mode, auth_time, connector_id, upstream_subject, offline_consent
-		FROM auth_codes
-		WHERE code = ?` + s.lockRows() + `
+		DELETE FROM auth_codes
+		WHERE code = ? AND expires_at >= ?
+		RETURNING code, client_id, redirect_uri, code_challenge, email, email_verified, nonce, created_at, expires_at, scopes, refresh_mode, auth_time, connector_id, upstream_subject, offline_consent
 	`
-	err = tx.QueryRow(query, codeStr).Scan(
+	err := s.db.QueryRow(query, codeStr, time.Now()).Scan(
 		&code.Code,
 		&code.ClientID,
 		&code.RedirectURI,
@@ -291,30 +261,14 @@ func (s *Store) GetAndDeleteAuthCode(codeStr string) (*AuthCode, error) {
 		&code.Scopes, &code.RefreshMode, &code.AuthTime, &code.ConnectorID, &code.UpstreamSubject, &code.OfflineConsent,
 	)
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("authorization code not found or already used")
+		return nil, fmt.Errorf("authorization code not found, expired, or already used")
 	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to retrieve auth code: %w", err)
+		return nil, fmt.Errorf("consume authorization code: %w", err)
 	}
-
-	// Check expiry
 	if time.Now().After(code.ExpiresAt) {
 		return nil, fmt.Errorf("authorization code has expired")
 	}
-
-	// Delete the code (single-use)
-	result, err := tx.Exec("DELETE FROM auth_codes WHERE code = ?", codeStr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to delete auth code: %w", err)
-	}
-	if affected, rowsErr := result.RowsAffected(); rowsErr != nil || affected != 1 {
-		return nil, fmt.Errorf("authorization code not found or already used")
-	}
-
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
 	return &code, nil
 }
 

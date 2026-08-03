@@ -168,6 +168,47 @@ func TestPostgreSQLCrossReplicaSemantics(t *testing.T) {
 	}
 }
 
+// TestPostgreSQLGrantActionConsumeRace verifies batched actions remain single-use across replicas.
+func TestPostgreSQLGrantActionConsumeRace(t *testing.T) {
+	a, b := postgreSQLStores(t)
+	now := time.Now().UTC()
+	material, _ := GenerateRefreshMaterial()
+	grant := RefreshGrant{SID: "managed", ClientID: "client", Email: "user@example.com", Scopes: "openid", Mode: "session", AuthTime: now, IdleTTL: time.Hour, AbsoluteExpiry: now.Add(2 * time.Hour)}
+	if err := a.CreateRefreshGrant(grant, material, nil, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	actions := []GrantAction{{Token: "first", SID: grant.SID}, {Token: "second", SID: grant.SID}}
+	if err := a.CreateGrantActions(actions, grant.Email, "revoke", now, now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	var actionCount int
+	if err := a.db.QueryRow(`SELECT count(*) FROM grant_actions WHERE sid=?`, grant.SID).Scan(&actionCount); err != nil || actionCount != len(actions) {
+		t.Fatalf("stored actions = %d, want %d: %v", actionCount, len(actions), err)
+	}
+	errs := make(chan error, 2)
+	start := make(chan struct{})
+	for _, store := range []*Store{a, b} {
+		go func(s *Store) {
+			<-start
+			errs <- s.ConsumeGrantActionAndRevoke("first", grant.Email, grant.SID, "revoke", now)
+		}(store)
+	}
+	close(start)
+	var succeeded, rejected int
+	for range 2 {
+		if err := <-errs; err == nil {
+			succeeded++
+		} else if errors.Is(err, ErrInvalidGrant) {
+			rejected++
+		} else {
+			t.Fatal(err)
+		}
+	}
+	if succeeded != 1 || rejected != 1 {
+		t.Fatalf("grant action race succeeded=%d rejected=%d", succeeded, rejected)
+	}
+}
+
 // TestPostgreSQLAuthorizationCodeConsumeRace verifies that independent replicas cannot consume one code twice.
 func TestPostgreSQLAuthorizationCodeConsumeRace(t *testing.T) {
 	a, b := postgreSQLStores(t)
