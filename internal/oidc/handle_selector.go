@@ -23,7 +23,7 @@ func (s *Server) renderSelector(w http.ResponseWriter, state OAuthState, ids []s
 	}
 	items := make([]templates.ConnectorData, 0, len(ids))
 	for _, id := range ids {
-		cfg := s.config.Connectors[id]
+		cfg := s.config.UserLoginConnectors[id]
 		items = append(items, templates.ConnectorData{ID: id, DisplayName: cfg.DisplayName, URL: "/select/" + url.PathEscape(id) + "?state=" + url.QueryEscape(token), Email: cfg.Type == "email"})
 	}
 	site := ""
@@ -38,12 +38,12 @@ func (s *Server) renderSelector(w http.ResponseWriter, state OAuthState, ids []s
 
 // connectorIDs returns connector IDs in configured display order.
 func (s *Server) connectorIDs() []string {
-	ids := make([]string, 0, len(s.config.Connectors))
-	for id := range s.config.Connectors {
+	ids := make([]string, 0, len(s.config.UserLoginConnectors))
+	for id := range s.config.UserLoginConnectors {
 		ids = append(ids, id)
 	}
 	sort.Slice(ids, func(i, j int) bool {
-		a, b := s.config.Connectors[ids[i]], s.config.Connectors[ids[j]]
+		a, b := s.config.UserLoginConnectors[ids[i]], s.config.UserLoginConnectors[ids[j]]
 		if a.Order != b.Order {
 			return a.Order < b.Order
 		}
@@ -72,7 +72,7 @@ func (s *Server) HandleSelect(w http.ResponseWriter, r *http.Request) {
 
 // selectConnector redirects an authorization flow to an upstream connector.
 func (s *Server) selectConnector(w http.ResponseWriter, r *http.Request, id string, state OAuthState) {
-	cfg, ok := s.config.Connectors[id]
+	cfg, ok := s.config.UserLoginConnectors[id]
 	if !ok {
 		http.Error(w, "unknown connector", 400)
 		return

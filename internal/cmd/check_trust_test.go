@@ -59,12 +59,13 @@ func newTrustCommandFixture(t *testing.T, repositories ...string) *trustCommandF
 	cfg := config.Config{
 		IssuerURL: "https://downstream.example", HTTPListenAddr: ":8080",
 		Secrets:             config.SecretsConfig{Provider: "env", SigningKeyName: "SIGNING_KEY"},
-		Connectors:          map[string]config.ConnectorConfig{"google": {Type: "google", DisplayName: "Google", CredentialsSecret: "GOOGLE_CREDENTIALS", Scopes: []string{"openid", "email"}}},
-		DefaultRedirectURIs: []string{"http://localhost/callback"}, GroupsOverrides: map[string]map[string][]string{},
-		Clients: map[string]config.ClientConfig{"client": {TrustBindings: bindings}},
-		OIDCTrust: config.OIDCTrustConfig{
-			Issuers:  map[string]config.TrustIssuerConfig{"local": {Provider: "oidc", IssuerURL: fixture.server.URL, SigningAlgs: []string{"RS256"}, MaxTokenAge: config.Duration(10 * time.Minute)}},
-			Policies: policies,
+		UserLoginConnectors: map[string]config.ConnectorConfig{"google": {Type: "google", DisplayName: "Google", CredentialsSecret: "GOOGLE_CREDENTIALS", Scopes: []string{"openid", "email"}}},
+		ServiceTokenIssuers: map[string]config.TrustIssuerConfig{"local": {Provider: "oidc", IssuerURL: fixture.server.URL, SigningAlgs: []string{"RS256"}, MaxTokenAge: config.Duration(10 * time.Minute)}},
+		StaticPolicy: config.StaticPolicyConfig{
+			DefaultRedirectURIs: []string{"http://localhost/callback"},
+			UserGroupMappings:   map[string]map[string][]string{},
+			Clients:             map[string]config.ClientConfig{"client": {TrustBindings: bindings}},
+			TrustPolicies:       policies,
 		},
 	}
 	data, err := json.Marshal(cfg)

@@ -25,7 +25,7 @@
   },
 
   // Upstream connector
-  "connectors": {
+  "user_login_connectors": {
     "github": {
       "type": "github",
       "display_name": "GitHub",
@@ -39,21 +39,23 @@
     },
   },
 
-  // Default redirect URIs
-  "default_redirect_uris": ["http://localhost:8000"],
+  "static_policy": {
+    // Default redirect URIs
+    "default_redirect_uris": ["http://localhost:8000"],
 
-  // Groups overrides
-  "groups_overrides": {
-    "prod-groups": {
-      "alice@example.com": ["admins", "developers"],
-      "bob@example.com": ["readonly"],
+    // User group mappings
+    "user_group_mappings": {
+      "prod-groups": {
+        "alice@example.com": ["admins", "developers"],
+        "bob@example.com": ["readonly"],
+      },
     },
-  },
 
-  // OIDC clients
-  "clients": {
-    "kubelogin-prod": {
-      "groups_override": "prod-groups",
+    // OIDC clients
+    "clients": {
+      "kubelogin-prod": {
+        "user_group_mapping": "prod-groups",
+      },
     },
   },
 

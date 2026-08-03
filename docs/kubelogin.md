@@ -245,7 +245,7 @@ Then bind the ServiceAccount to a Role or ClusterRole, and use its token in the 
 **"failed to get token"**:
 - Verify Easy OIDC is accessible: `curl https://auth.example.com/.well-known/openid-configuration`
 - Check that the `--oidc-client-id` matches a client configured in Easy OIDC
-- Ensure the redirect URI `http://localhost:8000` is in the client's `default_redirect_uris`
+- Ensure `http://localhost:8000` is allowed by the client's redirect policy
 
 **"token expired" on every command**:
 - Check system clock is synchronized (use NTP)
@@ -270,7 +270,8 @@ args:
 - --listen-address=127.0.0.1:18000
 ```
 
-Don't forget to update `default_redirect_uris` in Easy OIDC to `["http://localhost:18000"]`.
+Also add `http://localhost:18000` to `static_policy.default_redirect_uris`
+or that client's `redirect_uris`.
 
 **Skip browser opening** (display URL instead):
 

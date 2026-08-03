@@ -13,13 +13,15 @@
       "connection_string_secret": "EASYOIDC_STATE_MIGRATION_DB_URL",
     },
   },
-  "connectors": {
+  "user_login_connectors": {
     "google": {
       "type": "google",
       "display_name": "Google",
       "credentials_secret": "EASYOIDC_GOOGLE_CREDENTIALS",
     },
   },
-  "default_redirect_uris": ["http://localhost:8000"],
-  "clients": { "kubelogin-local": {} },
+  "static_policy": {
+    "default_redirect_uris": ["http://localhost:8000"],
+    "clients": { "kubelogin-local": {} },
+  },
 }

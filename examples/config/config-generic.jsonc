@@ -22,7 +22,7 @@
   },
 
   // Upstream connector - Generic OAuth2/OIDC provider
-  "connectors": {
+  "user_login_connectors": {
     "generic": {
       "type": "generic",
       "display_name": "Generic OIDC",
@@ -40,22 +40,24 @@
     },
   },
 
-  // Default redirect URIs (used if not specified per client)
-  "default_redirect_uris": ["http://localhost:8000"],
+  "static_policy": {
+    // Default redirect URIs (used if not specified per client)
+    "default_redirect_uris": ["http://localhost:8000"],
 
-  // Groups overrides (email → groups mappings)
-  "groups_overrides": {
-    "prod-groups": {
-      "alice@example.com": ["admins", "developers"],
-      "bob@example.com": ["readonly"],
+    // User group mappings (email → groups)
+    "user_group_mappings": {
+      "prod-groups": {
+        "alice@example.com": ["admins", "developers"],
+        "bob@example.com": ["readonly"],
+      },
     },
-  },
 
-  // OIDC clients (key is the client_id)
-  "clients": {
-    "kubelogin-prod": {
-      "redirect_uris": ["http://localhost:8000"],
-      "groups_override": "prod-groups",
+    // OIDC clients (key is the client_id)
+    "clients": {
+      "kubelogin-prod": {
+        "redirect_uris": ["http://localhost:8000"],
+        "user_group_mapping": "prod-groups",
+      },
     },
   },
 

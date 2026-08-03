@@ -107,12 +107,16 @@ func TestProviderResponseCrashProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	signer := tokens.NewSigner(&tokens.SigningKey{Algorithm: jwa.EdDSA, PrivateKey: privateKey, PublicKey: publicKey}, "kid", "https://issuer.example", time.Hour)
-	requireGroups := false
+	requireUserGroupsFromPolicy := false
 	cfg := &config.Config{
-		AccessTokenTTL: config.Duration(15 * time.Minute), IDTokenTTL: config.Duration(10 * time.Minute), RequireGroups: &requireGroups,
-		Email:      &config.EmailConfig{VerificationMode: "provider"},
-		Connectors: map[string]config.ConnectorConfig{"provider": {Type: "generic"}},
-		Clients:    map[string]config.ClientConfig{"client": {RefreshTokens: config.RefreshTokenConfig{Enabled: true}}},
+		AccessTokenTTL:      config.Duration(15 * time.Minute),
+		IDTokenTTL:          config.Duration(10 * time.Minute),
+		Email:               &config.EmailConfig{VerificationMode: "provider"},
+		UserLoginConnectors: map[string]config.ConnectorConfig{"provider": {Type: "generic"}},
+		StaticPolicy: config.StaticPolicyConfig{
+			RequireUserGroupsFromPolicy: &requireUserGroupsFromPolicy,
+			Clients:                     map[string]config.ClientConfig{"client": {RefreshTokens: config.RefreshTokenConfig{Enabled: true}}},
+		},
 	}
 	connector := &testConnector{refreshed: &upstream.Credential{AccessToken: "new-access", RefreshToken: "new-refresh", AccessExpiry: time.Now().Add(time.Hour)}, exitOnIdentity: true}
 	service := NewService(cfg, store, signer, map[string]upstream.Connector{"provider": connector}, logger, authpolicy.NewResolver(cfg, nil))
@@ -197,18 +201,20 @@ func newTestFixture(t *testing.T, connectors map[string]upstream.Connector) *tes
 		t.Fatal(err)
 	}
 	signer := tokens.NewSigner(&tokens.SigningKey{Algorithm: jwa.EdDSA, PrivateKey: privateKey, PublicKey: publicKey}, "kid", "https://issuer.example", time.Hour)
-	requireGroups := false
+	requireUserGroupsFromPolicy := false
 	cfg := &config.Config{
 		AccessTokenTTL: config.Duration(15 * time.Minute),
 		IDTokenTTL:     config.Duration(10 * time.Minute),
-		RequireGroups:  &requireGroups,
 		Email:          &config.EmailConfig{VerificationMode: "provider"},
-		Connectors: map[string]config.ConnectorConfig{
+		UserLoginConnectors: map[string]config.ConnectorConfig{
 			"email":    {Type: "email"},
 			"provider": {Type: "generic"},
 		},
-		Clients: map[string]config.ClientConfig{
-			"client": {RefreshTokens: config.RefreshTokenConfig{Enabled: true, AllowOfflineAccess: true}},
+		StaticPolicy: config.StaticPolicyConfig{
+			RequireUserGroupsFromPolicy: &requireUserGroupsFromPolicy,
+			Clients: map[string]config.ClientConfig{
+				"client": {RefreshTokens: config.RefreshTokenConfig{Enabled: true, AllowOfflineAccess: true}},
+			},
 		},
 	}
 	return &testFixture{service: NewService(cfg, store, signer, connectors, logger, authpolicy.NewResolver(cfg, nil)), store: store, signer: signer, cfg: cfg}
@@ -300,9 +306,9 @@ func TestReplayRevokesReplacement(t *testing.T) {
 func TestCurrentPolicyRevokesGrant(t *testing.T) {
 	fixture := newTestFixture(t, nil)
 	current := fixture.createGrant(t, "policy-sid", "email", nil)
-	client := fixture.cfg.Clients["client"]
+	client := fixture.cfg.StaticPolicy.Clients["client"]
 	client.RefreshTokens.Enabled = false
-	fixture.cfg.Clients["client"] = client
+	fixture.cfg.StaticPolicy.Clients["client"] = client
 	if _, exchangeErr := fixture.service.Exchange(context.Background(), Request{Token: current.Token, ClientID: "client"}); exchangeErr == nil || exchangeErr.Code != InvalidGrant {
 		t.Fatalf("policy error = %v", exchangeErr)
 	}
@@ -315,7 +321,7 @@ func TestCurrentPolicyRevokesGrant(t *testing.T) {
 func TestDynamicPolicyPersistence(t *testing.T) {
 	t.Run("indeterminate then current groups", func(t *testing.T) {
 		fixture := newTestFixture(t, nil)
-		client := fixture.cfg.Clients["client"]
+		client := fixture.cfg.StaticPolicy.Clients["client"]
 		fake := &fakePolicyResolver{client: authpolicy.ResolvedClient{Config: client}, userErrors: []error{&authpolicy.IndeterminateError{Err: context.DeadlineExceeded}, nil}, userResults: []authpolicy.ResolvedUser{{}, {Groups: []string{"updated"}}}}
 		fixture.service.policyResolver = fake
 		current := fixture.createGrant(t, "dynamic-retry", "email", nil)
@@ -344,7 +350,7 @@ func TestDynamicPolicyPersistence(t *testing.T) {
 	})
 	t.Run("definitive denial revokes", func(t *testing.T) {
 		fixture := newTestFixture(t, nil)
-		client := fixture.cfg.Clients["client"]
+		client := fixture.cfg.StaticPolicy.Clients["client"]
 		fixture.service.policyResolver = &fakePolicyResolver{client: authpolicy.ResolvedClient{Config: client}, userErrors: []error{authpolicy.ErrDenied}}
 		current := fixture.createGrant(t, "dynamic-denial", "email", nil)
 		if _, failure := fixture.service.Exchange(context.Background(), Request{Token: current.Token, ClientID: "client"}); failure == nil || failure.Code != InvalidGrant {

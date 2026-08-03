@@ -151,7 +151,7 @@ A representative multiple-connector configuration is:
     "path": "/var/lib/easy-oidc/easy-oidc-state.db"
   },
 
-  "connectors": {
+  "user_login_connectors": {
     "company-google": {
       "type": "google",
       "display_name": "Company Google",
@@ -175,16 +175,18 @@ A representative multiple-connector configuration is:
     }
   },
 
-  "default_redirect_uris": ["http://localhost:8000"],
-  "groups_overrides": {
-    "production": {
-      "alice@example.com": ["cluster-admins", "developers"],
-      "bob@example.com": ["developers"]
-    }
-  },
-  "clients": {
-    "kubelogin-prod": {
-      "groups_override": "production"
+  "static_policy": {
+    "default_redirect_uris": ["http://localhost:8000"],
+    "user_group_mappings": {
+      "production": {
+        "alice@example.com": ["cluster-admins", "developers"],
+        "bob@example.com": ["developers"]
+      }
+    },
+    "clients": {
+      "kubelogin-prod": {
+        "user_group_mapping": "production"
+      }
     }
   }
 }
@@ -202,15 +204,17 @@ for direct email, GitHub, SMTP, Turnstile, and template settings.
 For an authenticated email and downstream client:
 
 1. Normalize the email to lowercase.
-2. Read the client's `groups_override` name.
-3. Look up that named map under `groups_overrides`, then look up the email.
+2. Read the client's `user_group_mapping` name.
+3. Look up that named map under `static_policy.user_group_mappings`, then look up the email.
 4. Return an empty list if either lookup is absent.
 5. Deduplicate and sort the resulting groups.
-6. Reject token exchange when the effective `require_groups` setting is true and
+6. Reject token exchange when the effective `require_user_groups_from_policy` setting is true and
    the result is empty.
 
-The client-level `require_groups` setting overrides the global setting. It
-defaults to true when neither is configured.
+The client-level `require_user_groups_from_policy` setting overrides
+`static_policy.require_user_groups_from_policy`. It defaults to true when neither is configured.
+Only groups resolved by Easy OIDC policy satisfy this requirement; upstream
+group claims do not.
 
 ## ID token claims
 

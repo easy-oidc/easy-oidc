@@ -106,7 +106,7 @@ func run(ctx context.Context, output io.Writer, configPath string, debug bool) e
 			return fmt.Errorf("load policy database connection string")
 		}
 		startupCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		policyDatabase, err = authpolicy.NewPostgreSQL(startupCtx, connectionString, *cfg.PolicyDatabase, cfg.OIDCTrust.Issuers, logger)
+		policyDatabase, err = authpolicy.NewPostgreSQL(startupCtx, connectionString, *cfg.PolicyDatabase, cfg.ServiceTokenIssuers, logger)
 		cancel()
 		if err != nil {
 			return fmt.Errorf("initialize policy database: %w", err)
@@ -139,7 +139,7 @@ func run(ctx context.Context, output io.Writer, configPath string, debug bool) e
 
 	// Load credentials and initialize every configured upstream connector.
 	connectors := make(map[string]upstream.Connector)
-	for id, connectorConfig := range cfg.Connectors {
+	for id, connectorConfig := range cfg.UserLoginConnectors {
 		if connectorConfig.Type == "email" {
 			continue
 		}
@@ -182,7 +182,7 @@ func run(ctx context.Context, output io.Writer, configPath string, debug bool) e
 	var otpSecret []byte
 	if cfg.Email != nil {
 		hasEmailConnector := false
-		for _, connectorConfig := range cfg.Connectors {
+		for _, connectorConfig := range cfg.UserLoginConnectors {
 			if connectorConfig.Type == "email" {
 				hasEmailConnector = true
 				break
@@ -292,7 +292,7 @@ func run(ctx context.Context, output io.Writer, configPath string, debug bool) e
 	httpServer := &http.Server{Addr: cfg.HTTPListenAddr, Handler: mux, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 
 	// Run the server and wait for either a server error or a shutdown signal.
-	logger.Info("starting easy-oidc server", "version", buildvars.BuildVersion(), "issuer", cfg.IssuerURL, "listen_addr", cfg.HTTPListenAddr, "connectors", len(cfg.Connectors))
+	logger.Info("starting easy-oidc server", "version", buildvars.BuildVersion(), "issuer", cfg.IssuerURL, "listen_addr", cfg.HTTPListenAddr, "connectors", len(cfg.UserLoginConnectors))
 	serverErrors := make(chan error, 1)
 	go func() {
 		serverErrors <- httpServer.ListenAndServe()

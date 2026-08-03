@@ -49,7 +49,7 @@ func (s *Server) HandleEmailStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	connectorID := r.FormValue("connector")
-	connector, ok := s.config.Connectors[connectorID]
+	connector, ok := s.config.UserLoginConnectors[connectorID]
 	if !ok || connector.Type != "email" {
 		http.Error(w, "invalid connector", 400)
 		return

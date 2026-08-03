@@ -29,7 +29,7 @@ import (
 	"github.com/lestrrat-go/jwx/v2/jwa"
 )
 
-func TestHandleToken_RequireGroups(t *testing.T) {
+func TestHandleToken_RequireUserGroupsFromPolicy(t *testing.T) {
 	pubKey, privKey, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		t.Fatalf("failed to generate keys: %v", err)
@@ -44,64 +44,64 @@ func TestHandleToken_RequireGroups(t *testing.T) {
 	signer := tokens.NewSigner(signingKey, "test-kid", "https://test.example.com", time.Hour)
 
 	tests := []struct {
-		name                string
-		globalRequireGroups *bool
-		clientRequireGroups *bool
-		userGroups          []string
-		expectSuccess       bool
-		expectedError       string
+		name                              string
+		policyRequireUserGroupsFromPolicy *bool
+		clientRequireUserGroupsFromPolicy *bool
+		userGroups                        []string
+		expectSuccess                     bool
+		expectedError                     string
 	}{
 		{
-			name:                "global true, client unset, empty groups - reject",
-			globalRequireGroups: boolPtr(true),
-			clientRequireGroups: nil,
-			userGroups:          []string{},
-			expectSuccess:       false,
-			expectedError:       "access_denied",
+			name:                              "policy true, client unset, empty groups - reject",
+			policyRequireUserGroupsFromPolicy: boolPtr(true),
+			clientRequireUserGroupsFromPolicy: nil,
+			userGroups:                        []string{},
+			expectSuccess:                     false,
+			expectedError:                     "access_denied",
 		},
 		{
-			name:                "global true, client false, empty groups - allow",
-			globalRequireGroups: boolPtr(true),
-			clientRequireGroups: boolPtr(false),
-			userGroups:          []string{},
-			expectSuccess:       true,
+			name:                              "policy true, client false, empty groups - allow",
+			policyRequireUserGroupsFromPolicy: boolPtr(true),
+			clientRequireUserGroupsFromPolicy: boolPtr(false),
+			userGroups:                        []string{},
+			expectSuccess:                     true,
 		},
 		{
-			name:                "global false, client true, empty groups - reject",
-			globalRequireGroups: boolPtr(false),
-			clientRequireGroups: boolPtr(true),
-			userGroups:          []string{},
-			expectSuccess:       false,
-			expectedError:       "access_denied",
+			name:                              "policy false, client true, empty groups - reject",
+			policyRequireUserGroupsFromPolicy: boolPtr(false),
+			clientRequireUserGroupsFromPolicy: boolPtr(true),
+			userGroups:                        []string{},
+			expectSuccess:                     false,
+			expectedError:                     "access_denied",
 		},
 		{
-			name:                "global false, client unset, empty groups - allow",
-			globalRequireGroups: boolPtr(false),
-			clientRequireGroups: nil,
-			userGroups:          []string{},
-			expectSuccess:       true,
+			name:                              "policy false, client unset, empty groups - allow",
+			policyRequireUserGroupsFromPolicy: boolPtr(false),
+			clientRequireUserGroupsFromPolicy: nil,
+			userGroups:                        []string{},
+			expectSuccess:                     true,
 		},
 		{
-			name:                "global nil (default true), client unset, empty groups - reject",
-			globalRequireGroups: nil,
-			clientRequireGroups: nil,
-			userGroups:          []string{},
-			expectSuccess:       false,
-			expectedError:       "access_denied",
+			name:                              "policy nil (default true), client unset, empty groups - reject",
+			policyRequireUserGroupsFromPolicy: nil,
+			clientRequireUserGroupsFromPolicy: nil,
+			userGroups:                        []string{},
+			expectSuccess:                     false,
+			expectedError:                     "access_denied",
 		},
 		{
-			name:                "global true, client unset, with groups - allow",
-			globalRequireGroups: boolPtr(true),
-			clientRequireGroups: nil,
-			userGroups:          []string{"admins"},
-			expectSuccess:       true,
+			name:                              "policy true, client unset, with groups - allow",
+			policyRequireUserGroupsFromPolicy: boolPtr(true),
+			clientRequireUserGroupsFromPolicy: nil,
+			userGroups:                        []string{"admins"},
+			expectSuccess:                     true,
 		},
 		{
-			name:                "global false, client false, with groups - allow",
-			globalRequireGroups: boolPtr(false),
-			clientRequireGroups: boolPtr(false),
-			userGroups:          []string{"developers"},
-			expectSuccess:       true,
+			name:                              "policy false, client false, with groups - allow",
+			policyRequireUserGroupsFromPolicy: boolPtr(false),
+			clientRequireUserGroupsFromPolicy: boolPtr(false),
+			userGroups:                        []string{"developers"},
+			expectSuccess:                     true,
 		},
 	}
 
@@ -109,17 +109,19 @@ func TestHandleToken_RequireGroups(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &config.Config{
 				IssuerURL:      "https://test.example.com",
-				RequireGroups:  tt.globalRequireGroups,
 				AccessTokenTTL: config.Duration(time.Hour),
 				IDTokenTTL:     config.Duration(time.Hour),
-				Clients: map[string]config.ClientConfig{
-					"test-client": {
-						RequireGroups:  tt.clientRequireGroups,
-						GroupsOverride: "test-override",
+				StaticPolicy: config.StaticPolicyConfig{
+					RequireUserGroupsFromPolicy: tt.policyRequireUserGroupsFromPolicy,
+					Clients: map[string]config.ClientConfig{
+						"test-client": {
+							RequireUserGroupsFromPolicy: tt.clientRequireUserGroupsFromPolicy,
+							UserGroupMapping:            "test-override",
+						},
 					},
-				},
-				GroupsOverrides: map[string]map[string][]string{
-					"test-override": {"user@example.com": tt.userGroups},
+					UserGroupMappings: map[string]map[string][]string{
+						"test-override": {"user@example.com": tt.userGroups},
+					},
 				},
 			}
 
@@ -218,15 +220,17 @@ func refreshTokenServer(t *testing.T) (*Server, *statedb.Store, *AuthCodeManager
 	if err != nil {
 		t.Fatal(err)
 	}
-	requireGroups := false
+	requireUserGroupsFromPolicy := false
 	cfg := &config.Config{
-		IssuerURL:      "https://issuer.example",
-		AccessTokenTTL: config.Duration(15 * time.Minute),
-		IDTokenTTL:     config.Duration(10 * time.Minute),
-		RequireGroups:  &requireGroups,
-		Connectors:     map[string]config.ConnectorConfig{"provider": {Type: "email"}},
-		Clients: map[string]config.ClientConfig{
-			"client": {RefreshTokens: config.RefreshTokenConfig{Enabled: true, SessionIdleTTL: config.Duration(time.Hour), SessionAbsoluteTTL: config.Duration(4 * time.Hour)}},
+		IssuerURL:           "https://issuer.example",
+		AccessTokenTTL:      config.Duration(15 * time.Minute),
+		IDTokenTTL:          config.Duration(10 * time.Minute),
+		UserLoginConnectors: map[string]config.ConnectorConfig{"provider": {Type: "email"}},
+		StaticPolicy: config.StaticPolicyConfig{
+			RequireUserGroupsFromPolicy: &requireUserGroupsFromPolicy,
+			Clients: map[string]config.ClientConfig{
+				"client": {RefreshTokens: config.RefreshTokenConfig{Enabled: true, SessionIdleTTL: config.Duration(time.Hour), SessionAbsoluteTTL: config.Duration(4 * time.Hour)}},
+			},
 		},
 	}
 	key := []byte("01234567890123456789012345678901")
@@ -247,7 +251,7 @@ func exchangeCodeRequest(server *Server, code, verifier string) *httptest.Respon
 // TestDynamicCodeRedemptionPreservesCodeUntilDefinitiveAuthorization verifies retry-safe SQLite redemption.
 func TestDynamicCodeRedemptionPreservesCodeUntilDefinitiveAuthorization(t *testing.T) {
 	server, store, manager, _ := refreshTokenServer(t)
-	client := server.config.Clients["client"]
+	client := server.config.StaticPolicy.Clients["client"]
 	client.RefreshTokens.Enabled = false
 	fake := &fakePolicyResolver{
 		client:      authpolicy.ResolvedClient{Config: client},
@@ -295,7 +299,7 @@ func TestDynamicCodeRedemptionPreservesCodeUntilDefinitiveAuthorization(t *testi
 // TestDynamicCodeRedemptionDenialIssuesNothing verifies definitive denial consumes no code or token state.
 func TestDynamicCodeRedemptionDenialIssuesNothing(t *testing.T) {
 	server, store, manager, _ := refreshTokenServer(t)
-	client := server.config.Clients["client"]
+	client := server.config.StaticPolicy.Clients["client"]
 	client.RefreshTokens.Enabled = false
 	server.policyResolver = &fakePolicyResolver{client: authpolicy.ResolvedClient{Config: client}, userErrors: []error{authpolicy.ErrDenied}}
 	verifier := "test-verifier-dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
@@ -336,14 +340,16 @@ func responseLossServer(t *testing.T, path string) (*Server, *statedb.Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	requireGroups := false
+	requireUserGroupsFromPolicy := false
 	cfg := &config.Config{
-		IssuerURL:      "https://issuer.example",
-		AccessTokenTTL: config.Duration(15 * time.Minute),
-		IDTokenTTL:     config.Duration(10 * time.Minute),
-		RequireGroups:  &requireGroups,
-		Connectors:     map[string]config.ConnectorConfig{"provider": {Type: "email"}},
-		Clients:        map[string]config.ClientConfig{"client": {RefreshTokens: config.RefreshTokenConfig{Enabled: true}}},
+		IssuerURL:           "https://issuer.example",
+		AccessTokenTTL:      config.Duration(15 * time.Minute),
+		IDTokenTTL:          config.Duration(10 * time.Minute),
+		UserLoginConnectors: map[string]config.ConnectorConfig{"provider": {Type: "email"}},
+		StaticPolicy: config.StaticPolicyConfig{
+			RequireUserGroupsFromPolicy: &requireUserGroupsFromPolicy,
+			Clients:                     map[string]config.ClientConfig{"client": {RefreshTokens: config.RefreshTokenConfig{Enabled: true}}},
+		},
 	}
 	signer := tokens.NewSigner(newTestSigningKey(t), "kid", cfg.IssuerURL, time.Hour)
 	return NewServer(cfg, nil, nil, signer, nil, logger, store, nil, nil, nil, nil, nil, nil, nil), store

@@ -98,7 +98,7 @@ func newTrustPolicyResolver(ctx context.Context, cfg *config.Config) (*authpolic
 	}
 	startupCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	policyDatabase, err := authpolicy.NewPostgreSQL(startupCtx, connectionString, *cfg.PolicyDatabase, cfg.OIDCTrust.Issuers, slog.Default())
+	policyDatabase, err := authpolicy.NewPostgreSQL(startupCtx, connectionString, *cfg.PolicyDatabase, cfg.ServiceTokenIssuers, slog.Default())
 	if err != nil {
 		return nil, func() {}, fmt.Errorf("initialize policy database: %w", err)
 	}

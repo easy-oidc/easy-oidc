@@ -146,7 +146,7 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request, state OAuthSta
 		}
 		return
 	}
-	connectorConfig, connectorConfigured := s.config.Connectors[state.ConnectorID]
+	connectorConfig, connectorConfigured := s.config.UserLoginConnectors[state.ConnectorID]
 	credentialBacked := false
 	var credential []byte
 	if state.RefreshMode != "" && state.FlowID != "" {

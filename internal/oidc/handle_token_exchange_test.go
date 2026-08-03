@@ -106,7 +106,21 @@ func tokenExchangeServer(t *testing.T, issuer *tokenExchangeIssuer, policies int
 		policyConfig[name] = config.TrustPolicyConfig{Issuer: "local", Subject: "trusted:builder", Groups: []string{"builders", "release"}, Claims: map[string]json.RawMessage{"repository": json.RawMessage(`{"const":"acme/project"}`)}}
 		bindings[i] = config.TrustBindingConfig{ID: "binding-" + name, TrustPolicy: name}
 	}
-	cfg := &config.Config{IssuerURL: "https://downstream.example", HTTPListenAddr: ":8080", Secrets: config.SecretsConfig{Provider: "env", SigningKeyName: "KEY"}, Connectors: map[string]config.ConnectorConfig{"google": {Type: "google", DisplayName: "Google", CredentialsSecret: "GOOGLE_KEY"}}, DefaultRedirectURIs: []string{"http://localhost/callback"}, GroupsOverrides: map[string]map[string][]string{}, IDTokenTTL: config.Duration(20 * time.Minute), AccessTokenTTL: config.Duration(time.Hour), Clients: map[string]config.ClientConfig{"client": {TrustBindings: bindings}, "other-client": {}}, OIDCTrust: config.OIDCTrustConfig{Issuers: map[string]config.TrustIssuerConfig{"local": {Provider: "oidc", IssuerURL: issuer.server.URL, SigningAlgs: []string{"RS256"}, MaxTokenAge: config.Duration(10 * time.Minute)}}, Policies: policyConfig}}
+	cfg := &config.Config{
+		IssuerURL:           "https://downstream.example",
+		HTTPListenAddr:      ":8080",
+		Secrets:             config.SecretsConfig{Provider: "env", SigningKeyName: "KEY"},
+		UserLoginConnectors: map[string]config.ConnectorConfig{"google": {Type: "google", DisplayName: "Google", CredentialsSecret: "GOOGLE_KEY"}},
+		ServiceTokenIssuers: map[string]config.TrustIssuerConfig{"local": {Provider: "oidc", IssuerURL: issuer.server.URL, SigningAlgs: []string{"RS256"}, MaxTokenAge: config.Duration(10 * time.Minute)}},
+		IDTokenTTL:          config.Duration(20 * time.Minute),
+		AccessTokenTTL:      config.Duration(time.Hour),
+		StaticPolicy: config.StaticPolicyConfig{
+			DefaultRedirectURIs: []string{"http://localhost/callback"},
+			UserGroupMappings:   map[string]map[string][]string{},
+			TrustPolicies:       policyConfig,
+			Clients:             map[string]config.ClientConfig{"client": {TrustBindings: bindings}, "other-client": {}},
+		},
+	}
 	data, err := json.Marshal(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -146,7 +160,7 @@ func validTokenExchangeForm(raw string) url.Values {
 func TestTokenExchangePolicyResolver(t *testing.T) {
 	issuer := newTokenExchangeIssuer(t)
 	server, signingKey := tokenExchangeServer(t, issuer, 2)
-	staticClient := server.config.Clients["client"]
+	staticClient := server.config.StaticPolicy.Clients["client"]
 	first := staticClient.TrustBindings[0].Effective
 	second := staticClient.TrustBindings[1].Effective
 	firstDynamic := config.EffectiveTrustBinding{ID: "live-first", Subject: "current:first", Groups: []string{"current-a"}, Schema: first.Schema}
@@ -210,8 +224,8 @@ func TestTokenExchangePolicyResolver(t *testing.T) {
 func TestTokenExchangeUsesSourceAgnosticTrust(t *testing.T) {
 	issuer := newTokenExchangeIssuer(t)
 	server, _ := tokenExchangeServer(t, issuer, 1)
-	effective := server.config.Clients["client"].TrustBindings[0].Effective
-	fake := &fakePolicyResolver{client: authpolicy.ResolvedClient{Config: server.config.Clients["client"]}, trust: []config.EffectiveTrustBinding{*effective}}
+	effective := server.config.StaticPolicy.Clients["client"].TrustBindings[0].Effective
+	fake := &fakePolicyResolver{client: authpolicy.ResolvedClient{Config: server.config.StaticPolicy.Clients["client"]}, trust: []config.EffectiveTrustBinding{*effective}}
 	server.policyResolver = fake
 	originalTransport := http.DefaultTransport
 	http.DefaultTransport = issuer.server.Client().Transport

@@ -31,12 +31,6 @@ func (denySchemaLoader) Load(location string) (any, error) {
 	return nil, fmt.Errorf("external schema %q is disabled", location)
 }
 
-// OIDCTrustConfig separates trusted issuers from reusable policies.
-type OIDCTrustConfig struct {
-	Issuers  map[string]TrustIssuerConfig `json:"issuers,omitempty"`
-	Policies map[string]TrustPolicyConfig `json:"policies,omitempty"`
-}
-
 // TrustIssuerConfig configures external OIDC verification.
 type TrustIssuerConfig struct {
 	Provider    string   `json:"provider"`
@@ -78,8 +72,8 @@ var presetClaims = map[string]map[string]bool{
 
 // validateTrust applies presets, validates inheritance, and compiles every binding schema.
 func validateTrust(cfg *Config) error {
-	issuerURLs := make(map[string]string, len(cfg.OIDCTrust.Issuers))
-	for name, issuer := range cfg.OIDCTrust.Issuers {
+	issuerURLs := make(map[string]string, len(cfg.ServiceTokenIssuers))
+	for name, issuer := range cfg.ServiceTokenIssuers {
 		if !trustNamePattern.MatchString(name) {
 			return fmt.Errorf("issuer name %q is invalid", name)
 		}
@@ -117,13 +111,13 @@ func validateTrust(cfg *Config) error {
 			return fmt.Errorf("issuers %q and %q have the same effective issuer_url", other, name)
 		}
 		issuerURLs[issuer.IssuerURL] = name
-		cfg.OIDCTrust.Issuers[name] = issuer
+		cfg.ServiceTokenIssuers[name] = issuer
 	}
-	for policyName, policy := range cfg.OIDCTrust.Policies {
+	for policyName, policy := range cfg.StaticPolicy.TrustPolicies {
 		if !trustNamePattern.MatchString(policyName) {
 			return fmt.Errorf("policy name %q is invalid", policyName)
 		}
-		issuer, ok := cfg.OIDCTrust.Issuers[policy.Issuer]
+		issuer, ok := cfg.ServiceTokenIssuers[policy.Issuer]
 		if !ok {
 			return fmt.Errorf("policy %q: unknown issuer", policyName)
 		}
@@ -131,7 +125,7 @@ func validateTrust(cfg *Config) error {
 			return fmt.Errorf("policy %q: %w", policyName, err)
 		}
 	}
-	for clientID, client := range cfg.Clients {
+	for clientID, client := range cfg.StaticPolicy.Clients {
 		if len(client.TrustBindings) > maxTrustBindings {
 			return fmt.Errorf("client %q: at most %d trust bindings are allowed", clientID, maxTrustBindings)
 		}
@@ -142,11 +136,11 @@ func validateTrust(cfg *Config) error {
 				return fmt.Errorf("client %q: trust binding IDs must be nonempty and unique", clientID)
 			}
 			seen[binding.ID] = true
-			policy, ok := cfg.OIDCTrust.Policies[binding.TrustPolicy]
+			policy, ok := cfg.StaticPolicy.TrustPolicies[binding.TrustPolicy]
 			if !ok {
 				return fmt.Errorf("client %q binding %q: unknown trust_policy", clientID, binding.ID)
 			}
-			issuer := cfg.OIDCTrust.Issuers[policy.Issuer]
+			issuer := cfg.ServiceTokenIssuers[policy.Issuer]
 			subject := policy.Subject
 			if binding.Subject != nil {
 				subject = *binding.Subject
@@ -183,7 +177,7 @@ func validateTrust(cfg *Config) error {
 			}
 			binding.Effective = &EffectiveTrustBinding{ID: binding.ID, Policy: binding.TrustPolicy, Issuer: policy.Issuer, Subject: subject, Groups: append([]string(nil), groups...), Schema: schema}
 		}
-		cfg.Clients[clientID] = client
+		cfg.StaticPolicy.Clients[clientID] = client
 	}
 	return nil
 }

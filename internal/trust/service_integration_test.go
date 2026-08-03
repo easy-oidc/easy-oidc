@@ -123,7 +123,19 @@ func serviceForIssuer(t *testing.T, issuer *tlsIssuer, policies ...string) *Serv
 		policyMap[name] = config.TrustPolicyConfig{Issuer: "local", Subject: "trusted:user", Groups: []string{"builders"}, Claims: map[string]json.RawMessage{"repository": json.RawMessage(`{"const":` + mustJSON(t, repository) + `}`)}}
 		bindings[i] = config.TrustBindingConfig{ID: "binding-" + name, TrustPolicy: name}
 	}
-	cfg := &config.Config{IssuerURL: "https://downstream.example", HTTPListenAddr: ":8080", Secrets: config.SecretsConfig{Provider: "env", SigningKeyName: "KEY"}, Connectors: map[string]config.ConnectorConfig{"google": {Type: "google", DisplayName: "Google", CredentialsSecret: "GOOGLE_KEY"}}, DefaultRedirectURIs: []string{"http://localhost/callback"}, GroupsOverrides: map[string]map[string][]string{}, Clients: map[string]config.ClientConfig{"client": {TrustBindings: bindings}, "other": {}}, OIDCTrust: config.OIDCTrustConfig{Issuers: map[string]config.TrustIssuerConfig{"local": {Provider: "oidc", IssuerURL: issuer.server.URL, SigningAlgs: []string{"RS256"}, MaxTokenAge: config.Duration(10 * time.Minute)}}, Policies: policyMap}}
+	cfg := &config.Config{
+		IssuerURL:           "https://downstream.example",
+		HTTPListenAddr:      ":8080",
+		Secrets:             config.SecretsConfig{Provider: "env", SigningKeyName: "KEY"},
+		UserLoginConnectors: map[string]config.ConnectorConfig{"google": {Type: "google", DisplayName: "Google", CredentialsSecret: "GOOGLE_KEY"}},
+		ServiceTokenIssuers: map[string]config.TrustIssuerConfig{"local": {Provider: "oidc", IssuerURL: issuer.server.URL, SigningAlgs: []string{"RS256"}, MaxTokenAge: config.Duration(10 * time.Minute)}},
+		StaticPolicy: config.StaticPolicyConfig{
+			DefaultRedirectURIs: []string{"http://localhost/callback"},
+			UserGroupMappings:   map[string]map[string][]string{},
+			TrustPolicies:       policyMap,
+			Clients:             map[string]config.ClientConfig{"client": {TrustBindings: bindings}, "other": {}},
+		},
+	}
 	// Config.Load's trust compiler is intentionally exercised via JSON round trip.
 	data, _ := json.Marshal(cfg)
 	path := t.TempDir() + "/config.jsonc"

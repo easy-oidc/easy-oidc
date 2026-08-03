@@ -143,7 +143,7 @@ PEM signing keys.
 ### Unknown client ID
 
 The `--oidc-client-id` passed to kubelogin must exactly match a key under
-`clients` in the selected configuration. The local examples use
+`static_policy.clients` in the selected configuration. The local examples use
 `kubelogin-local`.
 
 ### OAuth redirect URI mismatch
@@ -161,8 +161,8 @@ name.
 ### Authentication fails because groups are missing
 
 `config-local-dev.jsonc` requires groups. Replace `your-email@example.com` in
-`groups_overrides` with the normalized email returned by your provider, or set
-`require_groups` to `false` while testing.
+`static_policy.user_group_mappings` with the normalized email returned by your
+provider, or set `static_policy.require_user_groups_from_policy` to `false` while testing.
 
 ### Mailpit authentication fails
 

@@ -23,7 +23,7 @@
   },
 
   // Upstream connector
-  "connectors": {
+  "user_login_connectors": {
     "google": {
       "type": "google",
       "display_name": "Google",
@@ -37,39 +37,41 @@
     },
   },
 
-  // Default redirect URIs (used if not specified per client)
-  "default_redirect_uris": ["http://localhost:8000"],
+  "static_policy": {
+    // Default redirect URIs (used if not specified per client)
+    "default_redirect_uris": ["http://localhost:8000"],
 
-  // Groups overrides (email → groups mappings)
-  "groups_overrides": {
-    "prod-groups": {
-      "alice@example.com": ["prod-admins", "devs"],
-      "bob@example.com": ["prod-readonly"],
+    // User group mappings (email → groups)
+    "user_group_mappings": {
+      "prod-groups": {
+        "alice@example.com": ["prod-admins", "devs"],
+        "bob@example.com": ["prod-readonly"],
+      },
+      "dev-groups": {
+        "alice@example.com": ["dev-admins"],
+        "charlie@example.com": ["developers"],
+      },
     },
-    "dev-groups": {
-      "alice@example.com": ["dev-admins"],
-      "charlie@example.com": ["developers"],
+
+    // OIDC clients (key is the client_id)
+    "clients": {
+      "kubelogin-prod": {
+        "redirect_uris": ["http://localhost:8000"],
+        "user_group_mapping": "prod-groups",
+        // Optional: override require_user_groups_from_policy per-client
+        // "require_user_groups_from_policy": false
+      },
+      "kubelogin-dev": {
+        "user_group_mapping": "dev-groups",
+      },
     },
+
+    // Optional: Require users to have groups (default: true)
+    // Set to false to allow authentication without groups
+    // "require_user_groups_from_policy": true,
   },
 
-  // OIDC clients (key is the client_id)
-  "clients": {
-    "kubelogin-prod": {
-      "redirect_uris": ["http://localhost:8000"],
-      "groups_override": "prod-groups",
-      // Optional: override require_groups per-client
-      // "require_groups": false
-    },
-    "kubelogin-dev": {
-      "groups_override": "dev-groups",
-    },
-  },
-
-  // Optional: Token TTL in seconds (default: 3600 = 1 hour)
+  // Optional token lifetimes.
   // "access_token_ttl": "15m",
   // "id_token_ttl": "15m",
-
-  // Optional: Require users to have groups (default: true)
-  // Set to false to allow authentication without groups
-  // "require_groups": true,
 }

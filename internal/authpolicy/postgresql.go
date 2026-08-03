@@ -469,7 +469,7 @@ func (r *PostgreSQL) clientExists(ctx context.Context, clientID string, cached b
 }
 
 // ResolveUser resolves a normalized subject and returns definitive groups or denial.
-func (r *PostgreSQL) ResolveUser(ctx context.Context, clientID, subject string, requireGroups bool) (user ResolvedUser, finalErr error) {
+func (r *PostgreSQL) ResolveUser(ctx context.Context, clientID, subject string, requireUserGroupsFromPolicy bool) (user ResolvedUser, finalErr error) {
 	start := time.Now()
 	rows := 0
 	defer func() {
@@ -494,7 +494,7 @@ func (r *PostgreSQL) ResolveUser(ctx context.Context, clientID, subject string, 
 	if err != nil {
 		return ResolvedUser{}, err
 	}
-	if !allowed || (requireGroups && len(groups) == 0) {
+	if !allowed || (requireUserGroupsFromPolicy && len(groups) == 0) {
 		return ResolvedUser{}, ErrDenied
 	}
 	return ResolvedUser{Groups: groups}, nil
@@ -504,7 +504,7 @@ func (r *PostgreSQL) ResolveUser(ctx context.Context, clientID, subject string, 
 func (r *PostgreSQL) CompileBindings(clientID, issuerID string, rows []DynamicTrustRow) ([]CompiledBinding, error) {
 	issuer, ok := r.issuers[issuerID]
 	if !ok {
-		return nil, indeterminate(fmt.Errorf("issuer is not statically configured"))
+		return nil, indeterminate(fmt.Errorf("issuer is not configured in service_token_issuers"))
 	}
 	if len(rows) > r.cfg.MaxTrustRows {
 		return nil, indeterminate(fmt.Errorf("trust row limit exceeded"))

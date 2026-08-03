@@ -12,7 +12,7 @@
     "encryption_key_name": "EASYOIDC_ENCRYPTION_KEY",
   },
   "state_database": { "driver": "sqlite", "path": "temp/easy-oidc-state.db" },
-  "connectors": {
+  "user_login_connectors": {
     "google": {
       "type": "google",
       "display_name": "Google",
@@ -20,13 +20,13 @@
       "scopes": ["openid", "email", "profile"],
     },
   },
-  "oidc_trust": { "issuers": { "github-actions": { "provider": "github" } } },
+  "service_token_issuers": { "github-actions": { "provider": "github" } },
   "policy_database": {
     "driver": "postgresql",
     "connection_string_secret": "EASYOIDC_POLICY_DB_URL",
     "redirect_uris": ["http://localhost:8000/callback"],
     "client_defaults": {
-      "require_groups": true,
+      "require_user_groups_from_policy": true,
       "refresh_tokens": { "enabled": true },
     },
     // Default queries use the tables created by examples/policy-db/postgresql.sql.

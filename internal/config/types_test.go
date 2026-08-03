@@ -29,60 +29,60 @@ func TestParseDurationUsesStandardSyntax(t *testing.T) {
 	}
 }
 
-func TestClientConfig_ShouldRequireGroups(t *testing.T) {
+func TestClientConfig_ShouldRequireUserGroupsFromPolicy(t *testing.T) {
 	tests := []struct {
 		name        string
 		clientVal   *bool
-		globalVal   *bool
+		policyVal   *bool
 		expectedVal bool
 		description string
 	}{
 		{
-			name:        "client true, global true",
+			name:        "client true, policy true",
 			clientVal:   boolPtr(true),
-			globalVal:   boolPtr(true),
+			policyVal:   boolPtr(true),
 			expectedVal: true,
 			description: "client setting takes precedence",
 		},
 		{
-			name:        "client false, global true",
+			name:        "client false, policy true",
 			clientVal:   boolPtr(false),
-			globalVal:   boolPtr(true),
+			policyVal:   boolPtr(true),
 			expectedVal: false,
 			description: "client override allows empty groups",
 		},
 		{
-			name:        "client true, global false",
+			name:        "client true, policy false",
 			clientVal:   boolPtr(true),
-			globalVal:   boolPtr(false),
+			policyVal:   boolPtr(false),
 			expectedVal: true,
 			description: "client override requires groups",
 		},
 		{
-			name:        "client nil, global true",
+			name:        "client nil, policy true",
 			clientVal:   nil,
-			globalVal:   boolPtr(true),
+			policyVal:   boolPtr(true),
 			expectedVal: true,
-			description: "falls back to global setting",
+			description: "falls back to policy setting",
 		},
 		{
-			name:        "client nil, global false",
+			name:        "client nil, policy false",
 			clientVal:   nil,
-			globalVal:   boolPtr(false),
+			policyVal:   boolPtr(false),
 			expectedVal: false,
-			description: "falls back to global setting",
+			description: "falls back to policy setting",
 		},
 		{
-			name:        "client nil, global nil",
+			name:        "client nil, policy nil",
 			clientVal:   nil,
-			globalVal:   nil,
+			policyVal:   nil,
 			expectedVal: true,
 			description: "defaults to true when both unset",
 		},
 		{
-			name:        "client false, global nil",
+			name:        "client false, policy nil",
 			clientVal:   boolPtr(false),
-			globalVal:   nil,
+			policyVal:   nil,
 			expectedVal: false,
 			description: "client setting takes precedence over default",
 		},
@@ -90,14 +90,12 @@ func TestClientConfig_ShouldRequireGroups(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client := ClientConfig{
-				RequireGroups: tt.clientVal,
-			}
+			client := ClientConfig{RequireUserGroupsFromPolicy: tt.clientVal}
 
-			result := client.ShouldRequireGroups(tt.globalVal)
+			result := client.ShouldRequireUserGroupsFromPolicy(tt.policyVal)
 
 			if result != tt.expectedVal {
-				t.Errorf("ShouldRequireGroups() = %v, want %v (%s)", result, tt.expectedVal, tt.description)
+				t.Errorf("ShouldRequireUserGroupsFromPolicy() = %v, want %v (%s)", result, tt.expectedVal, tt.description)
 			}
 		})
 	}

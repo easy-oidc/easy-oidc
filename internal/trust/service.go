@@ -276,7 +276,7 @@ type discoveryDocument struct {
 
 // findIssuer selects a configured issuer by exact URL.
 func (s *Service) findIssuer(value string) (string, config.TrustIssuerConfig, bool) {
-	for name, issuer := range s.cfg.OIDCTrust.Issuers {
+	for name, issuer := range s.cfg.ServiceTokenIssuers {
 		if issuer.IssuerURL == value {
 			return name, issuer, true
 		}

@@ -80,7 +80,7 @@ Google's account chooser:
 1. Set `google.hd` on that connector:
 
 ```jsonc
-"connectors": {
+"user_login_connectors": {
   "google": {
     "type": "google",
     "display_name": "Google",
@@ -91,7 +91,7 @@ Google's account chooser:
 ```
 
 The `hd` parameter improves Google's sign-in experience but is not an access
-control. Use group policy with `require_groups` enabled to enforce allowed users.
+control. Use `static_policy.require_user_groups_from_policy` to enforce allowed users.
 
 ## Verification
 

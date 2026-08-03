@@ -355,7 +355,7 @@ if [ "$STATIC_EXCHANGE_STATUS" != 200 ] || ! jq -e --arg audience "$STATIC_TRUST
 fi
 echo "✅ Static trust policy and binding minted the expected service token."
 
-echo "==> Testing static client, group override, and refresh with kubelogin..."
+echo "==> Testing static client, user group mapping, and refresh with kubelogin..."
 STATIC_TOKEN_CACHE_DIR="$E2E_TEMP_DIR/static-cache"
 STATIC_FIRST_TOKEN="$E2E_TEMP_DIR/static-first.json"
 STATIC_SECOND_TOKEN="$E2E_TEMP_DIR/static-second.json"
@@ -367,7 +367,7 @@ if ! jq -er '
     '"$JWT_PAYLOAD_FILTER"' |
     .groups == ["static-admins", "static-developers"]
 ' "$STATIC_FIRST_TOKEN" >/dev/null; then
-    echo "ERROR: static client ID token did not contain configured group overrides"
+    echo "ERROR: static client ID token did not contain configured user group mapping"
     exit 1
 fi
 
@@ -383,7 +383,7 @@ if ! jq -er '
     '"$JWT_PAYLOAD_FILTER"' |
     .groups == ["static-admins", "static-developers"]
 ' "$STATIC_SECOND_TOKEN" >/dev/null; then
-    echo "ERROR: refreshed static client token did not preserve configured group overrides"
+    echo "ERROR: refreshed static client token did not preserve configured user group mapping"
     exit 1
 fi
 if ! jq -s -e --arg client "$STATIC_INTERACTIVE_CLIENT_ID" 'any(.[]; .msg == "refresh attempt" and .result == 200 and .client_id == $client)' "${EASY_OIDC_LOGS[@]}" > /dev/null; then
@@ -396,7 +396,7 @@ if jq -s -e --arg trust "$STATIC_TRUST_CLIENT_ID" --arg interactive "$STATIC_INT
     echo "ERROR: a statically configured client caused a policy database query"
     exit 1
 fi
-echo "✅ Static client group overrides and refresh succeeded without policy database queries."
+echo "✅ Static client user group mapping and refresh succeeded without policy database queries."
 
 echo "==> Testing trusted service login with database policy..."
 DB_DEX_TOKEN_RESPONSE="$E2E_TEMP_DIR/db-dex-token-response.json"

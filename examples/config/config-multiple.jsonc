@@ -7,7 +7,6 @@
 
   "issuer_url": "https://auth.example.com",
   "http_listen_addr": "127.0.0.1:8080",
-  "require_groups": false,
 
   "secrets": {
     "provider": "env",
@@ -19,7 +18,7 @@
     "path": "/var/lib/easy-oidc/easy-oidc-state.db",
   },
 
-  "connectors": {
+  "user_login_connectors": {
     "company-google": {
       "type": "google",
       "display_name": "Company Google",
@@ -63,8 +62,11 @@
     },
   },
 
-  "default_redirect_uris": ["http://localhost:8000"],
-  "clients": {
-    "kubelogin": {},
+  "static_policy": {
+    "require_user_groups_from_policy": false,
+    "default_redirect_uris": ["http://localhost:8000"],
+    "clients": {
+      "kubelogin": {},
+    },
   },
 }

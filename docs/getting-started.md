@@ -170,22 +170,24 @@ module "easy_oidc" {
       signing_key_name    = "/easy-oidc/signing-key"
       encryption_key_name = "/easy-oidc/encryption-key"
     }
-    connectors = {
+    user_login_connectors = {
       google = {
         type               = "google"
         display_name       = "Google"
         credentials_secret = "/easy-oidc/google-credentials"
       }
     }
-    default_redirect_uris = ["http://localhost:8000"]
-    groups_overrides = {
-      prod-groups = {
-        "alice@example.com" = ["cluster-admins", "developers"]
+    static_policy = {
+      default_redirect_uris = ["http://localhost:8000"]
+      user_group_mappings = {
+        prod-groups = {
+          "alice@example.com" = ["cluster-admins", "developers"]
+        }
       }
-    }
-    clients = {
-      kubelogin-prod = {
-        groups_override = "prod-groups"
+      clients = {
+        kubelogin-prod = {
+          user_group_mapping = "prod-groups"
+        }
       }
     }
   }

@@ -167,7 +167,7 @@ func (s *Server) exchangeCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	client := resolved.Config
-	connectorConfig, connectorExists := s.config.Connectors[payload.ConnectorID]
+	connectorConfig, connectorExists := s.config.UserLoginConnectors[payload.ConnectorID]
 	if payload.RefreshMode != "" && (!client.RefreshTokens.Enabled || !connectorExists || (payload.RefreshMode == "offline" && (!client.RefreshTokens.AllowOfflineAccess || !payload.OfflineConsent))) {
 		oauthError(w, http.StatusBadRequest, "invalid_grant", "authorization code is invalid")
 		return

@@ -9,7 +9,6 @@
   "issuer_url": "http://localhost:8080",
   "http_listen_addr": "127.0.0.1:8080",
   "signing_algorithm": "RS256",
-  "require_groups": false,
 
   "secrets": {
     "provider": "env",
@@ -18,7 +17,7 @@
 
   "state_database": { "driver": "sqlite", "path": "temp/easy-oidc-state.db" },
 
-  "connectors": {
+  "user_login_connectors": {
     "email": {
       "type": "email",
       "display_name": "Email code",
@@ -39,8 +38,11 @@
     },
   },
 
-  "default_redirect_uris": ["http://localhost:8000"],
-  "clients": {
-    "kubelogin-local": {},
+  "static_policy": {
+    "require_user_groups_from_policy": false,
+    "default_redirect_uris": ["http://localhost:8000"],
+    "clients": {
+      "kubelogin-local": {},
+    },
   },
 }

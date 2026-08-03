@@ -18,16 +18,18 @@ func TestResolverStaticPrecedenceAndPolicyDatabaseDefaults(t *testing.T) {
 	var calls atomic.Int32
 	policyDatabaseConfig := testConfig()
 	policyDatabaseConfig.RedirectURIs = []string{"https://dynamic.example/callback"}
-	requireGroups := false
-	policyDatabaseConfig.ClientDefaults = config.PolicyClientDefaults{RequireGroups: &requireGroups, RefreshTokens: config.RefreshTokenConfig{Enabled: true, AllowOfflineAccess: true}}
+	requireUserGroupsFromPolicy := false
+	policyDatabaseConfig.ClientDefaults = config.PolicyClientDefaults{RequireUserGroupsFromPolicy: &requireUserGroupsFromPolicy, RefreshTokens: config.RefreshTokenConfig{Enabled: true, AllowOfflineAccess: true}}
 	cfg := &config.Config{
-		Clients: map[string]config.ClientConfig{"static": {
-			RedirectURIs:   []string{"https://static.example/callback"},
-			GroupsOverride: "static-groups",
-			TrustBindings:  []config.TrustBindingConfig{{Effective: &config.EffectiveTrustBinding{ID: "static-binding", Issuer: "issuer"}}},
-		}},
-		GroupsOverrides: map[string]map[string][]string{"static-groups": {"user@example.com": {"viewers", "admins", "viewers"}}},
-		PolicyDatabase:  &policyDatabaseConfig,
+		StaticPolicy: config.StaticPolicyConfig{
+			Clients: map[string]config.ClientConfig{"static": {
+				UserGroupMapping: "static-groups",
+				TrustBindings:    []config.TrustBindingConfig{{Effective: &config.EffectiveTrustBinding{ID: "static-binding", Issuer: "issuer"}}},
+			}},
+			DefaultRedirectURIs: []string{"https://static.example/callback"},
+			UserGroupMappings:   map[string]map[string][]string{"static-groups": {"user@example.com": {"viewers", "admins", "viewers"}}},
+		},
+		PolicyDatabase: &policyDatabaseConfig,
 	}
 	policyDatabase := newPostgreSQL(policyDatabaseConfig, nil, nil, func(_ context.Context, query string, _ ...any) (queryResult, error) {
 		calls.Add(1)
@@ -55,7 +57,7 @@ func TestResolverStaticPrecedenceAndPolicyDatabaseDefaults(t *testing.T) {
 		t.Fatalf("static trust = %#v, calls = %d, error = %v", staticTrust, calls.Load(), err)
 	}
 	dynamic, err := resolver.ResolveClient(context.Background(), "dynamic", false)
-	if err != nil || dynamic.source != clientSourceDatabase || calls.Load() != 1 || dynamic.Config.RedirectURIs[0] != "https://dynamic.example/callback" || !dynamic.Config.RefreshTokens.Enabled || dynamic.Config.RequireGroups == nil || *dynamic.Config.RequireGroups {
+	if err != nil || dynamic.source != clientSourceDatabase || calls.Load() != 1 || dynamic.Config.RedirectURIs[0] != "https://dynamic.example/callback" || !dynamic.Config.RefreshTokens.Enabled || dynamic.Config.RequireUserGroupsFromPolicy == nil || *dynamic.Config.RequireUserGroupsFromPolicy {
 		t.Fatalf("dynamic = %#v, calls = %d, error = %v", dynamic, calls.Load(), err)
 	}
 	dynamicUser, err := resolver.ResolveUser(context.Background(), dynamic, "USER@EXAMPLE.COM")
@@ -72,19 +74,21 @@ func TestResolverStaticGroupRequirements(t *testing.T) {
 	required := true
 	notRequired := false
 	cfg := &config.Config{
-		RequireGroups: &required,
-		Clients: map[string]config.ClientConfig{
-			"required":     {GroupsOverride: "groups"},
-			"not-required": {RequireGroups: &notRequired},
+		StaticPolicy: config.StaticPolicyConfig{
+			RequireUserGroupsFromPolicy: &required,
+			Clients: map[string]config.ClientConfig{
+				"required":     {UserGroupMapping: "groups"},
+				"not-required": {RequireUserGroupsFromPolicy: &notRequired},
+			},
+			UserGroupMappings: map[string]map[string][]string{"groups": {}},
 		},
-		GroupsOverrides: map[string]map[string][]string{"groups": {}},
 	}
 	resolver := NewResolver(cfg, nil)
 	requiredClient, err := resolver.ResolveClient(context.Background(), "required", false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	requiredClient.Config.RequireGroups = &notRequired
+	requiredClient.Config.RequireUserGroupsFromPolicy = &notRequired
 	if _, err = resolver.ResolveUser(context.Background(), requiredClient, "user@example.com"); !errors.Is(err, ErrDenied) {
 		t.Fatalf("required groups error = %v, want denial", err)
 	}
@@ -127,13 +131,42 @@ func TestResolverRejectsInvalidResolvedClient(t *testing.T) {
 	if _, err := resolver.ResolveTrust(context.Background(), ResolvedClient{}, "issuer"); !IsIndeterminate(err) {
 		t.Fatalf("trust error = %v, want indeterminate", err)
 	}
-	other := NewResolver(&config.Config{Clients: map[string]config.ClientConfig{"client": {}}}, nil)
+	other := NewResolver(&config.Config{StaticPolicy: config.StaticPolicyConfig{Clients: map[string]config.ClientConfig{"client": {}}}}, nil)
 	client, err := other.ResolveClient(context.Background(), "client", false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err = resolver.ResolveUser(context.Background(), client, "user@example.com"); !IsIndeterminate(err) {
 		t.Fatalf("foreign client error = %v, want indeterminate", err)
+	}
+}
+
+// TestResolverDatabasePolicyDoesNotInheritStaticDefaults verifies policy sources remain independent.
+func TestResolverDatabasePolicyDoesNotInheritStaticDefaults(t *testing.T) {
+	policyDatabaseConfig := testConfig()
+	requireUserGroupsFromPolicy := false
+	cfg := &config.Config{
+		StaticPolicy:   config.StaticPolicyConfig{RequireUserGroupsFromPolicy: &requireUserGroupsFromPolicy},
+		PolicyDatabase: &policyDatabaseConfig,
+	}
+	database := newPostgreSQL(policyDatabaseConfig, nil, nil, func(_ context.Context, query string, _ ...any) (queryResult, error) {
+		switch query {
+		case "exists":
+			return queryResult{columns: []string{"exists"}, rows: [][]any{{true}}}, nil
+		case "user":
+			return queryResult{columns: []string{"allowed", "groups"}, rows: [][]any{{true, []string{}}}}, nil
+		default:
+			t.Fatalf("unexpected query %q", query)
+			return queryResult{}, nil
+		}
+	}, nil)
+	resolver := NewResolver(cfg, database)
+	client, err := resolver.ResolveClient(context.Background(), "dynamic", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = resolver.ResolveUser(context.Background(), client, "user@example.com"); !errors.Is(err, ErrDenied) {
+		t.Fatalf("user error = %v, want denial", err)
 	}
 }
 

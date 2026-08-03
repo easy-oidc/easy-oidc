@@ -123,7 +123,7 @@ func (s *Service) Exchange(ctx context.Context, req Request) (Result, *Failure) 
 		return Result{SID: grant.SID}, &Failure{Code: Temporary, Description: "auth temporarily unavailable"}
 	}
 	groups := user.Groups
-	cc, configured := s.cfg.Connectors[grant.ConnectorID]
+	cc, configured := s.cfg.UserLoginConnectors[grant.ConnectorID]
 	hasNonce, hasCipher := len(grant.CredentialNonce) != 0, len(grant.CredentialCiphertext) != 0
 	if !configured || cc.Type == "email" && (hasNonce || hasCipher) || cc.Type != "email" && (grant.UpstreamSubject == "" || !hasNonce || !hasCipher) {
 		return Result{SID: grant.SID}, s.revoke(grant, "connector_provenance", now)

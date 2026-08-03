@@ -53,11 +53,7 @@ func NewServer(cfg *config.Config, connectors map[string]upstream.Connector, aut
 	return &Server{config: cfg, connectors: connectors, authCodeMgr: authCodeMgr, signer: signer, jwksData: jwksData, logger: logger, store: store, templates: tm, mailer: mailer, challenge: challengeVerifier, otpSecret: otpSecret, selectionKey: selectionKey, encryptionKey: encryptionKey, policyResolver: resolver, refresh: refresh.NewService(cfg, store, signer, connectors, logger, resolver), trust: trust.NewService(cfg, resolver)}
 }
 func (s *Server) isValidRedirectURI(uri string, client config.ClientConfig) bool {
-	uris := client.RedirectURIs
-	if len(uris) == 0 {
-		uris = s.config.DefaultRedirectURIs
-	}
-	for _, allowed := range uris {
+	for _, allowed := range client.RedirectURIs {
 		if uri == allowed {
 			return true
 		}

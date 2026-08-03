@@ -55,24 +55,30 @@ func ParseDuration(value string) (time.Duration, error) {
 
 // Config represents the top-level configuration structure for easy-oidc.
 type Config struct {
-	Schema              string                         `json:"$schema,omitempty"`
-	IssuerURL           string                         `json:"issuer_url"`
-	HTTPListenAddr      string                         `json:"http_listen_addr"`
-	SigningAlgorithm    string                         `json:"signing_algorithm,omitempty"`
-	JWKSKID             string                         `json:"jwks_kid,omitempty"`
-	AccessTokenTTL      Duration                       `json:"access_token_ttl,omitempty"`
-	IDTokenTTL          Duration                       `json:"id_token_ttl,omitempty"`
-	RequireGroups       *bool                          `json:"require_groups,omitempty"`
-	Secrets             SecretsConfig                  `json:"secrets"`
-	Connectors          map[string]ConnectorConfig     `json:"connectors"`
-	TemplatesDir        string                         `json:"templates_dir,omitempty"`
-	Email               *EmailConfig                   `json:"email,omitempty"`
-	DefaultRedirectURIs []string                       `json:"default_redirect_uris"`
-	GroupsOverrides     map[string]map[string][]string `json:"groups_overrides"`
-	Clients             map[string]ClientConfig        `json:"clients"`
-	OIDCTrust           OIDCTrustConfig                `json:"oidc_trust,omitempty"`
-	StateDatabase       *StateDatabaseConfig           `json:"state_database,omitempty"`
-	PolicyDatabase      *PolicyDatabaseConfig          `json:"policy_database,omitempty"`
+	Schema              string                       `json:"$schema,omitempty"`
+	IssuerURL           string                       `json:"issuer_url"`
+	HTTPListenAddr      string                       `json:"http_listen_addr"`
+	SigningAlgorithm    string                       `json:"signing_algorithm,omitempty"`
+	JWKSKID             string                       `json:"jwks_kid,omitempty"`
+	AccessTokenTTL      Duration                     `json:"access_token_ttl,omitempty"`
+	IDTokenTTL          Duration                     `json:"id_token_ttl,omitempty"`
+	Secrets             SecretsConfig                `json:"secrets"`
+	UserLoginConnectors map[string]ConnectorConfig   `json:"user_login_connectors"`
+	ServiceTokenIssuers map[string]TrustIssuerConfig `json:"service_token_issuers,omitempty"`
+	TemplatesDir        string                       `json:"templates_dir,omitempty"`
+	Email               *EmailConfig                 `json:"email,omitempty"`
+	StaticPolicy        StaticPolicyConfig           `json:"static_policy,omitzero"`
+	StateDatabase       *StateDatabaseConfig         `json:"state_database,omitempty"`
+	PolicyDatabase      *PolicyDatabaseConfig        `json:"policy_database,omitempty"`
+}
+
+// StaticPolicyConfig contains authorization policy defined in the configuration file.
+type StaticPolicyConfig struct {
+	RequireUserGroupsFromPolicy *bool                          `json:"require_user_groups_from_policy,omitempty"`
+	DefaultRedirectURIs         []string                       `json:"default_redirect_uris,omitempty"`
+	UserGroupMappings           map[string]map[string][]string `json:"user_group_mappings,omitempty"`
+	TrustPolicies               map[string]TrustPolicyConfig   `json:"trust_policies,omitempty"`
+	Clients                     map[string]ClientConfig        `json:"clients,omitempty"`
 }
 
 // StateDatabaseConfig configures the authoritative protocol-state database.
@@ -109,8 +115,8 @@ type PolicyDatabaseConfig struct {
 
 // PolicyClientDefaults defines settings shared by dynamically resolved clients.
 type PolicyClientDefaults struct {
-	RequireGroups *bool              `json:"require_groups,omitempty"`
-	RefreshTokens RefreshTokenConfig `json:"refresh_tokens,omitempty"`
+	RequireUserGroupsFromPolicy *bool              `json:"require_user_groups_from_policy,omitempty"`
+	RefreshTokens               RefreshTokenConfig `json:"refresh_tokens,omitempty"`
 }
 
 // PolicyQueries contains the three parameterized policy database queries.
@@ -209,13 +215,13 @@ type TurnstileConfig struct {
 }
 
 // ClientConfig defines OIDC client-specific configuration.
-// Each client can have custom redirect URIs and group override mappings.
+// Each client can have custom redirect URIs and a user group mapping.
 type ClientConfig struct {
-	RedirectURIs   []string             `json:"redirect_uris"`
-	GroupsOverride string               `json:"groups_override"`
-	RequireGroups  *bool                `json:"require_groups,omitempty"`
-	RefreshTokens  RefreshTokenConfig   `json:"refresh_tokens,omitempty"`
-	TrustBindings  []TrustBindingConfig `json:"trust_bindings,omitempty"`
+	RedirectURIs                []string             `json:"redirect_uris,omitempty"`
+	UserGroupMapping            string               `json:"user_group_mapping,omitempty"`
+	RequireUserGroupsFromPolicy *bool                `json:"require_user_groups_from_policy,omitempty"`
+	RefreshTokens               RefreshTokenConfig   `json:"refresh_tokens,omitempty"`
+	TrustBindings               []TrustBindingConfig `json:"trust_bindings,omitempty"`
 }
 
 // RefreshTokenConfig controls refresh issuance and snapshotted grant lifetimes.
@@ -228,15 +234,15 @@ type RefreshTokenConfig struct {
 	OfflineAbsoluteTTL Duration `json:"offline_absolute_ttl,omitempty"`
 }
 
-// ShouldRequireGroups returns whether groups are required for authentication.
-// It checks the client-specific setting first, falling back to the global setting.
+// ShouldRequireUserGroupsFromPolicy returns whether policy must resolve user groups.
+// It checks the client-specific setting first, falling back to the policy default.
 // If neither is set, it defaults to true.
-func (c *ClientConfig) ShouldRequireGroups(globalRequireGroups *bool) bool {
-	if c.RequireGroups != nil {
-		return *c.RequireGroups
+func (c *ClientConfig) ShouldRequireUserGroupsFromPolicy(policyDefault *bool) bool {
+	if c.RequireUserGroupsFromPolicy != nil {
+		return *c.RequireUserGroupsFromPolicy
 	}
-	if globalRequireGroups != nil {
-		return *globalRequireGroups
+	if policyDefault != nil {
+		return *policyDefault
 	}
 	return true
 }

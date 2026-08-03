@@ -107,7 +107,7 @@ func (s *Server) HandleConsent(w http.ResponseWriter, r *http.Request) {
 // continueAuthorization begins connector selection after any required consent.
 func (s *Server) continueAuthorization(w http.ResponseWriter, r *http.Request, state OAuthState) {
 	ids := s.connectorIDs()
-	if len(ids) == 1 && s.config.Connectors[ids[0]].Type != "email" {
+	if len(ids) == 1 && s.config.UserLoginConnectors[ids[0]].Type != "email" {
 		s.selectConnector(w, r, ids[0], state)
 		return
 	}

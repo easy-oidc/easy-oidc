@@ -113,22 +113,24 @@ locals {
       signing_key_name    = "/easy-oidc/signing-key"
       encryption_key_name = "/easy-oidc/encryption-key"
     }
-    connectors = {
+    user_login_connectors = {
       google = {
         type               = "google"
         display_name       = "Google"
         credentials_secret = "/easy-oidc/google-credentials"
       }
     }
-    default_redirect_uris = ["http://localhost:8000"]
-    groups_overrides = {
-      prod-groups = {
-        "demo@example.com" = ["prod-admins", "devs"]
+    static_policy = {
+      default_redirect_uris = ["http://localhost:8000"]
+      user_group_mappings = {
+        prod-groups = {
+          "demo@example.com" = ["prod-admins", "devs"]
+        }
       }
-    }
-    clients = {
-      kubelogin-prod = {
-        groups_override = "prod-groups"
+      clients = {
+        kubelogin-prod = {
+          user_group_mapping = "prod-groups"
+        }
       }
     }
   }

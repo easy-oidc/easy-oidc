@@ -10,7 +10,7 @@
     "issuer_url",
     "http_listen_addr",
     "secrets",
-    "connectors"
+    "user_login_connectors"
   ],
   "properties": {
     "$schema": {
@@ -50,11 +50,6 @@
     },
     "access_token_ttl": { "$ref": "#/$defs/duration", "default": "15m" },
     "id_token_ttl": { "$ref": "#/$defs/duration", "default": "15m" },
-    "require_groups": {
-      "type": "boolean",
-      "default": true,
-      "description": "Require authenticated users to resolve to at least one group unless overridden by a client."
-    },
     "templates_dir": {
       "type": "string",
       "minLength": 1,
@@ -63,7 +58,7 @@
     "secrets": {
       "$ref": "#/$defs/secrets"
     },
-    "connectors": {
+    "user_login_connectors": {
       "type": "object",
       "minProperties": 1,
       "propertyNames": {
@@ -82,47 +77,13 @@
     "email": {
       "$ref": "#/$defs/email"
     },
-    "default_redirect_uris": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/publicURI"
-      },
-      "description": "Redirect URIs inherited by clients that do not define their own list."
+    "service_token_issuers": {
+      "$ref": "#/$defs/serviceTokenIssuers",
+      "description": "External token issuers accepted for service authentication."
     },
-    "groups_overrides": {
-      "type": "object",
-      "propertyNames": {
-        "minLength": 1
-      },
-      "additionalProperties": {
-        "type": "object",
-        "propertyNames": {
-          "format": "email",
-          "pattern": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
-        },
-        "additionalProperties": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }
-      },
-      "description": "Named mappings from normalized email addresses to downstream groups."
-    },
-    "clients": {
-      "type": "object",
-      "minProperties": 1,
-      "propertyNames": {
-        "minLength": 1
-      },
-      "additionalProperties": {
-        "$ref": "#/$defs/client"
-      },
-      "description": "Downstream public OIDC clients keyed by client ID."
-    },
-    "oidc_trust": {
-      "$ref": "#/$defs/oidcTrust",
-      "description": "External OIDC issuers and reusable trust policies."
+    "static_policy": {
+      "$ref": "#/$defs/staticPolicy",
+      "description": "Authorization policy defined in this configuration file."
     },
     "state_database": {
       "$ref": "#/$defs/stateDatabase",
@@ -137,35 +98,38 @@
   "allOf": [
     {
       "anyOf": [
-        { "required": ["clients"] },
+        {
+          "properties": {
+            "static_policy": { "required": ["clients"] }
+          },
+          "required": ["static_policy"]
+        },
         { "required": ["policy_database"] }
       ]
     },
     {
-      "anyOf": [
-        {
-          "properties": {
-            "default_redirect_uris": {
-              "minItems": 1
-            }
-          },
-          "required": ["default_redirect_uris"]
-        },
-        {
-          "properties": {
-            "clients": {
-              "additionalProperties": {
+      "if": { "required": ["static_policy"] },
+      "then": {
+        "properties": {
+          "static_policy": {
+            "anyOf": [
+              { "required": ["default_redirect_uris"] },
+              {
                 "properties": {
-                  "redirect_uris": {
-                    "minItems": 1
+                  "clients": {
+                    "additionalProperties": {
+                      "properties": {
+                        "redirect_uris": { "minItems": 1 }
+                      },
+                      "required": ["redirect_uris"]
+                    }
                   }
-                },
-                "required": ["redirect_uris"]
+                }
               }
-            }
+            ]
           }
         }
-      ]
+      }
     },
     {
       "if": {
@@ -212,7 +176,7 @@
           },
           {
             "properties": {
-              "connectors": {
+              "user_login_connectors": {
                 "not": {
                   "additionalProperties": {
                     "not": {
@@ -239,7 +203,7 @@
     {
       "if": {
         "properties": {
-          "connectors": {
+          "user_login_connectors": {
             "not": {
               "additionalProperties": {
                 "not": {
@@ -264,7 +228,7 @@
     {
       "if": {
         "properties": {
-          "connectors": {
+          "user_login_connectors": {
             "not": {
               "additionalProperties": {
                 "not": {
@@ -655,6 +619,51 @@
         }
       }
     },
+    "staticPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "require_user_groups_from_policy": {
+          "type": "boolean",
+          "default": true,
+          "description": "Require policy to resolve at least one group for each user unless overridden by a client."
+        },
+        "default_redirect_uris": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/publicURI" },
+          "description": "Redirect URIs inherited by static clients that do not define their own list."
+        },
+        "user_group_mappings": {
+          "type": "object",
+          "propertyNames": { "minLength": 1 },
+          "additionalProperties": {
+            "type": "object",
+            "propertyNames": {
+              "format": "email",
+              "pattern": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+            },
+            "additionalProperties": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          },
+          "description": "Named mappings from normalized email addresses to downstream groups."
+        },
+        "trust_policies": {
+          "type": "object",
+          "propertyNames": { "minLength": 1, "maxLength": 64 },
+          "additionalProperties": { "$ref": "#/$defs/trustPolicy" }
+        },
+        "clients": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": { "minLength": 1 },
+          "additionalProperties": { "$ref": "#/$defs/client" },
+          "description": "Static downstream OIDC clients keyed by client ID."
+        }
+      }
+    },
     "client": {
       "type": "object",
       "additionalProperties": false,
@@ -666,14 +675,14 @@
           },
           "description": "Allowed redirect URIs for this public OIDC client."
         },
-        "groups_override": {
+        "user_group_mapping": {
           "type": "string",
           "minLength": 1,
-          "description": "Name of the groups_overrides mapping used by this client."
+          "description": "Name of the user_group_mappings entry used by this client."
         },
-        "require_groups": {
+        "require_user_groups_from_policy": {
           "type": "boolean",
-          "description": "Client-specific override for the global require_groups setting."
+          "description": "Client-specific override for static_policy.require_user_groups_from_policy."
         },
         "trust_bindings": {
           "type": "array",
@@ -752,7 +761,7 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "require_groups": { "type": "boolean" },
+            "require_user_groups_from_policy": { "type": "boolean" },
             "refresh_tokens": {
               "$ref": "#/$defs/client/properties/refresh_tokens"
             }
@@ -869,21 +878,10 @@
       "propertyNames": { "minLength": 1, "maxLength": 256 },
       "additionalProperties": { "$ref": "#/$defs/claimSchema" }
     },
-    "oidcTrust": {
+    "serviceTokenIssuers": {
       "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "issuers": {
-          "type": "object",
-          "propertyNames": { "minLength": 1, "maxLength": 64 },
-          "additionalProperties": { "$ref": "#/$defs/trustIssuer" }
-        },
-        "policies": {
-          "type": "object",
-          "propertyNames": { "minLength": 1, "maxLength": 64 },
-          "additionalProperties": { "$ref": "#/$defs/trustPolicy" }
-        }
-      }
+      "propertyNames": { "minLength": 1, "maxLength": 64 },
+      "additionalProperties": { "$ref": "#/$defs/trustIssuer" }
     },
     "trustIssuer": {
       "type": "object",

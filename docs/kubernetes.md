@@ -205,21 +205,23 @@ You can use the same Easy OIDC instance for multiple Kubernetes clusters by conf
 
 ```jsonc
 {
-  "clients": {
-    "kubelogin-prod": {
-      "groups_override": "prod-groups"
+  "static_policy": {
+    "clients": {
+      "kubelogin-prod": {
+        "user_group_mapping": "prod-groups"
+      },
+      "kubelogin-staging": {
+        "user_group_mapping": "staging-groups"
+      }
     },
-    "kubelogin-staging": {
-      "groups_override": "staging-groups"
-    }
-  },
-  "groups_overrides": {
-    "prod-groups": {
-      "alice@example.com": ["prod-admins"]
-    },
-    "staging-groups": {
-      "alice@example.com": ["staging-admins"],
-      "bob@example.com": ["staging-readonly"]
+    "user_group_mappings": {
+      "prod-groups": {
+        "alice@example.com": ["prod-admins"]
+      },
+      "staging-groups": {
+        "alice@example.com": ["staging-admins"],
+        "bob@example.com": ["staging-readonly"]
+      }
     }
   }
 }

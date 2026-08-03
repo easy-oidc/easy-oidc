@@ -36,41 +36,41 @@ the [policy database guide](policy-database.md) and `config-policy-db.jsonc`.
 
 External OIDC and CI identities use three configuration layers:
 
-- `oidc_trust.issuers` defines trusted token issuers.
-- `oidc_trust.policies` defines reusable claim requirements.
-- Client `trust_bindings` authorize policies and assign a subject and groups.
+- `service_token_issuers` defines accepted token issuers.
+- `static_policy.trust_policies` defines reusable claim requirements.
+- Static client `trust_bindings` authorize policies and assign a subject and groups.
 
 ```jsonc
 {
-  "oidc_trust": {
-    "issuers": {
-      "github-actions": { "provider": "github" }
-    },
-    "policies": {
+  "service_token_issuers": {
+    "github-actions": { "provider": "github" }
+  },
+  "static_policy": {
+    "trust_policies": {
       "acme-github": {
         "issuer": "github-actions",
         "required_claims": {
           "repository_owner_id": { "const": "123456" }
         }
       }
-    }
-  },
-  "clients": {
-    "cluster-production": {
-      "redirect_uris": ["http://localhost:8000/callback"],
-      "trust_bindings": [{
-        "id": "github-production",
-        "trust_policy": "acme-github",
-        "subject": "trusted:github:acme/app:production",
-        "groups": ["podplane:operators"],
-        "claims": {
-          "repository_id": { "const": "987654" },
-          "environment": { "const": "production" },
-          "job_workflow_ref": {
-            "const": "acme/deploy/.github/workflows/deploy.yml@refs/heads/main"
+    },
+    "clients": {
+      "cluster-production": {
+        "redirect_uris": ["http://localhost:8000/callback"],
+        "trust_bindings": [{
+          "id": "github-production",
+          "trust_policy": "acme-github",
+          "subject": "trusted:github:acme/app:production",
+          "groups": ["podplane:operators"],
+          "claims": {
+            "repository_id": { "const": "987654" },
+            "environment": { "const": "production" },
+            "job_workflow_ref": {
+              "const": "acme/deploy/.github/workflows/deploy.yml@refs/heads/main"
+            }
           }
-        }
-      }]
+        }]
+      }
     }
   }
 }
@@ -130,8 +130,10 @@ in each deployment module.
 | `jwks_kid` | no | Signing key ID. Derived from the public key when omitted. |
 | `access_token_ttl` | no | Access-token lifetime using Go duration syntax; defaults to `15m`. |
 | `id_token_ttl` | no | ID-token lifetime using Go duration syntax; defaults to `15m`. |
-| `require_groups` | no | Require a non-empty group result; defaults to `true`. |
 | `templates_dir` | no | Directory containing template overrides. `EASYOIDC_TEMPLATES_DIR` takes precedence. |
+| `user_login_connectors` | yes | Interactive user login integrations keyed by connector ID. |
+| `service_token_issuers` | no | External issuers accepted for service-token exchange. |
+| `static_policy` | conditional | Static clients and authorization policy. Required without `policy_database`. |
 
 `state_database.driver` is `sqlite` (the default) or `postgresql`. SQLite accepts
 `path`; production deployments should use an absolute path. PostgreSQL accepts
@@ -171,11 +173,11 @@ supports both `String` and KMS-backed `SecureString` parameters. Azure requires
 `azure_keyvault_url`. The AWS principal used for Parameter Store needs
 `ssm:GetParameter` and, for a customer-managed KMS key, `kms:Decrypt`.
 
-## Connectors
+## User login connectors
 
-`connectors` is a map keyed by stable, path-safe connector IDs. IDs may contain
-letters, digits, `_`, and `-`, are limited to 64 characters, and become part of
-the callback URL: `https://auth.example.com/callback/<connector-id>`.
+`user_login_connectors` is keyed by stable, path-safe connector IDs. IDs may
+contain letters, digits, `_`, and `-`, are limited to 64 characters, and become
+part of the callback URL: `https://auth.example.com/callback/<connector-id>`.
 
 Each connector has:
 
@@ -277,14 +279,16 @@ support is intended to keep this integration vendor-neutral.
 
 ## Clients and groups
 
-`clients` is a map keyed by downstream OIDC client ID. Each client can set
-`redirect_uris`, `groups_override`, and `require_groups`. When `redirect_uris` is
-omitted, `default_redirect_uris` is used. Plain HTTP redirects are accepted only
-for localhost.
+`static_policy.clients` is a map keyed by downstream OIDC client ID. Each client can set
+`redirect_uris`, `user_group_mapping`, and `require_user_groups_from_policy`. When
+`redirect_uris` is omitted, `static_policy.default_redirect_uris` is used. Plain HTTP
+redirects are accepted only for localhost.
 
-`groups_overrides` contains named email-to-group maps. A client's
-`groups_override` selects one map. Emails are normalized to lowercase before
+`static_policy.user_group_mappings` contains named email-to-group maps. A client's
+`user_group_mapping` selects one map. Emails are normalized to lowercase before
 lookup, and groups are deduplicated before being emitted in the token.
+`require_user_groups_from_policy` defaults to `true`; upstream group claims do
+not satisfy it.
 
 ## Custom templates
 

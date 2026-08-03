@@ -50,36 +50,36 @@ func TestTrustSchemaSafety(t *testing.T) {
 // TestTrustRejectsDuplicateIssuersAndInvalidUnusedFragments verifies graph-wide startup validation.
 func TestTrustRejectsDuplicateIssuersAndInvalidUnusedFragments(t *testing.T) {
 	cfg := benchmarkTrustConfig(1)
-	cfg.OIDCTrust.Issuers["duplicate"] = cfg.OIDCTrust.Issuers["issuer"]
+	cfg.ServiceTokenIssuers["duplicate"] = cfg.ServiceTokenIssuers["issuer"]
 	if err := validateTrust(cfg); err == nil {
 		t.Fatal("accepted duplicate effective issuer URL")
 	}
 	cfg = benchmarkTrustConfig(1)
-	cfg.OIDCTrust.Policies["unused"] = TrustPolicyConfig{Issuer: "issuer", Claims: map[string]json.RawMessage{"sub": json.RawMessage(`{"$id":"forbidden"}`)}}
+	cfg.StaticPolicy.TrustPolicies["unused"] = TrustPolicyConfig{Issuer: "issuer", Claims: map[string]json.RawMessage{"sub": json.RawMessage(`{"$id":"forbidden"}`)}}
 	if err := validateTrust(cfg); err == nil {
 		t.Fatal("accepted prohibited fragment in unused policy")
 	}
 	cfg = benchmarkTrustConfig(1)
-	cfg.OIDCTrust.Policies["unused"] = TrustPolicyConfig{Issuer: "issuer", Claims: map[string]json.RawMessage{"sub": json.RawMessage(`{"type":"bogus"}`)}}
+	cfg.StaticPolicy.TrustPolicies["unused"] = TrustPolicyConfig{Issuer: "issuer", Claims: map[string]json.RawMessage{"sub": json.RawMessage(`{"type":"bogus"}`)}}
 	if err := validateTrust(cfg); err == nil {
 		t.Fatal("accepted invalid schema in unused policy")
 	}
 	cfg = benchmarkTrustConfig(1)
-	policy := cfg.OIDCTrust.Policies["policy"]
+	policy := cfg.StaticPolicy.TrustPolicies["policy"]
 	policy.Claims = map[string]json.RawMessage{"repository_id": json.RawMessage(`{"type":"bogus"}`)}
-	cfg.OIDCTrust.Policies["policy"] = policy
-	client := cfg.Clients["client"]
+	cfg.StaticPolicy.TrustPolicies["policy"] = policy
+	client := cfg.StaticPolicy.Clients["client"]
 	client.TrustBindings[0].Claims = map[string]json.RawMessage{"repository_id": json.RawMessage(`{"const":"1"}`)}
-	cfg.Clients["client"] = client
+	cfg.StaticPolicy.Clients["client"] = client
 	if err := validateTrust(cfg); err == nil {
 		t.Fatal("accepted invalid overridden policy schema")
 	}
 	cfg = benchmarkTrustConfig(1)
-	cfg.OIDCTrust.Policies["policy"] = TrustPolicyConfig{Issuer: "issuer", Subject: "trusted:inherited", Groups: []string{"group"}}
-	client = cfg.Clients["client"]
+	cfg.StaticPolicy.TrustPolicies["policy"] = TrustPolicyConfig{Issuer: "issuer", Subject: "trusted:inherited", Groups: []string{"group"}}
+	client = cfg.StaticPolicy.Clients["client"]
 	empty := ""
 	client.TrustBindings[0].Subject = &empty
-	cfg.Clients["client"] = client
+	cfg.StaticPolicy.Clients["client"] = client
 	if err := validateTrust(cfg); err == nil {
 		t.Fatal("explicit empty subject inherited instead of failing")
 	}
@@ -87,14 +87,14 @@ func TestTrustRejectsDuplicateIssuersAndInvalidUnusedFragments(t *testing.T) {
 
 // TestTrustPresetAndEffectiveIdentityValidation verifies preset overrides and empty replacement values are rejected.
 func TestTrustPresetAndEffectiveIdentityValidation(t *testing.T) {
-	cfg := &Config{OIDCTrust: OIDCTrustConfig{Issuers: map[string]TrustIssuerConfig{"github": {Provider: "github", IssuerURL: "https://evil.invalid"}}}}
+	cfg := &Config{ServiceTokenIssuers: map[string]TrustIssuerConfig{"github": {Provider: "github", IssuerURL: "https://evil.invalid"}}}
 	if err := validateTrust(cfg); err == nil {
 		t.Fatal("accepted a provider preset override")
 	}
 	cfg = benchmarkTrustConfig(1)
-	client := cfg.Clients["client"]
+	client := cfg.StaticPolicy.Clients["client"]
 	client.TrustBindings[0].Groups = []string{}
-	cfg.Clients["client"] = client
+	cfg.StaticPolicy.Clients["client"] = client
 	if err := validateTrust(cfg); err == nil {
 		t.Fatal("accepted explicitly empty effective groups")
 	}
@@ -116,9 +116,9 @@ func TestTrustPresetAndEffectiveIdentityValidation(t *testing.T) {
 		}
 	}
 	cfg = benchmarkTrustConfig(1)
-	client = cfg.Clients["client"]
+	client = cfg.StaticPolicy.Clients["client"]
 	client.TrustBindings[0].Groups = []string{"system:serviceaccounts/team"}
-	cfg.Clients["client"] = client
+	cfg.StaticPolicy.Clients["client"] = client
 	if err := validateTrust(cfg); err != nil {
 		t.Fatalf("rejected valid Kubernetes group name: %v", err)
 	}
@@ -129,7 +129,7 @@ func BenchmarkTrustCandidates(b *testing.B) {
 	for _, count := range []int{1, 10, 100, 1000} {
 		b.Run(fmt.Sprintf("bindings_%d", count), func(b *testing.B) {
 			cfg := benchmarkTrustConfig(count)
-			client := cfg.Clients["client"]
+			client := cfg.StaticPolicy.Clients["client"]
 			// Compile directly for 1,000 to measure and justify the lower production cap.
 			for i := range client.TrustBindings {
 				schema, err := compileTrustSchema(map[string]json.RawMessage{"repository_id": json.RawMessage(fmt.Sprintf(`{"const":%q}`, fmt.Sprint(i)))}, nil)
@@ -138,11 +138,11 @@ func BenchmarkTrustCandidates(b *testing.B) {
 				}
 				client.TrustBindings[i].Effective = &EffectiveTrustBinding{Schema: schema}
 			}
-			cfg.Clients["client"] = client
+			cfg.StaticPolicy.Clients["client"] = client
 			claims := map[string]any{"repository_id": "none"}
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				for _, binding := range cfg.Clients["client"].TrustBindings {
+				for _, binding := range cfg.StaticPolicy.Clients["client"].TrustBindings {
 					_ = binding.Effective.Schema.Validate(claims)
 				}
 			}
@@ -156,5 +156,11 @@ func benchmarkTrustConfig(count int) *Config {
 	for i := range bindings {
 		bindings[i] = TrustBindingConfig{ID: fmt.Sprintf("binding-%d", i), TrustPolicy: "policy"}
 	}
-	return &Config{OIDCTrust: OIDCTrustConfig{Issuers: map[string]TrustIssuerConfig{"issuer": {Provider: "oidc", IssuerURL: "https://issuer.example", SigningAlgs: []string{"RS256"}, MaxTokenAge: Duration(1)}}, Policies: map[string]TrustPolicyConfig{"policy": {Issuer: "issuer", Subject: "trusted:test", Groups: []string{"group"}}}}, Clients: map[string]ClientConfig{"client": {TrustBindings: bindings}}}
+	return &Config{
+		ServiceTokenIssuers: map[string]TrustIssuerConfig{"issuer": {Provider: "oidc", IssuerURL: "https://issuer.example", SigningAlgs: []string{"RS256"}, MaxTokenAge: Duration(1)}},
+		StaticPolicy: StaticPolicyConfig{
+			TrustPolicies: map[string]TrustPolicyConfig{"policy": {Issuer: "issuer", Subject: "trusted:test", Groups: []string{"group"}}},
+			Clients:       map[string]ClientConfig{"client": {TrustBindings: bindings}},
+		},
+	}
 }

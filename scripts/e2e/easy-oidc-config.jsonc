@@ -27,12 +27,12 @@
     "connection_string_secret": "EASYOIDC_POLICY_DB_URL",
     "redirect_uris": ["http://localhost:18000"],
     "client_defaults": {
-      "require_groups": true,
+      "require_user_groups_from_policy": true,
       "refresh_tokens": { "enabled": true },
     },
   },
 
-  "connectors": {
+  "user_login_connectors": {
     "generic": {
       "type": "generic",
       "display_name": "E2E Dex",
@@ -53,16 +53,17 @@
     },
   },
 
-  "oidc_trust": {
-    "issuers": {
-      "dex": {
-        "provider": "oidc",
-        "issuer_url": "http://127.0.0.1:5556/dex",
-        "signing_algs": ["RS256"],
-        "max_token_age": "5m",
-      },
+  "service_token_issuers": {
+    "dex": {
+      "provider": "oidc",
+      "issuer_url": "http://127.0.0.1:5556/dex",
+      "signing_algs": ["RS256"],
+      "max_token_age": "5m",
     },
-    "policies": {
+  },
+
+  "static_policy": {
+    "trust_policies": {
       "dex-static-e2e": {
         "issuer": "dex",
         "required_claims": {
@@ -70,30 +71,29 @@
         },
       },
     },
-  },
+    "default_redirect_uris": ["http://localhost:18000"],
 
-  "default_redirect_uris": ["http://localhost:18000"],
-
-  "groups_overrides": {
-    "static-groups": {
-      // Dex's mockCallback connector returns this fixed, non-configurable identity.
-      "kilgore@kilgore.trout": ["static-admins", "static-developers"],
+    "user_group_mappings": {
+      "static-groups": {
+        // Dex's mockCallback connector returns this fixed, non-configurable identity.
+        "kilgore@kilgore.trout": ["static-admins", "static-developers"],
+      },
     },
-  },
 
-  "clients": {
-    "static-ci-token-exchange-e2e": {
-      "trust_bindings": [{
-        "id": "dex-static-exchange-e2e",
-        "trust_policy": "dex-static-e2e",
-        "subject": "trusted:e2e:static",
-        "groups": ["e2e:static"],
-      }],
-    },
-    "static-kubelogin-interactive-e2e": {
-      "groups_override": "static-groups",
-      "refresh_tokens": {
-        "enabled": true,
+    "clients": {
+      "static-ci-token-exchange-e2e": {
+        "trust_bindings": [{
+          "id": "dex-static-exchange-e2e",
+          "trust_policy": "dex-static-e2e",
+          "subject": "trusted:e2e:static",
+          "groups": ["e2e:static"],
+        }],
+      },
+      "static-kubelogin-interactive-e2e": {
+        "user_group_mapping": "static-groups",
+        "refresh_tokens": {
+          "enabled": true,
+        },
       },
     },
   },

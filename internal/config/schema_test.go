@@ -60,27 +60,27 @@ func TestConfigSchemaContracts(t *testing.T) {
 			"provider":         "env",
 			"signing_key_name": "EASYOIDC_SIGNING_KEY",
 		},
-		"connectors": map[string]any{
+		"user_login_connectors": map[string]any{
 			"google": map[string]any{
 				"type":               "google",
 				"display_name":       "Google",
 				"credentials_secret": "EASYOIDC_GOOGLE_CREDENTIALS",
 			},
 		},
-		"default_redirect_uris": []any{"http://localhost:8000"},
-		"clients": map[string]any{
-			"kubelogin": map[string]any{},
+		"static_policy": map[string]any{
+			"default_redirect_uris": []any{"http://localhost:8000"},
+			"clients":               map[string]any{"kubelogin": map[string]any{}},
 		},
 	}
 	addGitHub := func(cfg map[string]any) {
-		cfg["connectors"].(map[string]any)["github"] = map[string]any{
+		cfg["user_login_connectors"].(map[string]any)["github"] = map[string]any{
 			"type":               "github",
 			"display_name":       "GitHub",
 			"credentials_secret": "EASYOIDC_GITHUB_CREDENTIALS",
 		}
 	}
 	addEmail := func(cfg map[string]any) {
-		cfg["connectors"].(map[string]any)["email"] = map[string]any{
+		cfg["user_login_connectors"].(map[string]any)["email"] = map[string]any{
 			"type":         "email",
 			"display_name": "Email code",
 		}
@@ -102,13 +102,22 @@ func TestConfigSchemaContracts(t *testing.T) {
 		mutate func(map[string]any)
 	}{
 		{"base configuration", true, func(map[string]any) {}},
+		{"legacy connectors field", false, func(cfg map[string]any) {
+			cfg["connectors"] = cfg["user_login_connectors"]
+		}},
+		{"legacy root policy field", false, func(cfg map[string]any) {
+			cfg["clients"] = cfg["static_policy"].(map[string]any)["clients"]
+		}},
+		{"legacy OIDC trust field", false, func(cfg map[string]any) {
+			cfg["oidc_trust"] = map[string]any{}
+		}},
 		{"mixed connectors require encryption", false, addGitHub},
 		{"GitHub with encryption", true, func(cfg map[string]any) {
 			addGitHub(cfg)
 			cfg["secrets"].(map[string]any)["encryption_key_name"] = "EASYOIDC_ENCRYPTION_KEY"
 		}},
 		{"email connector requires email configuration", false, func(cfg map[string]any) {
-			cfg["connectors"].(map[string]any)["email"] = map[string]any{
+			cfg["user_login_connectors"].(map[string]any)["email"] = map[string]any{
 				"type":         "email",
 				"display_name": "Email code",
 			}
@@ -118,11 +127,12 @@ func TestConfigSchemaContracts(t *testing.T) {
 			cfg["email"] = map[string]any{"verification_mode": "provider"}
 		}},
 		{"client requires effective redirect URI", false, func(cfg map[string]any) {
-			delete(cfg, "default_redirect_uris")
+			delete(cfg["static_policy"].(map[string]any), "default_redirect_uris")
 		}},
 		{"client redirect URI can replace defaults", true, func(cfg map[string]any) {
-			delete(cfg, "default_redirect_uris")
-			cfg["clients"].(map[string]any)["kubelogin"] = map[string]any{
+			policy := cfg["static_policy"].(map[string]any)
+			delete(policy, "default_redirect_uris")
+			policy["clients"].(map[string]any)["kubelogin"] = map[string]any{
 				"redirect_uris": []any{"https://app.example.com/callback"},
 			}
 		}},
@@ -130,14 +140,14 @@ func TestConfigSchemaContracts(t *testing.T) {
 			cfg["issuer_url"] = "http://auth.example.com"
 		}},
 		{"unsupported redirect URI scheme", false, func(cfg map[string]any) {
-			cfg["default_redirect_uris"] = []any{"ftp://app.example.com/callback"}
+			cfg["static_policy"].(map[string]any)["default_redirect_uris"] = []any{"ftp://app.example.com/callback"}
 		}},
 		{"display name is not a bare sender address", false, func(cfg map[string]any) {
 			addEmail(cfg)
 			cfg["email"].(map[string]any)["smtp"].(map[string]any)["from_address"] = "Easy OIDC <auth@example.com>"
 		}},
 		{"group mapping requires a dotted email domain", false, func(cfg map[string]any) {
-			cfg["groups_overrides"] = map[string]any{
+			cfg["static_policy"].(map[string]any)["user_group_mappings"] = map[string]any{
 				"groups": map[string]any{"alice@localhost": []any{"developers"}},
 			}
 		}},
@@ -160,8 +170,8 @@ func TestPolicyDatabaseSchemaAndLoaderValidation(t *testing.T) {
 	schema := compileConfigSchema(t)
 	base := map[string]any{
 		"issuer_url": "https://auth.example.com", "http_listen_addr": "127.0.0.1:8080",
-		"secrets":    map[string]any{"provider": "env", "signing_key_name": "SIGNING"},
-		"connectors": map[string]any{"google": map[string]any{"type": "google", "display_name": "Google", "credentials_secret": "GOOGLE"}},
+		"secrets":               map[string]any{"provider": "env", "signing_key_name": "SIGNING"},
+		"user_login_connectors": map[string]any{"google": map[string]any{"type": "google", "display_name": "Google", "credentials_secret": "GOOGLE"}},
 		"policy_database": map[string]any{
 			"driver": "postgresql", "connection_string_secret": "DATABASE_URL", "redirect_uris": []any{"http://localhost:18000"},
 			"queries": map[string]any{"client_exists": "select true as exists", "user_access": "select true as allowed, array[]::text[] as groups", "trust_bindings": "select 1 where false"},
@@ -183,7 +193,7 @@ func TestPolicyDatabaseSchemaAndLoaderValidation(t *testing.T) {
 		}},
 		{"email-only dynamic refresh without encryption", true, true, func(c map[string]any) {
 			c["policy_database"].(map[string]any)["client_defaults"] = map[string]any{"refresh_tokens": map[string]any{"enabled": true}}
-			c["connectors"] = map[string]any{"email": map[string]any{"type": "email", "display_name": "Email code"}}
+			c["user_login_connectors"] = map[string]any{"email": map[string]any{"type": "email", "display_name": "Email code"}}
 			c["email"] = map[string]any{
 				"verification_mode": "disabled", "otp_secret_name": "OTP",
 				"smtp": map[string]any{"host": "smtp.example.com", "port": json.Number("587"), "from_address": "auth@example.com", "credentials_secret": "SMTP"},
@@ -191,7 +201,82 @@ func TestPolicyDatabaseSchemaAndLoaderValidation(t *testing.T) {
 		}},
 		{"equivalent Go duration", true, true, func(c map[string]any) { c["policy_database"].(map[string]any)["query_timeout"] = "1000ms" }},
 		{"coexists with static client", true, true, func(c map[string]any) {
-			c["clients"] = map[string]any{"static": map[string]any{"redirect_uris": []any{"https://app.example/cb"}}}
+			c["static_policy"] = map[string]any{"clients": map[string]any{"static": map[string]any{"redirect_uris": []any{"https://app.example/cb"}}}}
+		}},
+		{"policy user groups required", true, true, func(c map[string]any) {
+			c["policy_database"].(map[string]any)["client_defaults"] = map[string]any{"require_user_groups_from_policy": true}
+		}},
+		{"legacy policy database require groups field", false, false, func(c map[string]any) {
+			c["policy_database"].(map[string]any)["client_defaults"] = map[string]any{"require_groups": true}
+		}},
+		{"null policy database user group requirement", false, false, func(c map[string]any) {
+			c["policy_database"].(map[string]any)["client_defaults"] = map[string]any{"require_user_groups_from_policy": nil}
+		}},
+		{"legacy groups overrides field", false, false, func(c map[string]any) {
+			c["static_policy"] = map[string]any{"groups_overrides": map[string]any{}}
+		}},
+		{"legacy client groups override field", false, false, func(c map[string]any) {
+			c["static_policy"] = map[string]any{"clients": map[string]any{"static": map[string]any{"redirect_uris": []any{"https://app.example/cb"}, "groups_override": "developers"}}}
+		}},
+		{"legacy static require groups field", false, false, func(c map[string]any) {
+			c["static_policy"] = map[string]any{"require_groups": true}
+		}},
+		{"legacy client require groups field", false, false, func(c map[string]any) {
+			c["static_policy"] = map[string]any{"clients": map[string]any{"static": map[string]any{"redirect_uris": []any{"https://app.example/cb"}, "require_groups": true}}}
+		}},
+		{"empty static clients", false, false, func(c map[string]any) {
+			c["static_policy"] = map[string]any{"clients": map[string]any{}}
+		}},
+		{"empty static redirect defaults", false, false, func(c map[string]any) {
+			c["static_policy"] = map[string]any{"default_redirect_uris": []any{}}
+		}},
+		{"invalid unused static redirect default", false, false, func(c map[string]any) {
+			c["static_policy"] = map[string]any{"default_redirect_uris": []any{"ftp://app.example/callback"}}
+		}},
+		{"null service token issuers", false, false, func(c map[string]any) {
+			c["service_token_issuers"] = nil
+		}},
+		{"null static policy", false, false, func(c map[string]any) {
+			c["static_policy"] = nil
+		}},
+		{"null static user group requirement", false, false, func(c map[string]any) {
+			c["static_policy"] = map[string]any{"require_user_groups_from_policy": nil}
+		}},
+		{"null static redirect defaults", false, false, func(c map[string]any) {
+			c["static_policy"] = map[string]any{"default_redirect_uris": nil}
+		}},
+		{"null static user group mappings", false, false, func(c map[string]any) {
+			c["static_policy"] = map[string]any{"user_group_mappings": nil}
+		}},
+		{"null static trust policies", false, false, func(c map[string]any) {
+			c["static_policy"] = map[string]any{"trust_policies": nil}
+		}},
+		{"null static clients", false, false, func(c map[string]any) {
+			c["static_policy"] = map[string]any{"clients": nil}
+		}},
+		{"null static client", false, false, func(c map[string]any) {
+			c["static_policy"] = map[string]any{"clients": map[string]any{"static": nil}}
+		}},
+		{"null static client redirects", false, false, func(c map[string]any) {
+			c["static_policy"] = map[string]any{"default_redirect_uris": []any{"https://app.example/cb"}, "clients": map[string]any{"static": map[string]any{"redirect_uris": nil}}}
+		}},
+		{"null static client group requirement", false, false, func(c map[string]any) {
+			c["static_policy"] = map[string]any{"clients": map[string]any{"static": map[string]any{"redirect_uris": []any{"https://app.example/cb"}, "require_user_groups_from_policy": nil}}}
+		}},
+		{"null static refresh setting", false, false, func(c map[string]any) {
+			c["static_policy"] = map[string]any{"clients": map[string]any{"static": map[string]any{"redirect_uris": []any{"https://app.example/cb"}, "refresh_tokens": map[string]any{"enabled": nil}}}}
+		}},
+		{"null user group mapping", false, false, func(c map[string]any) {
+			c["static_policy"] = map[string]any{"user_group_mappings": map[string]any{"developers": nil}}
+		}},
+		{"null user group list", false, false, func(c map[string]any) {
+			c["static_policy"] = map[string]any{"user_group_mappings": map[string]any{"developers": map[string]any{"user@example.com": nil}}}
+		}},
+		{"noncanonical static policy", false, false, func(c map[string]any) {
+			c["STATIC_POLICY"] = nil
+		}},
+		{"noncanonical static client field", false, false, func(c map[string]any) {
+			c["static_policy"] = map[string]any{"default_redirect_uris": []any{"https://app.example/cb"}, "clients": map[string]any{"static": map[string]any{"REDIRECT_URIS": nil}}}
 		}},
 		{"invalid driver", false, false, func(c map[string]any) { c["policy_database"].(map[string]any)["driver"] = "mysql" }},
 		{"invalid redirect", false, false, func(c map[string]any) {
@@ -295,8 +380,10 @@ func TestStateDatabaseSchemaAndLoaderValidation(t *testing.T) {
 	base := map[string]any{
 		"issuer_url": "https://auth.example.com", "http_listen_addr": "127.0.0.1:8080",
 		"secrets":               map[string]any{"provider": "env", "signing_key_name": "SIGNING"},
-		"connectors":            map[string]any{"google": map[string]any{"type": "google", "display_name": "Google", "credentials_secret": "GOOGLE"}},
-		"default_redirect_uris": []any{"http://localhost:8000"}, "clients": map[string]any{"client": map[string]any{}},
+		"user_login_connectors": map[string]any{"google": map[string]any{"type": "google", "display_name": "Google", "credentials_secret": "GOOGLE"}},
+		"static_policy": map[string]any{
+			"default_redirect_uris": []any{"http://localhost:8000"}, "clients": map[string]any{"client": map[string]any{}},
+		},
 		"state_database": map[string]any{"driver": "postgresql", "connection_string_secret": "STATE_DATABASE_URL"},
 	}
 	tests := []struct {

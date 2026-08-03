@@ -274,7 +274,7 @@ func TestValidateConnector(t *testing.T) {
 
 func TestValidateClient(t *testing.T) {
 	defaultRedirects := []string{"http://localhost:8000"}
-	overrides := map[string]map[string][]string{
+	mappings := map[string]map[string][]string{
 		"test-groups": {
 			"alice@example.com": {"admins"},
 		},
@@ -301,18 +301,18 @@ func TestValidateClient(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name:     "valid with groups override",
+			name:     "valid with user group mapping",
 			clientID: "test-client",
 			client: ClientConfig{
-				GroupsOverride: "test-groups",
+				UserGroupMapping: "test-groups",
 			},
 			expectError: false,
 		},
 		{
-			name:     "invalid groups override",
+			name:     "invalid user group mapping",
 			clientID: "test-client",
 			client: ClientConfig{
-				GroupsOverride: "nonexistent",
+				UserGroupMapping: "nonexistent",
 			},
 			expectError: true,
 		},
@@ -334,7 +334,7 @@ func TestValidateClient(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateClient(tt.clientID, tt.client, defaultRedirects, overrides)
+			err := validateClient(tt.clientID, tt.client, defaultRedirects, mappings)
 			if (err != nil) != tt.expectError {
 				t.Errorf("expected error: %v, got: %v", tt.expectError, err)
 			}
@@ -342,15 +342,15 @@ func TestValidateClient(t *testing.T) {
 	}
 }
 
-func TestValidateGroupsOverrides(t *testing.T) {
+func TestValidateUserGroupMappings(t *testing.T) {
 	tests := []struct {
 		name        string
-		overrides   map[string]map[string][]string
+		mappings    map[string]map[string][]string
 		expectError bool
 	}{
 		{
-			name: "valid overrides",
-			overrides: map[string]map[string][]string{
+			name: "valid mappings",
+			mappings: map[string]map[string][]string{
 				"prod-groups": {
 					"alice@example.com": {"admins"},
 					"bob@example.com":   {"users"},
@@ -360,7 +360,7 @@ func TestValidateGroupsOverrides(t *testing.T) {
 		},
 		{
 			name: "invalid email format",
-			overrides: map[string]map[string][]string{
+			mappings: map[string]map[string][]string{
 				"prod-groups": {
 					"not-an-email": {"admins"},
 				},
@@ -368,8 +368,8 @@ func TestValidateGroupsOverrides(t *testing.T) {
 			expectError: true,
 		},
 		{
-			name: "empty override name",
-			overrides: map[string]map[string][]string{
+			name: "empty mapping name",
+			mappings: map[string]map[string][]string{
 				"": {
 					"alice@example.com": {"admins"},
 				},
@@ -378,7 +378,7 @@ func TestValidateGroupsOverrides(t *testing.T) {
 		},
 		{
 			name: "complex emails",
-			overrides: map[string]map[string][]string{
+			mappings: map[string]map[string][]string{
 				"groups": {
 					"alice+tag@example.com":     {"admins"},
 					"bob.smith@sub.example.com": {"users"},
@@ -390,7 +390,7 @@ func TestValidateGroupsOverrides(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateGroupsOverrides(tt.overrides)
+			err := validateUserGroupMappings(tt.mappings)
 			if (err != nil) != tt.expectError {
 				t.Errorf("expected error: %v, got: %v", tt.expectError, err)
 			}
@@ -416,12 +416,12 @@ func TestValidate(t *testing.T) {
 					Provider:       "env",
 					SigningKeyName: "SIGNING_KEY",
 				},
-				Connectors: map[string]ConnectorConfig{
+				UserLoginConnectors: map[string]ConnectorConfig{
 					"google": {Type: "google", DisplayName: "Google", CredentialsSecret: "GOOGLE_CREDS"},
 				},
-				DefaultRedirectURIs: []string{"http://localhost:8000"},
-				Clients: map[string]ClientConfig{
-					"test-client": {},
+				StaticPolicy: StaticPolicyConfig{
+					DefaultRedirectURIs: []string{"http://localhost:8000"},
+					Clients:             map[string]ClientConfig{"test-client": {}},
 				},
 			},
 			expectError: false,
@@ -506,10 +506,10 @@ func TestValidate(t *testing.T) {
 					Provider:       "env",
 					SigningKeyName: "SIGNING_KEY",
 				},
-				Connectors: map[string]ConnectorConfig{
+				UserLoginConnectors: map[string]ConnectorConfig{
 					"google": {Type: "google", DisplayName: "Google", CredentialsSecret: "GOOGLE_CREDS"},
 				},
-				Clients: map[string]ClientConfig{},
+				StaticPolicy: StaticPolicyConfig{Clients: map[string]ClientConfig{}},
 			},
 			expectError: true,
 		},
@@ -535,11 +535,11 @@ func validTestConfig() Config {
 			Provider:       "env",
 			SigningKeyName: "EASYOIDC_SIGNING_KEY",
 		},
-		Connectors: map[string]ConnectorConfig{
+		UserLoginConnectors: map[string]ConnectorConfig{
 			"google": {Type: "google", DisplayName: "Google", CredentialsSecret: "EASYOIDC_GOOGLE_CREDENTIALS"},
 		},
-		Clients: map[string]ClientConfig{
-			"client": {RedirectURIs: []string{"https://client.example.com/callback"}},
+		StaticPolicy: StaticPolicyConfig{
+			Clients: map[string]ClientConfig{"client": {RedirectURIs: []string{"https://client.example.com/callback"}}},
 		},
 	}
 }
@@ -562,7 +562,7 @@ func validEmailConfig() *EmailConfig {
 // TestValidateEmailConfiguration verifies email configuration validation.
 func TestValidateEmailConfiguration(t *testing.T) {
 	cfg := validTestConfig()
-	cfg.Connectors["email"] = ConnectorConfig{Type: "email", DisplayName: "Email"}
+	cfg.UserLoginConnectors["email"] = ConnectorConfig{Type: "email", DisplayName: "Email"}
 	if err := validate(&cfg); err == nil {
 		t.Fatal("email connector accepted without email configuration")
 	}
@@ -618,8 +618,8 @@ func TestValidateEmailConfiguration(t *testing.T) {
 // TestValidateConnectorID verifies connector IDs must be path-safe.
 func TestValidateConnectorID(t *testing.T) {
 	cfg := validTestConfig()
-	cfg.Connectors["not/safe"] = cfg.Connectors["google"]
-	delete(cfg.Connectors, "google")
+	cfg.UserLoginConnectors["not/safe"] = cfg.UserLoginConnectors["google"]
+	delete(cfg.UserLoginConnectors, "google")
 	if err := validate(&cfg); err == nil {
 		t.Fatal("unsafe connector ID accepted")
 	}
@@ -628,8 +628,8 @@ func TestValidateConnectorID(t *testing.T) {
 // TestValidateGitHubRequiresEncryptionKey verifies multi-email selection requires encryption.
 func TestValidateGitHubRequiresEncryptionKey(t *testing.T) {
 	cfg := validTestConfig()
-	cfg.Connectors["github"] = ConnectorConfig{Type: "github", DisplayName: "GitHub", CredentialsSecret: "EASYOIDC_GITHUB_CREDENTIALS"}
-	delete(cfg.Connectors, "google")
+	cfg.UserLoginConnectors["github"] = ConnectorConfig{Type: "github", DisplayName: "GitHub", CredentialsSecret: "EASYOIDC_GITHUB_CREDENTIALS"}
+	delete(cfg.UserLoginConnectors, "google")
 	if err := validate(&cfg); err == nil {
 		t.Fatal("GitHub connector accepted without an encryption key")
 	}
@@ -658,12 +658,14 @@ func setupTestConfig(t *testing.T) {
 			"signing_key_name": "SIGNING_KEY"
 		},
 		"email": {},
-		"connectors": {
+		"user_login_connectors": {
 			"google": {"type": "google", "display_name": "Google", "credentials_secret": "GOOGLE_CREDS"}
 		},
-		"default_redirect_uris": ["http://localhost:8000"],
-		"clients": {
-			"test-client": {},
+		"static_policy": {
+			"default_redirect_uris": ["http://localhost:8000"],
+			"clients": {
+				"test-client": {},
+			},
 		},
 	}`
 

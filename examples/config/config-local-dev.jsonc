@@ -11,10 +11,6 @@
   "http_listen_addr": "127.0.0.1:8080",
   "signing_algorithm": "RS256",
 
-  // Require users to have groups assigned (default: true)
-  // Set to false to allow authentication without groups
-  "require_groups": true,
-
   "secrets": {
     "provider": "env",
     "signing_key_name": "EASYOIDC_SIGNING_KEY",
@@ -22,7 +18,7 @@
 
   "state_database": { "driver": "sqlite", "path": "temp/easy-oidc-state.db" },
 
-  "connectors": {
+  "user_login_connectors": {
     "google": {
       "type": "google",
       "display_name": "Google",
@@ -32,19 +28,24 @@
     },
   },
 
-  "default_redirect_uris": ["http://localhost:8000"],
+  "static_policy": {
+    // Require users to have groups assigned (default: true)
+    // Set to false to allow authentication without groups
+    "require_user_groups_from_policy": true,
+    "default_redirect_uris": ["http://localhost:8000"],
 
-  "groups_overrides": {
-    "local-groups": {
-      "your-email@example.com": ["admins", "developers"],
+    "user_group_mappings": {
+      "local-groups": {
+        "your-email@example.com": ["admins", "developers"],
+      },
     },
-  },
 
-  "clients": {
-    "kubelogin-local": {
-      "groups_override": "local-groups",
-      // Optional: override require_groups per-client
-      // "require_groups": false
+    "clients": {
+      "kubelogin-local": {
+        "user_group_mapping": "local-groups",
+        // Optional: override require_user_groups_from_policy per-client
+        // "require_user_groups_from_policy": false
+      },
     },
   },
 }

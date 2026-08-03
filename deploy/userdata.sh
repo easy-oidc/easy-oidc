@@ -12,7 +12,7 @@ set -eo pipefail
 # CADDY_VERSION="latest"
 # CADDY_SHA512="def456..."
 # OIDC_HOSTNAME="auth.example.com"
-# EASY_OIDC_CONFIG='{"clients":{}}'
+# EASY_OIDC_CONFIG='{"static_policy":{"clients":{}}}'
 # SSH=false
 # FIREWALL=true
 # AUTO_UPDATES=true

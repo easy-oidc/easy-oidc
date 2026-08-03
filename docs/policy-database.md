@@ -143,7 +143,7 @@ token.
 - Parameters:
   - `$1` — client ID as `text`.
   - `$2` — issuer ID as `text`. The issuer must also exist under the static
-    `oidc_trust.issuers` configuration.
+    `service_token_issuers` configuration.
 - Result:
   - Zero or more rows.
   - Columns must appear in this order:
@@ -187,7 +187,7 @@ database. If both sources contain the same client ID, static policy wins.
 - Users resolved through database policy do not require an external OIDC trust
   issuer.
 - Trust bindings loaded from database policy may only use issuer IDs defined by
-  the static `oidc_trust.issuers` configuration.
+  `service_token_issuers`.
 
 ## Policy database security
 
@@ -218,11 +218,11 @@ must still have read-only permissions.
 
 ## Limits and caches
 
-Unless overridden under `client_defaults`, clients supplied by database policy
-inherit the top-level `require_groups` setting, which defaults to `true`.
-Refresh tokens are disabled by default. A user allowed through database policy
-with no groups is therefore denied unless group requirements are explicitly
-disabled.
+For clients supplied by database policy,
+`client_defaults.require_user_groups_from_policy` defaults to `true`; static
+policy defaults do not apply. Refresh tokens are disabled by default. A
+database-authorized user with no groups is therefore denied unless group
+requirements are explicitly disabled.
 
 Easy OIDC limits query time, connection use, and result sizes. The settings,
 defaults, and accepted ranges are:

@@ -182,8 +182,8 @@ kubelogin will print a URL. Copy and paste it into your local browser.
    ```
 
 3. **Verify groups are configured** in Easy OIDC:
-   - Check the Easy OIDC `groups_overrides` configuration
-   - Ensure `groups_override` is set for your client
+   - Check `static_policy.user_group_mappings`
+   - Ensure `user_group_mapping` is set for your client
 
 ### OAuth redirect URI mismatch
 
@@ -195,8 +195,8 @@ kubelogin will print a URL. Copy and paste it into your local browser.
 
 1. Ensure the upstream OAuth application's redirect URI is
    `https://auth.example.com/callback/<connector-id>`.
-2. Check that `<connector-id>` exactly matches the stable key under `connectors`.
-3. **For kubelogin**: Ensure `http://localhost:8000` (or your custom port) is in `default_redirect_uris`
+2. Check that `<connector-id>` matches a key under `user_login_connectors`.
+3. **For kubelogin**: Ensure its callback is allowed by the static client policy.
 
 ## Configuration Issues
 
@@ -204,21 +204,23 @@ kubelogin will print a URL. Copy and paste it into your local browser.
 
 **Symptom**: ID token has `groups: []` even though user should have groups.
 
-**Cause**: Client doesn't have a `groups_override` configured, or email not in the override map.
+**Cause**: Client doesn't have a `user_group_mapping` configured, or the mapping does not contain the email.
 
 **Solution**:
 
 1. **Check the application configuration**:
    ```jsonc
    {
-     "clients": {
-       "kubelogin-prod": {
-         "groups_override": "prod-groups"
-       }
-     },
-     "groups_overrides": {
-       "prod-groups": {
-         "alice@example.com": ["admins"]
+     "static_policy": {
+       "clients": {
+         "kubelogin-prod": {
+           "user_group_mapping": "prod-groups"
+         }
+       },
+       "user_group_mappings": {
+         "prod-groups": {
+           "alice@example.com": ["admins"]
+         }
        }
      }
    }
@@ -226,7 +228,7 @@ kubelogin will print a URL. Copy and paste it into your local browser.
 
 2. **Verify email matches** (emails are case-insensitive):
    - Check the `email` claim in your ID token
-   - Ensure it matches the key in `groups_overrides` exactly
+   - Ensure it matches the key in `static_policy.user_group_mappings` exactly
 
 3. **Restart Easy OIDC** after updating its configuration. Module users should
    update `easy_oidc_config` and run `tofu apply`.
@@ -319,10 +321,13 @@ args:
 - --listen-address=127.0.0.1:18000
 ```
 
-Update Easy OIDC `default_redirect_uris`:
+Update `static_policy.default_redirect_uris`:
 
 ```jsonc
-"default_redirect_uris": ["http://localhost:18000"]
+"static_policy": {
+  "default_redirect_uris": ["http://localhost:18000"],
+  "clients": { "kubelogin-prod": {} }
+}
 ```
 
 ## Debugging

@@ -54,7 +54,7 @@ sequenceDiagram
     Script->>Dex: Sign in as test user
     Dex-->>Easy: Return user identity
     activate Easy
-    Easy->>Easy: Validate identity and apply static group override
+    Easy->>Easy: Validate identity and apply static user group mapping
     Easy->>Easy: Mint authorization code
     Easy-->>Script: Return authorization code to kubelogin
     deactivate Easy

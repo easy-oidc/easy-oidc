@@ -6,7 +6,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # Easy OIDC
 
-Minimal OIDC server designed for use with Kubernetes, with Google/GitHub/Generic federation, typed email codes, and static group overrides.
+Minimal OIDC server designed for use with Kubernetes, with Google/GitHub/Generic federation, typed email codes, and static user group mappings.
 
 ## Overview
 
@@ -14,7 +14,7 @@ Minimal OIDC server designed for use with Kubernetes, with Google/GitHub/Generic
 
 **Perfect for:**
 - Developers already using GitHub or GMail/Google Workspace or wanting email authentication
-- Simple RBAC with static group overrides
+- Simple RBAC with static user group mappings
 - Running on a single EC2 instance with minimal cost
 
 Easy OIDC was created by [Nadrama](https://nadrama.com). Nadrama is an Open Source PaaS that helps you deploy containers, in your cloud account, in minutes.
@@ -24,7 +24,7 @@ Easy OIDC was created by [Nadrama](https://nadrama.com). Nadrama is an Open Sour
 - **Zero password management** - Delegates to GitHub, Google, or any OAuth2+UserInfo/OIDC provider
 - **Multiple sign-in methods** - Configure several upstream providers and optional email codes behind one issuer
 - **Consistent email identity** - Normalise sign-in methods to one email identity downstream, with configurable verification
-- **Static group overrides** - Map a list of emails to groups in the JSONC config
+- **Static user group mappings** - Map email addresses to groups in the JSONC config
 - **PKCE-only downstream clients** - Secure public client flow with no downstream client secrets to leak
 - **Custom templates** - Overlay embedded page and email templates without rebuilding the binary
 - **Kubernetes-compatible signing** - RS256 by default, with all Kubernetes-supported algorithms plus EdDSA

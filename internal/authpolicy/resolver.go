@@ -47,7 +47,10 @@ func (r *Resolver) ResolveClient(ctx context.Context, clientID string, fresh boo
 	if r == nil || r.cfg == nil {
 		return ResolvedClient{}, &IndeterminateError{Err: errors.New("policy resolver unavailable")}
 	}
-	if client, ok := r.cfg.Clients[clientID]; ok {
+	if client, ok := r.cfg.StaticPolicy.Clients[clientID]; ok {
+		if len(client.RedirectURIs) == 0 {
+			client.RedirectURIs = append([]string(nil), r.cfg.StaticPolicy.DefaultRedirectURIs...)
+		}
 		return ResolvedClient{Config: client, id: clientID, source: clientSourceStatic, owner: r}, nil
 	}
 	if !validDynamicClientID(clientID) {
@@ -71,9 +74,9 @@ func (r *Resolver) ResolveClient(ctx context.Context, clientID string, fresh boo
 	}
 	defaults := r.cfg.PolicyDatabase.ClientDefaults
 	return ResolvedClient{id: clientID, source: clientSourceDatabase, owner: r, Config: config.ClientConfig{
-		RedirectURIs:  append([]string(nil), r.cfg.PolicyDatabase.RedirectURIs...),
-		RequireGroups: defaults.RequireGroups,
-		RefreshTokens: defaults.RefreshTokens,
+		RedirectURIs:                append([]string(nil), r.cfg.PolicyDatabase.RedirectURIs...),
+		RequireUserGroupsFromPolicy: defaults.RequireUserGroupsFromPolicy,
+		RefreshTokens:               defaults.RefreshTokens,
 	}}, nil
 }
 
@@ -87,7 +90,7 @@ func (r *Resolver) ResolveUser(ctx context.Context, client ResolvedClient, subje
 	}
 	switch client.source {
 	case clientSourceStatic:
-		policy, ok := r.cfg.Clients[client.id]
+		policy, ok := r.cfg.StaticPolicy.Clients[client.id]
 		if !ok {
 			return ResolvedUser{}, &IndeterminateError{Err: errors.New("resolved client policy unavailable")}
 		}
@@ -97,8 +100,8 @@ func (r *Resolver) ResolveUser(ctx context.Context, client ResolvedClient, subje
 			return ResolvedUser{}, &IndeterminateError{Err: errors.New("policy database unavailable")}
 		}
 		defaults := r.cfg.PolicyDatabase.ClientDefaults
-		policy := config.ClientConfig{RequireGroups: defaults.RequireGroups}
-		return r.policyDatabase.ResolveUser(ctx, client.id, subject, policy.ShouldRequireGroups(r.cfg.RequireGroups))
+		policy := config.ClientConfig{RequireUserGroupsFromPolicy: defaults.RequireUserGroupsFromPolicy}
+		return r.policyDatabase.ResolveUser(ctx, client.id, subject, policy.ShouldRequireUserGroupsFromPolicy(nil))
 	default:
 		return ResolvedUser{}, &IndeterminateError{Err: errors.New("invalid resolved client")}
 	}
@@ -114,7 +117,7 @@ func (r *Resolver) ResolveTrust(ctx context.Context, client ResolvedClient, issu
 	}
 	switch client.source {
 	case clientSourceStatic:
-		policy, ok := r.cfg.Clients[client.id]
+		policy, ok := r.cfg.StaticPolicy.Clients[client.id]
 		if !ok {
 			return nil, &IndeterminateError{Err: errors.New("resolved client policy unavailable")}
 		}

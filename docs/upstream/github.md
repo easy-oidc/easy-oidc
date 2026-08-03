@@ -87,7 +87,7 @@ If you're using GitHub Enterprise Server (self-hosted):
 2. Set the hostname on that connector:
 
 ```jsonc
-"connectors": {
+"user_login_connectors": {
   "github": {
     "type": "github",
     "display_name": "GitHub Enterprise",

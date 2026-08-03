@@ -13,8 +13,8 @@ import (
 
 // resolveStaticUser returns effective user groups from static configuration.
 func resolveStaticUser(cfg *config.Config, policy config.ClientConfig, subject string) (ResolvedUser, error) {
-	groups := resolveStaticGroups(cfg.GroupsOverrides, policy.GroupsOverride, subject)
-	if policy.ShouldRequireGroups(cfg.RequireGroups) && len(groups) == 0 {
+	groups := resolveStaticGroups(cfg.StaticPolicy.UserGroupMappings, policy.UserGroupMapping, subject)
+	if policy.ShouldRequireUserGroupsFromPolicy(cfg.StaticPolicy.RequireUserGroupsFromPolicy) && len(groups) == 0 {
 		return ResolvedUser{}, ErrDenied
 	}
 	return ResolvedUser{Groups: groups}, nil
@@ -32,11 +32,11 @@ func resolveStaticTrust(policy config.ClientConfig, issuerID string) []config.Ef
 }
 
 // resolveStaticGroups resolves normalized, deduplicated, and sorted static groups.
-func resolveStaticGroups(overrides map[string]map[string][]string, overrideID, subject string) []string {
-	if overrideID == "" {
+func resolveStaticGroups(mappings map[string]map[string][]string, mappingID, subject string) []string {
+	if mappingID == "" {
 		return []string{}
 	}
-	groups := overrides[overrideID][strings.ToLower(strings.TrimSpace(subject))]
+	groups := mappings[mappingID][strings.ToLower(strings.TrimSpace(subject))]
 	seen := make(map[string]bool, len(groups))
 	resolved := make([]string, 0, len(groups))
 	for _, group := range groups {

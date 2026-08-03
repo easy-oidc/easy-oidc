@@ -16,7 +16,7 @@ import (
 func TestResolveStaticUser(t *testing.T) {
 	required := true
 	notRequired := false
-	overrides := map[string]map[string][]string{
+	mappings := map[string]map[string][]string{
 		"groups": {"user@example.com": {"viewers", "admins", "viewers"}},
 	}
 	tests := []struct {
@@ -30,28 +30,28 @@ func TestResolveStaticUser(t *testing.T) {
 		{
 			name:       "normalizes subject and groups",
 			global:     &required,
-			policy:     config.ClientConfig{GroupsOverride: "groups"},
+			policy:     config.ClientConfig{UserGroupMapping: "groups"},
 			subject:    " USER@EXAMPLE.COM ",
 			wantGroups: []string{"admins", "viewers"},
 		},
 		{
 			name:       "allows empty groups when globally optional",
 			global:     &notRequired,
-			policy:     config.ClientConfig{GroupsOverride: "missing"},
+			policy:     config.ClientConfig{UserGroupMapping: "missing"},
 			subject:    "user@example.com",
 			wantGroups: []string{},
 		},
 		{
 			name:       "client setting overrides global requirement",
 			global:     &required,
-			policy:     config.ClientConfig{RequireGroups: &notRequired},
+			policy:     config.ClientConfig{RequireUserGroupsFromPolicy: &notRequired},
 			subject:    "user@example.com",
 			wantGroups: []string{},
 		},
 		{
 			name:       "denies empty required groups",
 			global:     &required,
-			policy:     config.ClientConfig{GroupsOverride: "missing"},
+			policy:     config.ClientConfig{UserGroupMapping: "missing"},
 			subject:    "user@example.com",
 			wantDenied: true,
 		},
@@ -64,7 +64,7 @@ func TestResolveStaticUser(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			user, err := resolveStaticUser(&config.Config{RequireGroups: test.global, GroupsOverrides: overrides}, test.policy, test.subject)
+			user, err := resolveStaticUser(&config.Config{StaticPolicy: config.StaticPolicyConfig{RequireUserGroupsFromPolicy: test.global, UserGroupMappings: mappings}}, test.policy, test.subject)
 			if test.wantDenied {
 				if !errors.Is(err, ErrDenied) {
 					t.Fatalf("error = %v, want denial", err)

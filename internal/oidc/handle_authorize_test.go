@@ -71,12 +71,12 @@ func authorizeServer(t *testing.T, connectors map[string]config.ConnectorConfig)
 			captures[id] = capture
 		}
 	}
-	requireGroups := false
+	requireUserGroupsFromPolicy := false
 	cfg := &config.Config{
-		Connectors:    connectors,
-		RequireGroups: &requireGroups,
-		Clients: map[string]config.ClientConfig{
-			"client": {RedirectURIs: []string{"https://client.example/callback"}},
+		UserLoginConnectors: connectors,
+		StaticPolicy: config.StaticPolicyConfig{
+			RequireUserGroupsFromPolicy: &requireUserGroupsFromPolicy,
+			Clients:                     map[string]config.ClientConfig{"client": {RedirectURIs: []string{"https://client.example/callback"}}},
 		},
 	}
 	managerAuth, err := NewAuthCodeManager(store)
@@ -125,7 +125,7 @@ func TestCallbackCompletionRechecksRemovedClient(t *testing.T) {
 	server, captures := authorizeServer(t, map[string]config.ConnectorConfig{
 		"google": {Type: "google", DisplayName: "Google"},
 	})
-	client := server.config.Clients["client"]
+	client := server.config.StaticPolicy.Clients["client"]
 	resolver := &fakePolicyResolver{client: authpolicy.ResolvedClient{Config: client}, clientErrors: []error{nil, authpolicy.ErrDenied}}
 	server.policyResolver = resolver
 	captures["google"].identity = upstream.Identity{Subject: "upstream-user", Emails: []upstream.Email{{Address: "user@example.com", Verified: true}}}
@@ -172,5 +172,8 @@ func TestHandleAuthorizeUsesResolvedClientPolicy(t *testing.T) {
 				t.Fatalf("status=%d calls=%d body=%s", response.Code, fake.resolveClientCalls, response.Body.String())
 			}
 		})
+	}
+	if server.isValidRedirectURI("https://client.example/callback", config.ClientConfig{}) {
+		t.Fatal("client without redirect policy inherited static defaults")
 	}
 }
