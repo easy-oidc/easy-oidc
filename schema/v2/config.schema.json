@@ -551,7 +551,7 @@
     "smtp": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["host", "port", "from_address", "credentials_secret"],
+      "required": ["host", "port", "from_address"],
       "properties": {
         "host": {
           "type": "string",
@@ -583,7 +583,7 @@
         "credentials_secret": {
           "type": "string",
           "minLength": 1,
-          "description": "Secret containing SMTP username and password as JSON."
+          "description": "Optional secret containing SMTP username and password as JSON. When omitted, SMTP authentication is not attempted."
         }
       },
       "allOf": [

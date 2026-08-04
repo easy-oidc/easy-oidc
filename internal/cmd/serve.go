@@ -36,6 +36,7 @@ import (
 // newServeCmd creates the foreground HTTP server command.
 func newServeCmd() *cobra.Command {
 	var debugMode bool
+	var demoMode bool
 
 	configPath := os.Getenv("EASYOIDC_CONFIG_PATH")
 	if configPath == "" {
@@ -46,17 +47,21 @@ func newServeCmd() *cobra.Command {
 		Short: "Run the Easy OIDC server",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return serve(cmd.Context(), cmd.OutOrStdout(), configPath, debugMode)
+			if demoMode && cmd.Flags().Changed("config") {
+				return fmt.Errorf("--demo and --config cannot be used together")
+			}
+			return serve(cmd.Context(), cmd.OutOrStdout(), configPath, debugMode, demoMode)
 		},
 	}
 
 	cmd.Flags().BoolVarP(&debugMode, "debug", "v", false, "Enable debug logging")
+	cmd.Flags().BoolVar(&demoMode, "demo", false, "Run a local email demo with generated ephemeral secrets")
 	cmd.Flags().StringVar(&configPath, "config", configPath, "Path to config file")
 	return cmd
 }
 
 // serve assembles and serves Easy OIDC until cancellation or an interrupt.
-func serve(ctx context.Context, output io.Writer, configPath string, debug bool) error {
+func serve(ctx context.Context, output io.Writer, configPath string, debug, demo bool) error {
 	// Set up structured logging.
 	logLevel := slog.LevelInfo
 	if debug {
@@ -66,10 +71,24 @@ func serve(ctx context.Context, output io.Writer, configPath string, debug bool)
 	slog.SetDefault(logger)
 
 	// Load the configuration and precompile all effective templates.
-	cfg, err := config.Load(configPath)
+	var cfg *config.Config
+	var secretsProvider secrets.Provider
+	var err error
+	if demo {
+		var cleanup func()
+		cfg, secretsProvider, cleanup, err = newDemoRuntime()
+		if cleanup != nil {
+			defer cleanup()
+		}
+	} else {
+		cfg, err = config.Load(configPath)
+	}
 	if err != nil {
 		logger.Error("failed to load configuration", "error", err)
 		return fmt.Errorf("configuration error: %w", err)
+	}
+	if demo {
+		logger.Warn("demo mode is for local use only; generated secrets and protocol state will be discarded when the process exits", "mailpit_ui", "http://localhost:8025", "client_id", "kubelogin-local")
 	}
 	templateManager, err := templates.Load(cfg.TemplatesDir)
 	if err != nil {
@@ -77,10 +96,12 @@ func serve(ctx context.Context, output io.Writer, configPath string, debug bool)
 	}
 
 	// Set up the configured secrets provider.
-	secretsProvider, err := secrets.NewProvider(ctx, cfg.Secrets)
-	if err != nil {
-		logger.Error("failed to create secrets provider", "error", err)
-		return err
+	if !demo {
+		secretsProvider, err = secrets.NewProvider(ctx, cfg.Secrets)
+		if err != nil {
+			logger.Error("failed to create secrets provider", "error", err)
+			return err
+		}
 	}
 
 	// Set up the optional policy database.
@@ -190,13 +211,16 @@ func serve(ctx context.Context, output io.Writer, configPath string, debug bool)
 				logger.Warn("SECURITY WARNING: SMTP TLS IS DISABLED; SMTP CREDENTIALS, EMAIL ADDRESSES, AND ONE-TIME CODES MAY BE TRANSMITTED IN PLAINTEXT")
 				logger.Warn("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 			}
-			rawSMTP, getErr := secretsProvider.GetSecret(ctx, cfg.Email.SMTP.CredentialsSecret)
-			if getErr != nil {
-				return getErr
-			}
-			smtpCredentials, parseErr := email.ParseCredentials(rawSMTP)
-			if parseErr != nil {
-				return parseErr
+			var smtpCredentials email.Credentials
+			if cfg.Email.SMTP.CredentialsSecret != "" {
+				rawSMTP, getErr := secretsProvider.GetSecret(ctx, cfg.Email.SMTP.CredentialsSecret)
+				if getErr != nil {
+					return getErr
+				}
+				smtpCredentials, err = email.ParseCredentials(rawSMTP)
+				if err != nil {
+					return err
+				}
 			}
 			if needsEmailDelivery {
 				smtpMailer := email.NewSMTPMailer(*cfg.Email.SMTP, smtpCredentials)

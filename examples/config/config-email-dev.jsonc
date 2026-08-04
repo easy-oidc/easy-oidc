@@ -34,7 +34,6 @@
       "tls_mode": "plaintext",
       "from_name": "Easy OIDC",
       "from_address": "auth@localhost",
-      "credentials_secret": "EASYOIDC_SMTP_CREDENTIALS",
     },
   },
 

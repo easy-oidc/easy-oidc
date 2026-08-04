@@ -261,12 +261,13 @@ disabled and Easy OIDC accepts the provider's chosen email and preserves its
 mode, because the code is its authentication mechanism. In `disabled` mode SMTP
 may be omitted; if supplied, it is still validated during startup.
 
-SMTP is authenticated. `tls_mode` is `starttls` (the default), `implicit`, or
-`plaintext`. Plaintext SMTP is only permitted when `host` is exactly `localhost`
-and startup prints a prominent warning because credentials, email addresses,
-message contents, and one-time codes cross the connection without encryption.
-The SMTP credential secret contains
-`{"username":"...","password":"..."}`.
+SMTP authentication is optional. When `credentials_secret` is configured, its
+secret must contain `{"username":"...","password":"..."}`; when omitted,
+Easy OIDC does not issue SMTP `AUTH`. `tls_mode` is `starttls` (the default),
+`implicit`, or `plaintext`. Plaintext SMTP is only permitted when `host` is
+exactly `localhost`, and startup prints a prominent warning because email
+addresses, message contents, and one-time codes cross the connection without
+encryption.
 
 OTPs are random eight-digit, single-use codes. Their lifetime defaults to five
 minutes and must be a whole number of minutes from one to ten. A challenge allows

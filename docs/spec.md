@@ -99,8 +99,8 @@ required once.
   HKDF-SHA256 with versioned domain separation.
 - OTPs are random, single-use, short-lived, attempt-limited, and rate-limited per
   normalized email address.
-- SMTP is authenticated and uses TLS by default; plaintext mode is restricted to
-  `localhost` and emits a prominent startup warning.
+- SMTP uses TLS by default and supports optional authentication; plaintext mode
+  is restricted to `localhost` and emits a prominent startup warning.
 - Turnstile can protect direct email initiation; it is optional but recommended.
 - Signing keys, encryption keys, OAuth credentials, SMTP credentials, OTP
   secrets, and challenge secrets remain server-side.

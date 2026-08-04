@@ -43,7 +43,7 @@ func ParseCredentials(raw string) (Credentials, error) {
 	return credentials, nil
 }
 
-// SMTPMailer sends multipart messages over authenticated SMTP.
+// SMTPMailer sends multipart messages over SMTP.
 type SMTPMailer struct {
 	config      config.SMTPConfig
 	credentials Credentials
@@ -100,8 +100,10 @@ func (m *SMTPMailer) send(ctx context.Context, to, subject, textBody, htmlBody s
 			return fmt.Errorf("STARTTLS: %w", err)
 		}
 	}
-	if err = client.Auth(smtp.PlainAuth("", m.credentials.Username, m.credentials.Password, m.config.Host)); err != nil {
-		return fmt.Errorf("SMTP auth: %w", err)
+	if m.credentials.Username != "" {
+		if err = client.Auth(smtp.PlainAuth("", m.credentials.Username, m.credentials.Password, m.config.Host)); err != nil {
+			return fmt.Errorf("SMTP auth: %w", err)
+		}
 	}
 	if err = client.Mail(m.config.FromAddress); err != nil {
 		return err

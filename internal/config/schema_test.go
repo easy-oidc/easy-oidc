@@ -123,6 +123,10 @@ func TestConfigSchemaContracts(t *testing.T) {
 			}
 		}},
 		{"email connector with delivery configuration", true, addEmail},
+		{"email delivery without SMTP authentication", true, func(cfg map[string]any) {
+			addEmail(cfg)
+			delete(cfg["email"].(map[string]any)["smtp"].(map[string]any), "credentials_secret")
+		}},
 		{"provider verification requires delivery configuration", false, func(cfg map[string]any) {
 			cfg["email"] = map[string]any{"verification_mode": "provider"}
 		}},

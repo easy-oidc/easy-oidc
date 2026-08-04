@@ -75,20 +75,30 @@ kubectl oidc-login setup \
 ## Email OTP development
 
 Use [Mailpit](https://github.com/axllent/mailpit) to capture development email locally.
-The development configuration uses plaintext authenticated SMTP, so no local
-certificates are required. Run Mailpit with the credentials from `.env.example`:
+The development configuration uses Mailpit's plaintext, unauthenticated SMTP
+defaults, so no local certificates or credentials are required. Run Mailpit directly with Go:
+
+```bash
+go run github.com/axllent/mailpit@latest
+```
+
+Alternatively, run its container:
 
 ```bash
 docker run --rm --name easy-oidc-mailpit \
   -p 8025:8025 \
   -p 1025:1025 \
-  -e MP_SMTP_AUTH=easy-oidc:easy-oidc \
-  -e MP_SMTP_AUTH_ALLOW_INSECURE=true \
   axllent/mailpit
 ```
 
-Load `.env`, start Easy OIDC with the email development configuration, and open
-Mailpit at <http://localhost:8025>:
+For a self-contained demo, start Easy OIDC with generated process-scoped secrets
+and a temporary SQLite database, then open Mailpit at <http://localhost:8025>:
+
+```bash
+go run ./cmd/easy-oidc serve --demo
+```
+
+To use the editable email development configuration instead, load `.env` and run:
 
 ```bash
 ./bin/easy-oidc serve --config examples/config/config-email-dev.jsonc --debug
@@ -166,9 +176,10 @@ provider, or set `static_policy.require_user_groups_from_policy` to `false` whil
 
 ### Mailpit authentication fails
 
-- For SMTP authentication failures, ensure `.env` and `MP_SMTP_AUTH` both use
-  `easy-oidc:easy-oidc`, and that Mailpit has
-  `MP_SMTP_AUTH_ALLOW_INSECURE=true`.
+- The demo and `config-email-dev.jsonc` use Mailpit's unauthenticated defaults.
+  When testing another configuration with `credentials_secret`, configure
+  matching Mailpit authentication and allow insecure authentication only for
+  local plaintext SMTP.
 - If ports `1025` or `8025` are already occupied, stop the existing service or
   consistently change both the Docker port mapping and Easy OIDC configuration.
 

@@ -33,6 +33,23 @@ Easy OIDC was created by [Nadrama](https://nadrama.com). Nadrama is an Open Sour
 
 ## Quick Start
 
+For a local email-code demo, start Mailpit in one terminal:
+
+```console
+go run github.com/axllent/mailpit@latest
+```
+
+Then run Easy OIDC in another terminal. Demo mode generates process-scoped
+signing and OTP secrets and removes its temporary SQLite database on exit:
+
+```console
+go run ./cmd/easy-oidc serve --demo
+```
+
+Open Mailpit at <http://localhost:8025>. The demo issuer is
+`http://localhost:8080`, and its client ID is `kubelogin-local` with
+`http://localhost:8000` as the allowed redirect URI.
+
 Deploy using the OpenTofu/Terraform module for:
 
 - [AWS](https://github.com/easy-oidc/terraform-aws-easy-oidc?tab=readme-ov-file#prerequisites)

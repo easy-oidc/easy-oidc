@@ -45,8 +45,12 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
+	return Parse(data)
+}
 
-	data, err = hujson.Standardize(data)
+// Parse parses and validates JSONC configuration data.
+func Parse(data []byte) (*Config, error) {
+	data, err := hujson.Standardize(data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
@@ -561,7 +565,7 @@ func validate(cfg *Config) error {
 		}
 		if cfg.Email.SMTP != nil {
 			smtp := cfg.Email.SMTP
-			if smtp.Host == "" || smtp.Port < 1 || smtp.Port > 65535 || smtp.FromAddress == "" || smtp.CredentialsSecret == "" {
+			if smtp.Host == "" || smtp.Port < 1 || smtp.Port > 65535 || smtp.FromAddress == "" {
 				return fmt.Errorf("complete email.smtp configuration is required")
 			}
 			from, err := mail.ParseAddress(smtp.FromAddress)

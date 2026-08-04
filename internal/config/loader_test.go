@@ -578,6 +578,10 @@ func TestValidateEmailConfiguration(t *testing.T) {
 	if err := validate(&cfg); err != nil {
 		t.Fatalf("plaintext SMTP mode rejected: %v", err)
 	}
+	cfg.Email.SMTP.CredentialsSecret = ""
+	if err := validate(&cfg); err != nil {
+		t.Fatalf("unauthenticated SMTP rejected: %v", err)
+	}
 	cfg.Email.SMTP.Host = "smtp.example.com"
 	if err := validate(&cfg); err == nil {
 		t.Fatal("plaintext SMTP accepted for a non-localhost server")
