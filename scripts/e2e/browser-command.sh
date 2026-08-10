@@ -12,7 +12,14 @@ if [ "${E2E_HEADLESS:-false}" = true ]; then
         *\?*) separator='&' ;;
         *) separator='?' ;;
     esac
-    curl -fsSL "${auth_url}${separator}connector_id=mock" > /dev/null
+    response="$(mktemp)"
+    trap 'rm -f "$response"' EXIT
+    status="$(curl -sSL -o "$response" -w '%{http_code} %{url_effective}' "${auth_url}${separator}connector_id=mock")"
+    if [ "${status%% *}" -lt 200 ] || [ "${status%% *}" -ge 300 ]; then
+        echo "Headless browser flow failed: HTTP $status" >&2
+        cat "$response" >&2
+        exit 1
+    fi
     exit
 fi
 

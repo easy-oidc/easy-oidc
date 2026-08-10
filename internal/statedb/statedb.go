@@ -26,39 +26,50 @@ type Store struct {
 
 // OAuthState represents stored OAuth state parameters.
 type OAuthState struct {
-	StateToken     string
-	ClientID       string
-	RedirectURI    string
-	CodeChallenge  string
-	Nonce          string
-	OIDCState      string
-	CreatedAt      time.Time
-	ExpiresAt      time.Time
-	ConnectorID    string
-	Scopes         string
-	RefreshMode    string
-	AuthTime       time.Time
-	OfflineConsent bool
-	Purpose        string
+	StateToken          string
+	ClientID            string
+	RedirectURI         string
+	CodeChallenge       string
+	Nonce               string
+	OIDCState           string
+	CreatedAt           time.Time
+	ExpiresAt           time.Time
+	ConnectorID         string
+	Scopes              string
+	RefreshMode         string
+	AuthTime            time.Time
+	OfflineConsent      bool
+	Purpose             string
+	DPoPJKT             string
+	PushedAuthorization bool
 }
 
 // AuthCode represents a stored authorization code.
 type AuthCode struct {
-	Code            string
-	ClientID        string
-	RedirectURI     string
-	CodeChallenge   string
-	Email           string
-	EmailVerified   bool
-	Nonce           string
-	CreatedAt       time.Time
-	ExpiresAt       time.Time
-	Scopes          string
-	RefreshMode     string
-	AuthTime        time.Time
-	ConnectorID     string
-	UpstreamSubject string
-	OfflineConsent  bool
+	Code                string
+	ClientID            string
+	RedirectURI         string
+	CodeChallenge       string
+	Email               string
+	EmailVerified       bool
+	Nonce               string
+	CreatedAt           time.Time
+	ExpiresAt           time.Time
+	Scopes              string
+	RefreshMode         string
+	AuthTime            time.Time
+	ConnectorID         string
+	UpstreamSubject     string
+	OfflineConsent      bool
+	DPoPJKT             string
+	PushedAuthorization bool
+}
+
+// PushedRequest is a short-lived, one-time RFC 9126 authorization request.
+type PushedRequest struct {
+	RequestURI, ClientID, RedirectURI, ResponseType, Scopes, State, Nonce string
+	CodeChallenge, CodeChallengeMethod, Prompt, DPoPJKT                   string
+	CreatedAt, ExpiresAt                                                  time.Time
 }
 
 // Close closes the database connection.
@@ -107,8 +118,8 @@ func GenerateAuthCode() (string, error) {
 // SaveState stores an OAuth state token.
 func (s *Store) SaveState(state *OAuthState) error {
 	query := `
-		INSERT INTO oauth_states (state_token, client_id, redirect_uri, code_challenge, nonce, oidc_state, created_at, expires_at, connector_id, scopes, refresh_mode, auth_time, offline_consent, purpose)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO oauth_states (state_token, client_id, redirect_uri, code_challenge, nonce, oidc_state, created_at, expires_at, connector_id, scopes, refresh_mode, auth_time, offline_consent, purpose, dpop_jkt, pushed_authorization)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	_, err := s.db.Exec(query,
 		state.StateToken,
@@ -120,7 +131,7 @@ func (s *Store) SaveState(state *OAuthState) error {
 		state.CreatedAt,
 		state.ExpiresAt,
 		state.ConnectorID,
-		state.Scopes, state.RefreshMode, state.AuthTime, state.OfflineConsent, state.Purpose,
+		state.Scopes, state.RefreshMode, state.AuthTime, state.OfflineConsent, state.Purpose, nullable(state.DPoPJKT), state.PushedAuthorization,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to save state: %w", err)
@@ -134,7 +145,7 @@ func (s *Store) GetAndDeleteState(stateToken string) (*OAuthState, error) {
 	query := `
 		DELETE FROM oauth_states
 		WHERE state_token = ? AND expires_at >= ?
-		RETURNING state_token, client_id, redirect_uri, code_challenge, nonce, oidc_state, created_at, expires_at, connector_id, scopes, refresh_mode, auth_time, offline_consent, purpose
+		RETURNING state_token, client_id, redirect_uri, code_challenge, nonce, oidc_state, created_at, expires_at, connector_id, scopes, refresh_mode, auth_time, offline_consent, purpose, COALESCE(dpop_jkt,''), pushed_authorization
 	`
 	err := s.db.QueryRow(query, stateToken, time.Now()).Scan(
 		&state.StateToken,
@@ -146,7 +157,7 @@ func (s *Store) GetAndDeleteState(stateToken string) (*OAuthState, error) {
 		&state.CreatedAt,
 		&state.ExpiresAt,
 		&state.ConnectorID,
-		&state.Scopes, &state.RefreshMode, &state.AuthTime, &state.OfflineConsent, &state.Purpose,
+		&state.Scopes, &state.RefreshMode, &state.AuthTime, &state.OfflineConsent, &state.Purpose, &state.DPoPJKT, &state.PushedAuthorization,
 	)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("state token not found, expired, or already used")
@@ -163,8 +174,8 @@ func (s *Store) GetAndDeleteState(stateToken string) (*OAuthState, error) {
 // PeekState retrieves a valid state token without consuming it.
 func (s *Store) PeekState(stateToken string) (*OAuthState, error) {
 	var state OAuthState
-	err := s.db.QueryRow(`SELECT state_token,client_id,redirect_uri,code_challenge,nonce,oidc_state,created_at,expires_at,connector_id,scopes,refresh_mode,auth_time,offline_consent,purpose FROM oauth_states WHERE state_token=?`, stateToken).Scan(
-		&state.StateToken, &state.ClientID, &state.RedirectURI, &state.CodeChallenge, &state.Nonce, &state.OIDCState, &state.CreatedAt, &state.ExpiresAt, &state.ConnectorID, &state.Scopes, &state.RefreshMode, &state.AuthTime, &state.OfflineConsent, &state.Purpose)
+	err := s.db.QueryRow(`SELECT state_token,client_id,redirect_uri,code_challenge,nonce,oidc_state,created_at,expires_at,connector_id,scopes,refresh_mode,auth_time,offline_consent,purpose,COALESCE(dpop_jkt,''),pushed_authorization FROM oauth_states WHERE state_token=?`, stateToken).Scan(
+		&state.StateToken, &state.ClientID, &state.RedirectURI, &state.CodeChallenge, &state.Nonce, &state.OIDCState, &state.CreatedAt, &state.ExpiresAt, &state.ConnectorID, &state.Scopes, &state.RefreshMode, &state.AuthTime, &state.OfflineConsent, &state.Purpose, &state.DPoPJKT, &state.PushedAuthorization)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("state token not found or already used")
 	}
@@ -205,8 +216,8 @@ func (s *Store) CredentialVerified(connectorID, subject, email string) (exists, 
 // SaveAuthCode stores an authorization code.
 func (s *Store) SaveAuthCode(code *AuthCode) error {
 	query := `
-		INSERT INTO auth_codes (code, client_id, redirect_uri, code_challenge, email, email_verified, nonce, created_at, expires_at, scopes, refresh_mode, auth_time, connector_id, upstream_subject, offline_consent)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO auth_codes (code, client_id, redirect_uri, code_challenge, email, email_verified, nonce, created_at, expires_at, scopes, refresh_mode, auth_time, connector_id, upstream_subject, offline_consent, dpop_jkt, pushed_authorization)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	_, err := s.db.Exec(query,
 		code.Code,
@@ -218,7 +229,7 @@ func (s *Store) SaveAuthCode(code *AuthCode) error {
 		code.Nonce,
 		code.CreatedAt,
 		code.ExpiresAt,
-		code.Scopes, code.RefreshMode, code.AuthTime, code.ConnectorID, code.UpstreamSubject, code.OfflineConsent,
+		code.Scopes, code.RefreshMode, code.AuthTime, code.ConnectorID, code.UpstreamSubject, code.OfflineConsent, nullable(code.DPoPJKT), code.PushedAuthorization,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to save auth code: %w", err)
@@ -229,8 +240,8 @@ func (s *Store) SaveAuthCode(code *AuthCode) error {
 // PeekAuthCode retrieves a valid authorization code without consuming it.
 func (s *Store) PeekAuthCode(codeStr string, now time.Time) (*AuthCode, error) {
 	var code AuthCode
-	err := s.db.QueryRow(`SELECT code,client_id,redirect_uri,code_challenge,email,email_verified,nonce,created_at,expires_at,scopes,refresh_mode,auth_time,connector_id,upstream_subject,offline_consent FROM auth_codes WHERE code=?`, codeStr).Scan(
-		&code.Code, &code.ClientID, &code.RedirectURI, &code.CodeChallenge, &code.Email, &code.EmailVerified, &code.Nonce, &code.CreatedAt, &code.ExpiresAt, &code.Scopes, &code.RefreshMode, &code.AuthTime, &code.ConnectorID, &code.UpstreamSubject, &code.OfflineConsent)
+	err := s.db.QueryRow(`SELECT code,client_id,redirect_uri,code_challenge,email,email_verified,nonce,created_at,expires_at,scopes,refresh_mode,auth_time,connector_id,upstream_subject,offline_consent,COALESCE(dpop_jkt,''),pushed_authorization FROM auth_codes WHERE code=?`, codeStr).Scan(
+		&code.Code, &code.ClientID, &code.RedirectURI, &code.CodeChallenge, &code.Email, &code.EmailVerified, &code.Nonce, &code.CreatedAt, &code.ExpiresAt, &code.Scopes, &code.RefreshMode, &code.AuthTime, &code.ConnectorID, &code.UpstreamSubject, &code.OfflineConsent, &code.DPoPJKT, &code.PushedAuthorization)
 	if err == sql.ErrNoRows || (err == nil && !now.Before(code.ExpiresAt)) {
 		return nil, ErrInvalidGrant
 	}
@@ -246,7 +257,7 @@ func (s *Store) GetAndDeleteAuthCode(codeStr string) (*AuthCode, error) {
 	query := `
 		DELETE FROM auth_codes
 		WHERE code = ? AND expires_at >= ?
-		RETURNING code, client_id, redirect_uri, code_challenge, email, email_verified, nonce, created_at, expires_at, scopes, refresh_mode, auth_time, connector_id, upstream_subject, offline_consent
+		RETURNING code, client_id, redirect_uri, code_challenge, email, email_verified, nonce, created_at, expires_at, scopes, refresh_mode, auth_time, connector_id, upstream_subject, offline_consent, COALESCE(dpop_jkt,''), pushed_authorization
 	`
 	err := s.db.QueryRow(query, codeStr, time.Now()).Scan(
 		&code.Code,
@@ -258,7 +269,7 @@ func (s *Store) GetAndDeleteAuthCode(codeStr string) (*AuthCode, error) {
 		&code.Nonce,
 		&code.CreatedAt,
 		&code.ExpiresAt,
-		&code.Scopes, &code.RefreshMode, &code.AuthTime, &code.ConnectorID, &code.UpstreamSubject, &code.OfflineConsent,
+		&code.Scopes, &code.RefreshMode, &code.AuthTime, &code.ConnectorID, &code.UpstreamSubject, &code.OfflineConsent, &code.DPoPJKT, &code.PushedAuthorization,
 	)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("authorization code not found, expired, or already used")
@@ -272,25 +283,51 @@ func (s *Store) GetAndDeleteAuthCode(codeStr string) (*AuthCode, error) {
 	return &code, nil
 }
 
+// nullable stores absent DPoP profile values as SQL NULL.
+func nullable(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
+}
+
 // cleanupExpired periodically removes expired state tokens and authorization codes.
 func (s *Store) cleanupExpired(ctx context.Context) {
 	defer close(s.done)
-	ticker := time.NewTicker(10 * time.Minute)
-	defer ticker.Stop()
+	ordinary := time.NewTicker(10 * time.Minute)
+	protocol := time.NewTicker(5 * time.Second)
+	defer ordinary.Stop()
+	defer protocol.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-ordinary.C:
 			s.cleanupExpiredAtContext(ctx, time.Now())
+		case <-protocol.C:
+			s.cleanupProtocolState(time.Now())
 		}
 	}
 }
 
 // cleanupExpiredAt removes records whose safe retention period has elapsed.
 func (s *Store) cleanupExpiredAt(now time.Time) {
+	s.cleanupProtocolState(now)
 	s.cleanupExpiredAtContext(context.Background(), now)
+}
+
+// cleanupProtocolState runs frequent bounded cleanup for short-lived DPoP and PAR rows.
+func (s *Store) cleanupProtocolState(now time.Time) {
+	backlogged, err := s.cleanupDPoP(now.UTC())
+	if err != nil && s.logger != nil {
+		s.logger.Error("failed to clean up DPoP replay state", "error", err)
+	} else if backlogged && s.logger != nil {
+		s.logger.Warn("DPoP replay cleanup backlog remains", "batch_size", 2000)
+	}
+	if err := s.cleanupPARRequests(now.UTC()); err != nil && s.logger != nil {
+		s.logger.Error("failed to clean up PAR requests", "error", err)
+	}
 }
 
 // cleanupExpiredAtContext removes expired records using a cancellable cleanup context.

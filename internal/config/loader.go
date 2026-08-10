@@ -91,6 +91,7 @@ func Parse(data []byte) (*Config, error) {
 	}
 	for id, client := range cfg.StaticPolicy.Clients {
 		applyRefreshDefaults(&client.RefreshTokens)
+		applyDPoPDefaults(&client.DPoP)
 		cfg.StaticPolicy.Clients[id] = client
 	}
 	if policyDatabase := cfg.PolicyDatabase; policyDatabase != nil {
@@ -104,6 +105,7 @@ func Parse(data []byte) (*Config, error) {
 			policyDatabase.Queries.TrustBindings = defaultTrustBindingsQuery
 		}
 		applyRefreshDefaults(&policyDatabase.ClientDefaults.RefreshTokens)
+		applyDPoPDefaults(&policyDatabase.ClientDefaults.DPoP)
 		applyDurationDefault(&policyDatabase.ClientLookupCache.TTL, 5*time.Minute)
 		applyDurationDefault(&policyDatabase.ClientLookupCache.NegativeTTL, 30*time.Second)
 		applyDurationDefault(&policyDatabase.QueryTimeout, 500*time.Millisecond)
@@ -242,11 +244,16 @@ func validateStaticPolicyFields(raw json.RawMessage) error {
 		if err != nil {
 			return err
 		}
-		if err := validateCanonicalPolicyFields(client, path, "redirect_uris", "user_group_mapping", "require_user_groups_from_policy", "refresh_tokens", "trust_bindings"); err != nil {
+		if err := validateCanonicalPolicyFields(client, path, "redirect_uris", "user_group_mapping", "require_user_groups_from_policy", "refresh_tokens", "trust_bindings", "dpop", "require_par"); err != nil {
 			return err
 		}
-		if err := rejectNullPolicyFields(client, path, "redirect_uris", "user_group_mapping", "require_user_groups_from_policy", "refresh_tokens", "trust_bindings"); err != nil {
+		if err := rejectNullPolicyFields(client, path, "redirect_uris", "user_group_mapping", "require_user_groups_from_policy", "refresh_tokens", "trust_bindings", "dpop", "require_par"); err != nil {
 			return err
+		}
+		if dpopRaw, ok := client["dpop"]; ok {
+			if err := validateDPoPFields(dpopRaw, path+".dpop"); err != nil {
+				return err
+			}
 		}
 		if refreshRaw, ok := client["refresh_tokens"]; ok {
 			refresh, err := decodePolicyObject(refreshRaw, path+".refresh_tokens")
@@ -286,10 +293,28 @@ func validatePolicyDatabaseFields(raw json.RawMessage) error {
 	if err != nil {
 		return err
 	}
-	if err := validateCanonicalPolicyFields(defaults, "policy_database.client_defaults", "require_user_groups_from_policy"); err != nil {
+	if err := validateCanonicalPolicyFields(defaults, "policy_database.client_defaults", "require_user_groups_from_policy", "refresh_tokens", "dpop", "require_par"); err != nil {
 		return err
 	}
-	return rejectNullPolicyFields(defaults, "policy_database.client_defaults", "require_user_groups_from_policy")
+	if err := rejectNullPolicyFields(defaults, "policy_database.client_defaults", "require_user_groups_from_policy", "refresh_tokens", "dpop", "require_par"); err != nil {
+		return err
+	}
+	if dpopRaw, ok := defaults["dpop"]; ok {
+		return validateDPoPFields(dpopRaw, "policy_database.client_defaults.dpop")
+	}
+	return nil
+}
+
+// validateDPoPFields rejects noncanonical or null DPoP object fields.
+func validateDPoPFields(raw json.RawMessage, path string) error {
+	dpop, err := decodePolicyObject(raw, path)
+	if err != nil {
+		return err
+	}
+	if err := validateCanonicalPolicyFields(dpop, path, "mode", "signing_algorithm"); err != nil {
+		return err
+	}
+	return rejectNullPolicyFields(dpop, path, "mode", "signing_algorithm")
 }
 
 // validateUserGroupMappingFields rejects null maps and group lists.
@@ -428,7 +453,6 @@ func validateStateDatabaseFields(data []byte, database *StateDatabaseConfig) err
 	if has("driver") && strings.TrimSpace(database.Driver) == "" {
 		return fmt.Errorf("state_database: driver must not be empty")
 	}
-
 	driver := database.Driver
 	if driver == "" {
 		driver = "sqlite"
@@ -613,7 +637,6 @@ func validate(cfg *Config) error {
 			return fmt.Errorf("state_database: %w", err)
 		}
 	}
-
 	for clientID, client := range cfg.StaticPolicy.Clients {
 		if client.RefreshTokens.AllowOfflineAccess && !client.RefreshTokens.Enabled {
 			return fmt.Errorf("client %q: refresh_tokens.allow_offline_access requires refresh_tokens.enabled", clientID)
@@ -690,6 +713,9 @@ func validatePolicyDatabase(policyDatabase *PolicyDatabaseConfig) error {
 	if policyDatabase.ClientDefaults.RefreshTokens.AllowOfflineAccess && !policyDatabase.ClientDefaults.RefreshTokens.Enabled {
 		return fmt.Errorf("client_defaults.refresh_tokens.allow_offline_access requires enabled")
 	}
+	if err := validateDPoP(policyDatabase.ClientDefaults.DPoP); err != nil {
+		return fmt.Errorf("client_defaults: %w", err)
+	}
 	r := policyDatabase.ClientDefaults.RefreshTokens
 	if r.SessionIdleTTL.Duration() > r.SessionAbsoluteTTL.Duration() || r.OfflineIdleTTL.Duration() > r.OfflineAbsoluteTTL.Duration() {
 		return fmt.Errorf("client_defaults refresh idle TTL must not exceed absolute TTL")
@@ -722,6 +748,12 @@ func validateIssuerURL(issuer string) error {
 		return fmt.Errorf("invalid URL: %w", err)
 	}
 
+	if !u.IsAbs() || u.Host == "" {
+		return fmt.Errorf("must be absolute and include a host")
+	}
+	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("must not contain userinfo, query, or fragment")
+	}
 	if u.Scheme != "https" && u.Scheme != "http" {
 		return fmt.Errorf("scheme must be http or https")
 	}
@@ -814,7 +846,48 @@ func validateClient(clientID string, c ClientConfig, defaultRedirectURIs []strin
 			return fmt.Errorf("user_group_mapping %q not found in user_group_mappings", c.UserGroupMapping)
 		}
 	}
+	if err := validateDPoP(c.DPoP); err != nil {
+		return err
+	}
 
+	return nil
+}
+
+// PublicEndpointURL builds an externally visible endpoint solely from a validated issuer.
+func PublicEndpointURL(issuer, endpoint string) string {
+	return strings.TrimRight(issuer, "/") + "/" + strings.TrimLeft(endpoint, "/")
+}
+
+// applyDPoPDefaults fills the secure client DPoP defaults.
+func applyDPoPDefaults(dpop *DPoPConfig) {
+	if dpop.Mode == "" {
+		dpop.Mode = "disabled"
+	}
+	if dpop.Mode == "required" && dpop.SigningAlgorithm == "" {
+		dpop.SigningAlgorithm = "ES256"
+	}
+}
+
+// validateDPoP validates the closed, currently implemented client proof profiles.
+func validateDPoP(dpop DPoPConfig) error {
+	if dpop.Mode == "" {
+		dpop.Mode = "disabled"
+	}
+	if dpop.Mode != "disabled" && dpop.Mode != "required" {
+		return fmt.Errorf("dpop.mode must be disabled or required")
+	}
+	if dpop.Mode == "disabled" {
+		if dpop.SigningAlgorithm != "" {
+			return fmt.Errorf("dpop.signing_algorithm requires mode required")
+		}
+		return nil
+	}
+	if dpop.SigningAlgorithm == "" {
+		dpop.SigningAlgorithm = "ES256"
+	}
+	if dpop.SigningAlgorithm != "ES256" && dpop.SigningAlgorithm != "ES512" {
+		return fmt.Errorf("dpop.signing_algorithm must be ES256 or ES512")
+	}
 	return nil
 }
 

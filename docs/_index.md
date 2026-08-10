@@ -25,4 +25,5 @@ New to Easy OIDC? Start here:
 ## Reference
 
 - [Configuration Reference](/docs/config/) - Connectors, email verification, secrets, clients, and templates
+- [DPoP Integration](/docs/dpop/) - Sender-constrained clients, BFFs, and resource servers
 - [Troubleshooting](/docs/troubleshooting/) - Common issues and solutions

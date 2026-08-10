@@ -11,6 +11,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"testing"
@@ -56,7 +57,7 @@ func TestSignTokenPairIssuesPurposeSpecificClaims(t *testing.T) {
 	if err != nil {
 		t.Fatalf("verify ID token: %v", err)
 	}
-	accessToken, err := signer.VerifyAccessToken(accessRaw, context.ClientID)
+	accessToken, err := signer.VerifyAccessToken(accessRaw)
 	if err != nil {
 		t.Fatalf("verify access token: %v", err)
 	}
@@ -83,11 +84,35 @@ func TestSignTokenPairIssuesPurposeSpecificClaims(t *testing.T) {
 	if !idOK || !accessOK || idJTI == "" || accessJTI == "" || idJTI == accessJTI {
 		t.Fatalf("token JTIs are missing or not distinct: %v, %v", idJTI, accessJTI)
 	}
-	if _, err := signer.VerifyAccessToken(idRaw, context.ClientID); err == nil {
+	if _, err := signer.VerifyAccessToken(idRaw); err == nil {
 		t.Fatal("VerifyAccessToken() accepted an ID token")
 	}
-	if _, err := signer.VerifyAccessToken(accessRaw, "other-client"); err == nil {
-		t.Fatal("VerifyAccessToken() accepted the wrong audience")
+}
+
+// TestDPoPThumbprintRejectsMalformedConfirmation verifies strict cnf.jkt decoding.
+func TestDPoPThumbprintRejectsMalformedConfirmation(t *testing.T) {
+	validJKT := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
+	for _, test := range []struct {
+		name string
+		cnf  any
+	}{
+		{"not object", "jkt"},
+		{"missing jkt", map[string]any{}},
+		{"empty jkt", map[string]any{"jkt": ""}},
+		{"extra member", map[string]any{"jkt": validJKT, "kid": "key"}},
+		{"invalid base64url", map[string]any{"jkt": "***"}},
+		{"noncanonical base64url", map[string]any{"jkt": validJKT + "="}},
+		{"wrong length", map[string]any{"jkt": base64.RawURLEncoding.EncodeToString(make([]byte, 31))}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			token := jwt.New()
+			if err := token.Set("cnf", test.cnf); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := DPoPThumbprint(token); err == nil {
+				t.Fatal("malformed cnf was accepted")
+			}
+		})
 	}
 }
 

@@ -43,6 +43,8 @@ type Server struct {
 	refresh        *refresh.Service
 	trust          *trust.Service
 	policyResolver policyResolver
+	parRequests    requestLimiter
+	revokeRequests requestLimiter
 }
 
 // NewServer creates an OIDC server with the provided dependencies.

@@ -1,0 +1,25 @@
+{
+  "schema": "easy-oidc-dpop-conformance-v1",
+  "notice": "NON-PRODUCTION CONFORMANCE FIXTURE; public data only; not a production credential.",
+  "algorithm": "ES512",
+  "public_jwk": {
+    "crv": "P-521",
+    "kty": "EC",
+    "x": "AQ8eoiudlr5MMLP21GvyMDkZ-bEkUTJ1uoNYWHexGz38SlB9APSg0phWp5uAmtdIaqt1JXpCxo_ecJDDlDQ6citu",
+    "y": "AW-gFmD-9pi-RuEBuse0p30zD9-MF-VvYrFi1tC7GtAITCMz5oD5THgGSqqEFJUvGUnSLZ7hAXA9nZ9uA-2YIN3M"
+  },
+  "thumbprint": "ZENri9PDLCrKrGmDPreXChT4_-BznYvfbhkklMXNMsg",
+  "proof_segments": [
+    "eyJhbGciOiJFUzUxMiIsImp3ayI6eyJjcnYiOiJQLTUyMSIsImt0eSI6IkVDIiwieCI6IkFROGVvaXVkbHI1TU1MUDIxR3Z5TURrWi1iRWtVVEoxdW9OWVdIZXhHejM4U2xCOUFQU2cwcGhXcDV1QW10ZElhcXQxSlhwQ3hvX2VjSkREbERRNmNpdHUiLCJ5IjoiQVctZ0ZtRC05cGktUnVFQnVzZTBwMzB6RDktTUYtVnZZckZpMXRDN0d0QUlUQ016NW9ENVRIZ0dTcXFFRkpVdkdVblNMWjdoQVhBOW5aOXVBLTJZSU4zTSJ9LCJ0eXAiOiJkcG9wK2p3dCJ9",
+    "eyJhdGgiOiIwMXRlek0zeDJNbUpLeC1SRmdaMUpZQmFZUUZTdm82ZlplTXZmMmZRbkxBIiwiaHRtIjoiUE9TVCIsImh0dSI6Imh0dHBzOi8vcmVzb3VyY2UuZXhhbXBsZS50ZXN0L2FwaS9pdGVtcyIsImlhdCI6MTc4NTIwMDAwMCwianRpIjoiZml4dHVyZS1lczUxMi1wcm9vZiJ9",
+    "AQnC2LlX3TiauqJpF8vQ_4IhFzV414ltnMHxe3agW_8CnUHeyd46oGF25eAdfFVOhI6VqnBdJ2QZuMvzMcZUxDVEAdYHRTgTDM94x9GrCkd-wWN8zVs9xzoGB32FuzINRm1nu7CZeJBJ7vA8xHpD23WFTN6QbT74GqpssYweapR082lv"
+  ],
+  "method": "POST",
+  "url": "https://resource.example.test/api/items",
+  "unix_time": 1785200000,
+  "access_token": "fixture-access-token-ES512",
+  "ath": "01tezM3x2MmJKx-RFgZ1JYBaYQFSvo6fZeMvf2fQnLA",
+  "replay_hash": "e65586cc2969adbc62832be205c49deb6323482bdbf13274cc6005e582c350a8",
+  "expected_valid": true,
+  "invalid_derivations": ["change_method", "change_url", "change_time_outside_window", "change_access_token", "change_thumbprint", "reuse_replay_hash"]
+}

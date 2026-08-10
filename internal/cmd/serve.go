@@ -285,6 +285,7 @@ func serve(ctx context.Context, output io.Writer, configPath string, debug, demo
 	mux.HandleFunc("/.well-known/openid-configuration", server.HandleDiscovery)
 	mux.HandleFunc("/jwks", server.HandleJWKS)
 	mux.HandleFunc("/authorize", server.HandleAuthorize)
+	mux.HandleFunc("POST /par", server.HandlePAR)
 	mux.HandleFunc("/token", server.HandleToken)
 	mux.HandleFunc("/revoke", server.HandleRevoke)
 	mux.HandleFunc("GET /grants", server.HandleGrants)

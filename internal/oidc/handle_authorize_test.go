@@ -6,6 +6,8 @@ package oidc
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"io"
 	"log/slog"
 	"net/http"
@@ -101,6 +103,21 @@ func authorizationRequest() *http.Request {
 	return httptest.NewRequest(http.MethodGet, "/authorize?"+values.Encode(), nil)
 }
 
+// TestCompleteRedirectsPolicyDrift verifies late policy rejection preserves client state.
+func TestCompleteRedirectsPolicyDrift(t *testing.T) {
+	server, _ := authorizeServer(t, nil)
+	client := server.config.StaticPolicy.Clients["client"]
+	client.RequirePAR = true
+	server.config.StaticPolicy.Clients["client"] = client
+	request := httptest.NewRequest(http.MethodGet, "/callback", nil)
+	response := httptest.NewRecorder()
+	server.complete(response, request, OAuthState{ClientID: "client", RedirectURI: "https://client.example/callback", OIDCState: "client-state"}, "subject", "user@example.com", true)
+	location, err := url.Parse(response.Header().Get("Location"))
+	if err != nil || response.Code != http.StatusFound || location.Query().Get("error") != "invalid_request" || location.Query().Get("state") != "client-state" {
+		t.Fatalf("redirect=%d %q err=%v", response.Code, response.Header().Get("Location"), err)
+	}
+}
+
 // TestHandleAuthorizeAutomaticallySelectsSingleConnector verifies single-provider bypass.
 func TestHandleAuthorizeAutomaticallySelectsSingleConnector(t *testing.T) {
 	server, captures := authorizeServer(t, map[string]config.ConnectorConfig{
@@ -117,6 +134,96 @@ func TestHandleAuthorizeAutomaticallySelectsSingleConnector(t *testing.T) {
 	}
 	if state.ConnectorID != "google-work" || state.RedirectURI != "https://client.example/callback" || state.OIDCState != "downstream-state" {
 		t.Fatalf("unexpected state: %#v", state)
+	}
+}
+
+// TestHandleAuthorizeBindsDirectDPoPRequest verifies required direct requests preserve a canonical thumbprint.
+func TestHandleAuthorizeBindsDirectDPoPRequest(t *testing.T) {
+	server, captures := authorizeServer(t, map[string]config.ConnectorConfig{
+		"google-work": {Type: "google", DisplayName: "Google"},
+	})
+	client := server.config.StaticPolicy.Clients["client"]
+	client.DPoP = config.DPoPConfig{Mode: "required", SigningAlgorithm: "ES256"}
+	server.config.StaticPolicy.Clients["client"] = client
+	thumbprintBytes := sha256.Sum256([]byte("public key"))
+	thumbprint := base64.RawURLEncoding.EncodeToString(thumbprintBytes[:])
+	request := authorizationRequest()
+	query := request.URL.Query()
+	query.Set("dpop_jkt", thumbprint)
+	request.URL.RawQuery = query.Encode()
+
+	response := httptest.NewRecorder()
+	server.HandleAuthorize(response, request)
+	if response.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusFound, response.Body.String())
+	}
+	state, err := server.authCodeMgr.DecodeState(captures["google-work"].state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.DPoPJKT != thumbprint {
+		t.Fatalf("DPoP binding = %q", state.DPoPJKT)
+	}
+}
+
+// TestHandleAuthorizeRedirectsDuplicateDPoPThumbprint verifies safe authorization errors preserve state.
+func TestHandleAuthorizeRedirectsDuplicateDPoPThumbprint(t *testing.T) {
+	server, _ := authorizeServer(t, map[string]config.ConnectorConfig{
+		"google-work": {Type: "google", DisplayName: "Google"},
+	})
+	request := authorizationRequest()
+	query := request.URL.Query()
+	query["dpop_jkt"] = []string{"one", "two"}
+	request.URL.RawQuery = query.Encode()
+	response := httptest.NewRecorder()
+	server.HandleAuthorize(response, request)
+	if response.Code != http.StatusFound {
+		t.Fatalf("status = %d, want redirect: %s", response.Code, response.Body.String())
+	}
+	location, err := url.Parse(response.Header().Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if location.Query().Get("error") != "invalid_request" || location.Query().Get("state") != "downstream-state" {
+		t.Fatalf("redirect query = %v", location.Query())
+	}
+}
+
+// TestHandleAuthorizeRejectsInvalidDirectDPoPInputs verifies empty bindings and proof headers fail after redirect validation.
+func TestHandleAuthorizeRejectsInvalidDirectDPoPInputs(t *testing.T) {
+	server, _ := authorizeServer(t, map[string]config.ConnectorConfig{
+		"google-work": {Type: "google", DisplayName: "Google"},
+	})
+	client := server.config.StaticPolicy.Clients["client"]
+	client.DPoP = config.DPoPConfig{Mode: "required", SigningAlgorithm: "ES256"}
+	server.config.StaticPolicy.Clients["client"] = client
+	for _, mutate := range []func(*http.Request){
+		func(request *http.Request) { request.URL.RawQuery += "&dpop_jkt=" },
+		func(request *http.Request) { request.Header.Set("DPoP", "proof") },
+	} {
+		request := authorizationRequest()
+		mutate(request)
+		response := httptest.NewRecorder()
+		server.HandleAuthorize(response, request)
+		if response.Code != http.StatusFound {
+			t.Fatalf("status = %d, want redirect: %s", response.Code, response.Body.String())
+		}
+		location, err := url.Parse(response.Header().Get("Location"))
+		if err != nil || location.Query().Get("error") != "invalid_request" || location.Query().Get("state") != "downstream-state" {
+			t.Fatalf("location = %q, error = %v", response.Header().Get("Location"), err)
+		}
+	}
+}
+
+// TestHandleAuthorizeRejectsEmptyPushedRequest verifies PAR syntax cannot fall through to direct authorization.
+func TestHandleAuthorizeRejectsEmptyPushedRequest(t *testing.T) {
+	server, _ := authorizeServer(t, map[string]config.ConnectorConfig{"google-work": {Type: "google", DisplayName: "Google"}})
+	request := authorizationRequest()
+	request.URL.RawQuery += "&request_uri="
+	response := httptest.NewRecorder()
+	server.HandleAuthorize(response, request)
+	if response.Code != http.StatusBadRequest || response.Body.String() != "invalid_request\n" {
+		t.Fatalf("response = %d %q", response.Code, response.Body.String())
 	}
 }
 

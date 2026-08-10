@@ -9,74 +9,127 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
+	"time"
 
-	"github.com/easy-oidc/easy-oidc/internal/authpolicy"
+	"github.com/easy-oidc/easy-oidc/internal/config"
+	"github.com/easy-oidc/easy-oidc/internal/dpop"
+	"github.com/easy-oidc/easy-oidc/internal/statedb"
+	"github.com/easy-oidc/easy-oidc/internal/tokens"
+	"github.com/lestrrat-go/jwx/v2/jwt"
 )
 
-// HandleUserInfo handles the OIDC userinfo endpoint (/userinfo).
-// It extracts and validates the bearer token and returns user claims.
-func (s *Server) HandleUserInfo(w http.ResponseWriter, r *http.Request) {
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		http.Error(w, "authorization header required", http.StatusUnauthorized)
-		return
+// accessAuthError is a bounded protected-resource authentication failure.
+type accessAuthError struct {
+	status            int
+	scheme, code, alg string
+}
+
+// authenticateAccessToken is the shared verifier boundary for access-token resources.
+func (s *Server) authenticateAccessToken(r *http.Request, endpoint string) (jwt.Token, *accessAuthError) {
+	auth, proofs := r.Header.Values("Authorization"), r.Header.Values("DPoP")
+	attemptedScheme := "Bearer"
+	if len(auth) != 0 {
+		fields := strings.Fields(auth[0])
+		if len(fields) != 0 && strings.EqualFold(fields[0], "DPoP") {
+			attemptedScheme = "DPoP"
+		}
 	}
-
-	parts := strings.SplitN(authHeader, " ", 2)
-	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-		http.Error(w, "invalid authorization header", http.StatusUnauthorized)
-		return
+	if len(auth) > 1 || len(proofs) > 1 {
+		return nil, &accessAuthError{status: 400, scheme: attemptedScheme, code: "invalid_request"}
 	}
-
-	tokenString := parts[1]
-
-	token, err := s.signer.VerifyToken(tokenString)
-	if err == nil {
-		if scope, ok := token.Get("scope"); !ok || strings.TrimSpace(fmt.Sprint(scope)) == "" {
-			err = fmt.Errorf("not an access token")
+	if len(auth) == 0 {
+		return nil, &accessAuthError{status: 401, scheme: "Bearer"}
+	}
+	parts := strings.Fields(auth[0])
+	if len(parts) != 2 {
+		return nil, &accessAuthError{status: 400, scheme: attemptedScheme, code: "invalid_request"}
+	}
+	scheme, raw := parts[0], parts[1]
+	if !strings.EqualFold(scheme, "Bearer") && !strings.EqualFold(scheme, "DPoP") {
+		return nil, &accessAuthError{status: 400, scheme: "Bearer", code: "invalid_request"}
+	}
+	token, err := s.signer.VerifyAccessToken(raw)
+	if err != nil {
+		return nil, &accessAuthError{status: 401, scheme: scheme, code: "invalid_token"}
+	}
+	jkt, err := tokens.DPoPThumbprint(token)
+	if err != nil {
+		return nil, &accessAuthError{status: 401, scheme: scheme, code: "invalid_token"}
+	}
+	if jkt == "" {
+		if !strings.EqualFold(scheme, "Bearer") || len(proofs) != 0 {
+			return nil, &accessAuthError{status: 401, scheme: scheme, code: "invalid_token"}
 		}
-		if len(token.Audience()) != 1 {
-			err = fmt.Errorf("invalid audience")
-		}
-		if err == nil && s.config != nil {
-			_, resolveErr := s.policyResolver.ResolveClient(r.Context(), token.Audience()[0], false)
-			if resolveErr != nil {
-				if !errors.Is(resolveErr, authpolicy.ErrDenied) {
-					http.Error(w, "auth temporarily unavailable", http.StatusServiceUnavailable)
-					return
-				}
-				err = fmt.Errorf("invalid audience")
-			}
-		}
+		return token, nil
+	}
+	if !strings.EqualFold(scheme, "DPoP") {
+		return nil, &accessAuthError{status: 401, scheme: "Bearer", code: "invalid_token"}
+	}
+	if len(proofs) != 1 {
+		return nil, &accessAuthError{status: 401, scheme: "DPoP", code: "invalid_dpop_proof", alg: supportedDPoPAlgorithmChallenge}
+	}
+	proof, err := dpop.ParseAndVerifyBound(proofs[0], r.Method, config.PublicEndpointURL(s.config.IssuerURL, endpoint), time.Now())
+	if err != nil || dpop.VerifyAccessTokenHash(proof, raw) != nil {
+		return nil, &accessAuthError{status: 401, scheme: "DPoP", code: "invalid_dpop_proof", alg: supportedDPoPAlgorithmChallenge}
+	}
+	if dpop.VerifyThumbprint(proof, jkt) != nil {
+		return nil, &accessAuthError{status: 401, scheme: "DPoP", code: "invalid_token", alg: supportedDPoPAlgorithmChallenge}
+	}
+	err = s.store.ReserveDPoP(dpop.ReplayHash(proof.Thumbprint, proof.JTI, proof.Method, proof.Target), time.Now().UTC())
+	if errors.Is(err, statedb.ErrDPoPReplay) {
+		s.logDPoPReplay("userinfo", token.Audience()[0], r)
+		return nil, &accessAuthError{status: 401, scheme: "DPoP", code: "invalid_dpop_proof", alg: supportedDPoPAlgorithmChallenge}
 	}
 	if err != nil {
-		s.logger.Error("failed to verify token", "error", err)
-		http.Error(w, "invalid token", http.StatusUnauthorized)
+		return nil, &accessAuthError{status: 503, scheme: "DPoP", code: "temporarily_unavailable", alg: supportedDPoPAlgorithmChallenge}
+	}
+	return token, nil
+}
+
+// writeAccessAuthError writes a standards-shaped protected-resource challenge.
+func writeAccessAuthError(w http.ResponseWriter, failure *accessAuthError) {
+	challenge := failure.scheme
+	if failure.code != "" {
+		challenge += ` error="` + failure.code + `"`
+	}
+	if failure.scheme == "DPoP" {
+		algs := failure.alg
+		if algs == "" {
+			algs = supportedDPoPAlgorithmChallenge
+		}
+		challenge += `, algs="` + algs + `"`
+	}
+	w.Header().Set("WWW-Authenticate", challenge)
+	w.WriteHeader(failure.status)
+}
+
+// HandleUserInfo handles the OIDC userinfo endpoint through the shared access verifier.
+func (s *Server) HandleUserInfo(w http.ResponseWriter, r *http.Request) {
+	token, failure := s.authenticateAccessToken(r, "userinfo")
+	if failure != nil {
+		writeAccessAuthError(w, failure)
 		return
 	}
-
-	userInfo := map[string]interface{}{
-		"sub": token.Subject(),
+	scope, _ := token.Get("scope")
+	if !slices.Contains(strings.Fields(fmt.Sprint(scope)), "openid") {
+		scheme := "Bearer"
+		alg := ""
+		if jkt, _ := tokens.DPoPThumbprint(token); jkt != "" {
+			scheme, alg = "DPoP", supportedDPoPAlgorithmChallenge
+		}
+		writeAccessAuthError(w, &accessAuthError{status: http.StatusForbidden, scheme: scheme, code: "insufficient_scope", alg: alg})
+		return
 	}
-
-	if email, ok := token.Get("email"); ok {
-		userInfo["email"] = email
+	userInfo := map[string]interface{}{"sub": token.Subject()}
+	for _, claim := range []string{"email", "email_verified", "preferred_username", "groups"} {
+		if value, ok := token.Get(claim); ok {
+			userInfo[claim] = value
+		}
 	}
-	if emailVerified, ok := token.Get("email_verified"); ok {
-		userInfo["email_verified"] = emailVerified
-	}
-
-	if username, ok := token.Get("preferred_username"); ok {
-		userInfo["preferred_username"] = username
-	}
-
-	if groups, ok := token.Get("groups"); ok {
-		userInfo["groups"] = groups
-	}
-
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(userInfo); err != nil {
+	if err := json.NewEncoder(w).Encode(userInfo); err != nil && s.logger != nil {
 		s.logger.Error("failed to encode userinfo response", "error", err)
 	}
 }

@@ -544,6 +544,27 @@ func validTestConfig() Config {
 	}
 }
 
+// TestDPoPDefaultsAndValidation verifies the closed per-client proof profiles.
+func TestDPoPDefaultsAndValidation(t *testing.T) {
+	required := DPoPConfig{Mode: "required"}
+	applyDPoPDefaults(&required)
+	if required.SigningAlgorithm != "ES256" || validateDPoP(required) != nil {
+		t.Fatalf("required defaults = %#v", required)
+	}
+	if err := validateDPoP(DPoPConfig{Mode: "required", SigningAlgorithm: "ES512"}); err != nil {
+		t.Fatalf("ES512 rejected: %v", err)
+	}
+	for _, invalid := range []DPoPConfig{
+		{Mode: "optional"},
+		{Mode: "required", SigningAlgorithm: "ES384"},
+		{Mode: "disabled", SigningAlgorithm: "ES512"},
+	} {
+		if err := validateDPoP(invalid); err == nil {
+			t.Fatalf("accepted invalid DPoP configuration: %#v", invalid)
+		}
+	}
+}
+
 // validEmailConfig returns a complete email verification configuration.
 func validEmailConfig() *EmailConfig {
 	return &EmailConfig{

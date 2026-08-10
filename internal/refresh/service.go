@@ -51,8 +51,8 @@ type Request struct{ Token, ClientID, Scope string }
 
 // Result contains newly issued rotating token material.
 type Result struct {
-	AccessToken, IDToken, RefreshToken, Scope, SID string
-	AccessExpiry                                   time.Time
+	AccessToken, IDToken, RefreshToken, Scope, SID, DPoPJKT string
+	AccessExpiry                                            time.Time
 }
 
 // Service executes refresh grants against current policy and upstream state.
@@ -143,7 +143,7 @@ func (s *Service) direct(current statedb.RefreshMaterial, grant statedb.RefreshG
 	if id.After(expiry) {
 		id = expiry
 	}
-	idToken, accessToken, err := s.signer.SignTokenPair(tokens.TokenContext{Email: grant.Email, EmailVerified: grant.EmailVerified, ClientID: grant.ClientID, Groups: groups, SID: grant.SID, Scopes: scopes, AuthTime: grant.AuthTime, IDExpiry: id, AccessExpiry: access})
+	idToken, accessToken, err := s.signer.SignTokenPair(tokens.TokenContext{Email: grant.Email, EmailVerified: grant.EmailVerified, ClientID: grant.ClientID, Groups: groups, SID: grant.SID, Scopes: scopes, AuthTime: grant.AuthTime, IDExpiry: id, AccessExpiry: access, DPoPJKT: grant.DPoPJKT})
 	if err != nil {
 		return Result{}, &Failure{Code: Temporary, Description: "token signing failed"}
 	}
@@ -165,7 +165,7 @@ func (s *Service) direct(current statedb.RefreshMaterial, grant statedb.RefreshG
 	if err != nil {
 		return Result{}, s.storageError(err)
 	}
-	result := Result{AccessToken: accessToken, IDToken: idToken, RefreshToken: replacement.Token, SID: grant.SID, AccessExpiry: access}
+	result := Result{AccessToken: accessToken, IDToken: idToken, RefreshToken: replacement.Token, SID: grant.SID, AccessExpiry: access, DPoPJKT: grant.DPoPJKT}
 	if narrowed {
 		result.Scope = scopes
 	}
@@ -343,7 +343,7 @@ func (s *Service) connector(ctx context.Context, current statedb.RefreshMaterial
 		}
 		return Result{}, s.revoke(grant, "upstream_expired", issuedAt)
 	}
-	idToken, accessToken, err := s.signer.SignTokenPair(tokens.TokenContext{Email: grant.Email, EmailVerified: verified, ClientID: grant.ClientID, Groups: groups, SID: grant.SID, Scopes: scopes, AuthTime: grant.AuthTime, IDExpiry: id, AccessExpiry: access})
+	idToken, accessToken, err := s.signer.SignTokenPair(tokens.TokenContext{Email: grant.Email, EmailVerified: verified, ClientID: grant.ClientID, Groups: groups, SID: grant.SID, Scopes: scopes, AuthTime: grant.AuthTime, IDExpiry: id, AccessExpiry: access, DPoPJKT: grant.DPoPJKT})
 	if err != nil {
 		if started {
 			return Result{}, s.revoke(grant, "indeterminate_upstream_credential", time.Now().UTC())
@@ -380,7 +380,7 @@ func (s *Service) connector(ctx context.Context, current statedb.RefreshMaterial
 		release()
 		return Result{}, s.storageError(err)
 	}
-	result := Result{AccessToken: accessToken, IDToken: idToken, RefreshToken: replacement.Token, SID: grant.SID, AccessExpiry: access}
+	result := Result{AccessToken: accessToken, IDToken: idToken, RefreshToken: replacement.Token, SID: grant.SID, AccessExpiry: access, DPoPJKT: grant.DPoPJKT}
 	if narrowed {
 		result.Scope = scopes
 	}

@@ -1,0 +1,28 @@
+{
+  "schema": "easy-oidc-dpop-conformance-v1",
+  "notice": "NON-PRODUCTION CONFORMANCE FIXTURE; public data only; not a production credential.",
+  "algorithm": "ES256",
+  "public_jwk": {
+    "crv": "P-256",
+    "kty": "EC",
+    "x": "lotbhXV9t_9_9N44ZTbToW1lHq9MHQb9ftbkSaJTH8s",
+    "y": "k1El4c443W2W322buY5webij3sCXYOhznK7VGXcy3qc"
+  },
+  "thumbprint": "9lI0IYIjvo4SOtoamWeJ6-ioVDqnoWyi1fI1F9ThvSM",
+  "proof": "eyJhbGciOiJFUzI1NiIsImp3ayI6eyJjcnYiOiJQLTI1NiIsImt0eSI6IkVDIiwieCI6ImxvdGJoWFY5dF85XzlONDRaVGJUb1cxbEhxOU1IUWI5ZnRia1NhSlRIOHMiLCJ5IjoiazFFbDRjNDQzVzJXMzIyYnVZNXdlYmlqM3NDWFlPaHpuSzdWR1hjeTNxYyJ9LCJ0eXAiOiJkcG9wK2p3dCJ9.eyJhdGgiOiJtOWhURzFDb0syTElBcWZyaHV6azhvb000eVhMOFpkdWFQbzVfRm1tdXVBIiwiaHRtIjoiUE9TVCIsImh0dSI6Imh0dHBzOi8vcmVzb3VyY2UuZXhhbXBsZS50ZXN0L2FwaS9pdGVtcyIsImlhdCI6MTc4NTIwMDAwMCwianRpIjoiZml4dHVyZS1qdGktRVMyNTYifQ.gWg51PnDNTRdvUgKlOSkxEiyPsuWF54pfk8-QNeKUeiyGzSUx7bGpEJV_ff9AmsNtMwc4E4Va0DzKhHm7PCI0A",
+  "method": "POST",
+  "url": "https://resource.example.test/api/items",
+  "unix_time": 1785200000,
+  "access_token": "fixture-access-token-ES256",
+  "ath": "m9hTG1CoK2LIAqfrhuzk8ooM4yXL8ZduaPo5_FmmuuA",
+  "replay_hash": "aa90eac8a89497b99ed4e04d30179e8d599de3e78a709b13f432b1af8fe93752",
+  "expected_valid": true,
+  "invalid_derivations": [
+    "change_method",
+    "change_url",
+    "change_time_outside_window",
+    "change_access_token",
+    "change_thumbprint",
+    "reuse_replay_hash"
+  ]
+}

@@ -27,6 +27,7 @@ type TokenContext struct {
 	AuthTime      time.Time
 	IDExpiry      time.Time
 	AccessExpiry  time.Time
+	DPoPJKT       string
 }
 
 // TrustedTokenContext contains claims for a short-lived exchanged identity token.
@@ -100,6 +101,9 @@ func (s *Signer) signContext(context TokenContext, identity bool) (string, error
 		}
 	} else {
 		claims["scope"] = context.Scopes
+		if context.DPoPJKT != "" {
+			claims["cnf"] = map[string]any{"jkt": context.DPoPJKT}
+		}
 		claims["email"], claims["email_verified"], claims["preferred_username"], claims["groups"] = context.Email, context.EmailVerified, ExtractUsername(context.Email), context.Groups
 	}
 	for key, value := range claims {
@@ -116,6 +120,27 @@ func (s *Signer) signContext(context TokenContext, identity bool) (string, error
 		return "", fmt.Errorf("failed to sign token: %w", err)
 	}
 	return string(signed), nil
+}
+
+// DPoPThumbprint returns a strictly typed cnf.jkt from a verified JWT.
+func DPoPThumbprint(token jwt.Token) (string, error) {
+	value, ok := token.Get("cnf")
+	if !ok {
+		return "", nil
+	}
+	cnf, ok := value.(map[string]interface{})
+	if !ok {
+		return "", fmt.Errorf("cnf is not an object")
+	}
+	jkt, ok := cnf["jkt"].(string)
+	if !ok || jkt == "" || len(cnf) != 1 {
+		return "", fmt.Errorf("cnf.jkt is invalid")
+	}
+	decoded, err := base64.RawURLEncoding.Strict().DecodeString(jkt)
+	if err != nil || len(decoded) != 32 || base64.RawURLEncoding.EncodeToString(decoded) != jkt {
+		return "", fmt.Errorf("cnf.jkt is invalid")
+	}
+	return jkt, nil
 }
 
 // Signer signs OpenID Connect ID tokens.
@@ -215,14 +240,14 @@ func HasAudience(token jwt.Token, required string) bool {
 	return false
 }
 
-// VerifyAccessToken verifies signature, issuer, expiry, audience, and access-token purpose.
-func (s *Signer) VerifyAccessToken(raw, audience string) (jwt.Token, error) {
+// VerifyAccessToken verifies signature, issuer, expiry, audience shape, and access-token purpose.
+func (s *Signer) VerifyAccessToken(raw string) (jwt.Token, error) {
 	token, err := s.VerifyToken(raw)
 	if err != nil {
 		return nil, err
 	}
-	if !HasAudience(token, audience) {
-		return nil, fmt.Errorf("required audience is missing")
+	if len(token.Audience()) != 1 {
+		return nil, fmt.Errorf("access token must have exactly one audience")
 	}
 	if scope, ok := token.Get("scope"); !ok || strings.TrimSpace(fmt.Sprint(scope)) == "" {
 		return nil, fmt.Errorf("token is not an access token")

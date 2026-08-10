@@ -69,6 +69,8 @@ jobs:
     env:
       KUBECTL_VERSION: v1.33.2
       KUBELOGIN_VERSION: v1.36.2
+      OAUTH2C_VERSION: 1.20.0
+      OAUTH2C_LINUX_AMD64_SHA256: 9228fe4691206d1bf654c59df63038747e791cac8d03fda62ba4f0d87221a93d # v1.20.0
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -88,6 +90,10 @@ jobs:
           chmod +x "$tool_dir/kubectl"
           GOBIN="$tool_dir" go install "github.com/int128/kubelogin@$KUBELOGIN_VERSION"
           ln -s kubelogin "$tool_dir/kubectl-oidc_login"
+          oauth2c_archive="$RUNNER_TEMP/oauth2c.tar.gz"
+          curl -fsSL "https://github.com/SecureAuthCorp/oauth2c/releases/download/v$OAUTH2C_VERSION/oauth2c_${OAUTH2C_VERSION}_Linux_x86_64.tar.gz" -o "$oauth2c_archive"
+          echo "$OAUTH2C_LINUX_AMD64_SHA256  $oauth2c_archive" | sha256sum --check
+          tar -xzf "$oauth2c_archive" -C "$tool_dir" oauth2c
           echo "$tool_dir" >> "$GITHUB_PATH"
 
       - name: Test

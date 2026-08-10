@@ -140,6 +140,24 @@ func TestConfigSchemaContracts(t *testing.T) {
 				"redirect_uris": []any{"https://app.example.com/callback"},
 			}
 		}},
+		{"required ES512 DPoP and PAR", true, func(cfg map[string]any) {
+			cfg["static_policy"].(map[string]any)["clients"].(map[string]any)["kubelogin"] = map[string]any{
+				"dpop":        map[string]any{"mode": "required", "signing_algorithm": "ES512"},
+				"require_par": true,
+			}
+		}},
+		{"legacy scalar DPoP", false, func(cfg map[string]any) {
+			cfg["static_policy"].(map[string]any)["clients"].(map[string]any)["kubelogin"] = map[string]any{"dpop": "required"}
+		}},
+		{"unsupported DPoP algorithm", false, func(cfg map[string]any) {
+			cfg["static_policy"].(map[string]any)["clients"].(map[string]any)["kubelogin"] = map[string]any{"dpop": map[string]any{"mode": "required", "signing_algorithm": "ES384"}}
+		}},
+		{"algorithm on disabled DPoP", false, func(cfg map[string]any) {
+			cfg["static_policy"].(map[string]any)["clients"].(map[string]any)["kubelogin"] = map[string]any{"dpop": map[string]any{"mode": "disabled", "signing_algorithm": "ES512"}}
+		}},
+		{"legacy long PAR setting", false, func(cfg map[string]any) {
+			cfg["static_policy"].(map[string]any)["clients"].(map[string]any)["kubelogin"] = map[string]any{"require_pushed_authorization_requests": true}
+		}},
 		{"external HTTP issuer", false, func(cfg map[string]any) {
 			cfg["issuer_url"] = "http://auth.example.com"
 		}},

@@ -7,6 +7,8 @@ package oidc
 import (
 	"encoding/json"
 	"net/http"
+
+	"github.com/easy-oidc/easy-oidc/internal/config"
 )
 
 // HandleDiscovery handles the OIDC discovery endpoint (/.well-known/openid-configuration).
@@ -14,11 +16,13 @@ import (
 func (s *Server) HandleDiscovery(w http.ResponseWriter, r *http.Request) {
 	discovery := map[string]interface{}{
 		"issuer":                                s.config.IssuerURL,
-		"authorization_endpoint":                s.config.IssuerURL + "/authorize",
-		"token_endpoint":                        s.config.IssuerURL + "/token",
-		"revocation_endpoint":                   s.config.IssuerURL + "/revoke",
-		"userinfo_endpoint":                     s.config.IssuerURL + "/userinfo",
-		"jwks_uri":                              s.config.IssuerURL + "/jwks",
+		"authorization_endpoint":                config.PublicEndpointURL(s.config.IssuerURL, "authorize"),
+		"token_endpoint":                        config.PublicEndpointURL(s.config.IssuerURL, "token"),
+		"revocation_endpoint":                   config.PublicEndpointURL(s.config.IssuerURL, "revoke"),
+		"userinfo_endpoint":                     config.PublicEndpointURL(s.config.IssuerURL, "userinfo"),
+		"jwks_uri":                              config.PublicEndpointURL(s.config.IssuerURL, "jwks"),
+		"pushed_authorization_request_endpoint": config.PublicEndpointURL(s.config.IssuerURL, "par"),
+		"dpop_signing_alg_values_supported":     []string{"ES256", "ES512"},
 		"response_types_supported":              []string{"code"},
 		"subject_types_supported":               []string{"public"},
 		"id_token_signing_alg_values_supported": []string{s.config.SigningAlgorithm},

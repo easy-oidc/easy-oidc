@@ -5,8 +5,9 @@
 package oidc
 
 import (
-	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/base64"
 	"io"
 	"log/slog"
 	"net/http"
@@ -18,9 +19,73 @@ import (
 
 	"github.com/easy-oidc/easy-oidc/internal/authpolicy"
 	"github.com/easy-oidc/easy-oidc/internal/config"
+	"github.com/easy-oidc/easy-oidc/internal/statedb"
 	"github.com/easy-oidc/easy-oidc/internal/tokens"
 	"github.com/lestrrat-go/jwx/v2/jwa"
 )
+
+// TestHandleUserInfoDPoP verifies bound-token scheme, key, ath, replay, and header enforcement.
+func TestHandleUserInfoDPoP(t *testing.T) {
+	issuer := "https://issuer.example"
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	store, err := statedb.NewSQLite(t.TempDir()+"/state.db", logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	key, wrong := newEndpointProofKey(t, "ES512"), newEndpointProofKey(t, "ES512")
+	cfg := &config.Config{IssuerURL: issuer, StaticPolicy: config.StaticPolicyConfig{Clients: map[string]config.ClientConfig{"client": {DPoP: config.DPoPConfig{Mode: "required", SigningAlgorithm: "ES512"}}}}}
+	signer := tokens.NewSigner(newTestSigningKey(t), "kid", issuer, time.Hour)
+	server := &Server{config: cfg, store: store, signer: signer, policyResolver: authpolicy.NewResolver(cfg, nil), logger: logger}
+	now := time.Now()
+	_, access, err := signer.SignTokenPair(tokens.TokenContext{Email: "user@example.com", ClientID: "client", Scopes: "openid", AuthTime: now, IDExpiry: now.Add(time.Hour), AccessExpiry: now.Add(time.Hour), DPoPJKT: key.jkt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte(access))
+	ath := base64.RawURLEncoding.EncodeToString(sum[:])
+	send := func(scheme string, proofs ...string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodGet, "/userinfo", nil)
+		request.Header.Set("Authorization", scheme+" "+access)
+		for _, proof := range proofs {
+			request.Header.Add("DPoP", proof)
+		}
+		response := httptest.NewRecorder()
+		server.HandleUserInfo(response, request)
+		return response
+	}
+	if response := send("Bearer"); response.Code != http.StatusUnauthorized || response.Header().Get("WWW-Authenticate") != `Bearer error="invalid_token"` {
+		t.Fatalf("Bearer response=%d challenge=%q", response.Code, response.Header().Get("WWW-Authenticate"))
+	}
+	proof := key.proof(t, endpointProofOptions{Method: http.MethodGet, URL: issuer + "/userinfo", ATH: ath, IAT: now, JTI: "userinfo-valid"})
+	if response := send("DPoP", proof); response.Code != http.StatusOK {
+		t.Fatalf("valid response=%d body=%s", response.Code, response.Body.String())
+	}
+	invalidProofs := []struct {
+		name, proof, challenge string
+	}{
+		{"wrong ath", key.proof(t, endpointProofOptions{Method: http.MethodGet, URL: issuer + "/userinfo", ATH: "wrong", IAT: now, JTI: "wrong-ath"}), `DPoP error="invalid_dpop_proof", algs="ES256 ES512"`},
+		{"wrong method", key.proof(t, endpointProofOptions{Method: http.MethodPost, URL: issuer + "/userinfo", ATH: ath, IAT: now, JTI: "wrong-method"}), `DPoP error="invalid_dpop_proof", algs="ES256 ES512"`},
+		{"wrong key", wrong.proof(t, endpointProofOptions{Method: http.MethodGet, URL: issuer + "/userinfo", ATH: ath, IAT: now, JTI: "wrong-key"}), `DPoP error="invalid_token", algs="ES256 ES512"`},
+		{"replay", proof, `DPoP error="invalid_dpop_proof", algs="ES256 ES512"`},
+	}
+	for _, test := range invalidProofs {
+		response := send("DPoP", test.proof)
+		if response.Code != http.StatusUnauthorized || response.Header().Get("WWW-Authenticate") != test.challenge {
+			t.Errorf("%s response=%d challenge=%q", test.name, response.Code, response.Header().Get("WWW-Authenticate"))
+		}
+	}
+	if response := send("DPoP", proof, proof); response.Code != http.StatusBadRequest || response.Header().Get("WWW-Authenticate") != `DPoP error="invalid_request", algs="ES256 ES512"` {
+		t.Fatalf("duplicate headers status=%d challenge=%q", response.Code, response.Header().Get("WWW-Authenticate"))
+	}
+	malformed := httptest.NewRequest(http.MethodGet, "/userinfo", nil)
+	malformed.Header.Set("Authorization", "DPoP")
+	malformedResponse := httptest.NewRecorder()
+	server.HandleUserInfo(malformedResponse, malformed)
+	if malformedResponse.Code != http.StatusBadRequest || malformedResponse.Header().Get("WWW-Authenticate") != `DPoP error="invalid_request", algs="ES256 ES512"` {
+		t.Fatalf("malformed authorization status=%d challenge=%q", malformedResponse.Code, malformedResponse.Header().Get("WWW-Authenticate"))
+	}
+}
 
 func TestHandleUserInfoVerifiesToken(t *testing.T) {
 	issuer := "https://test.example.com"
@@ -95,29 +160,50 @@ func newTestSigningKey(t *testing.T) *tokens.SigningKey {
 	}
 }
 
-// TestHandleUserInfoRevalidatesDynamicClient verifies current client auth and failure mapping.
-func TestHandleUserInfoRevalidatesDynamicClient(t *testing.T) {
+// TestHandleUserInfoKeepsBearerTokenAfterDPoPBecomesRequired verifies cnf remains authoritative.
+func TestHandleUserInfoKeepsBearerTokenAfterDPoPBecomesRequired(t *testing.T) {
 	issuer := "https://test.example.com"
 	signer := tokens.NewSigner(newTestSigningKey(t), "kid", issuer, time.Hour)
-	_, access, err := signer.SignTokenPair(tokens.TokenContext{Email: "user@example.com", ClientID: "dynamic", Scopes: "openid", AuthTime: time.Now(), IDExpiry: time.Now().Add(time.Hour), AccessExpiry: time.Now().Add(time.Hour)})
+	cfg := &config.Config{IssuerURL: issuer, StaticPolicy: config.StaticPolicyConfig{Clients: map[string]config.ClientConfig{
+		"client": {DPoP: config.DPoPConfig{Mode: "required", SigningAlgorithm: "ES256"}},
+	}}}
+	server := &Server{config: cfg, signer: signer, policyResolver: authpolicy.NewResolver(cfg, nil), logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	now := time.Now()
+	_, accessToken, err := signer.SignTokenPair(tokens.TokenContext{Email: "user@example.com", ClientID: "client", Scopes: "openid", AuthTime: now, IDExpiry: now.Add(time.Hour), AccessExpiry: now.Add(time.Hour)})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := server.config.StaticPolicy.Clients["client"]
+	client.DPoP = config.DPoPConfig{Mode: "required", SigningAlgorithm: "ES256"}
+	server.config.StaticPolicy.Clients["client"] = client
+	request := httptest.NewRequest(http.MethodGet, "/userinfo", nil)
+	request.Header.Set("Authorization", "Bearer "+accessToken)
+	response := httptest.NewRecorder()
+	server.HandleUserInfo(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("response = %d, challenge = %q", response.Code, response.Header().Get("WWW-Authenticate"))
+	}
+}
+
+// TestAccessAuthenticationChallenges verifies exact protected-resource challenge syntax.
+func TestAccessAuthenticationChallenges(t *testing.T) {
 	tests := []struct {
-		name string
-		err  error
-		want int
-	}{{"accepted", nil, http.StatusOK}, {"denied", authpolicy.ErrDenied, http.StatusUnauthorized}, {"indeterminate", &authpolicy.IndeterminateError{Err: context.DeadlineExceeded}, http.StatusServiceUnavailable}}
+		name      string
+		failure   accessAuthError
+		challenge string
+	}{
+		{"missing credentials", accessAuthError{status: 401, scheme: "Bearer"}, "Bearer"},
+		{"known DPoP client", accessAuthError{status: 401, scheme: "DPoP", code: "invalid_dpop_proof", alg: "ES256"}, `DPoP error="invalid_dpop_proof", algs="ES256"`},
+		{"pre-client DPoP", accessAuthError{status: 401, scheme: "DPoP", code: "invalid_dpop_proof"}, `DPoP error="invalid_dpop_proof", algs="ES256 ES512"`},
+		{"bearer scope", accessAuthError{status: 403, scheme: "Bearer", code: "insufficient_scope"}, `Bearer error="insufficient_scope"`},
+		{"DPoP scope", accessAuthError{status: 403, scheme: "DPoP", code: "insufficient_scope", alg: "ES256"}, `DPoP error="insufficient_scope", algs="ES256"`},
+	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			fake := &fakePolicyResolver{client: authpolicy.ResolvedClient{Config: config.ClientConfig{}}, clientErrors: []error{test.err}}
-			server := &Server{config: &config.Config{}, signer: signer, policyResolver: fake, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
-			request := httptest.NewRequest(http.MethodGet, "/userinfo", nil)
-			request.Header.Set("Authorization", "Bearer "+access)
 			response := httptest.NewRecorder()
-			server.HandleUserInfo(response, request)
-			if response.Code != test.want || fake.resolveClientCalls != 1 {
-				t.Fatalf("status=%d calls=%d body=%s", response.Code, fake.resolveClientCalls, response.Body.String())
+			writeAccessAuthError(response, &test.failure)
+			if response.Code != test.failure.status || response.Header().Get("WWW-Authenticate") != test.challenge {
+				t.Fatalf("status=%d challenge=%q", response.Code, response.Header().Get("WWW-Authenticate"))
 			}
 		})
 	}

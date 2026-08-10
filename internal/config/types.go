@@ -117,6 +117,8 @@ type PolicyDatabaseConfig struct {
 type PolicyClientDefaults struct {
 	RequireUserGroupsFromPolicy *bool              `json:"require_user_groups_from_policy,omitempty"`
 	RefreshTokens               RefreshTokenConfig `json:"refresh_tokens,omitempty"`
+	DPoP                        DPoPConfig         `json:"dpop,omitempty"`
+	RequirePAR                  bool               `json:"require_par,omitempty"`
 }
 
 // PolicyQueries contains the three parameterized policy database queries.
@@ -222,6 +224,14 @@ type ClientConfig struct {
 	RequireUserGroupsFromPolicy *bool                `json:"require_user_groups_from_policy,omitempty"`
 	RefreshTokens               RefreshTokenConfig   `json:"refresh_tokens,omitempty"`
 	TrustBindings               []TrustBindingConfig `json:"trust_bindings,omitempty"`
+	DPoP                        DPoPConfig           `json:"dpop,omitempty"`
+	RequirePAR                  bool                 `json:"require_par,omitempty"`
+}
+
+// DPoPConfig controls sender-constrained proof requirements for a client.
+type DPoPConfig struct {
+	Mode             string `json:"mode,omitempty"`
+	SigningAlgorithm string `json:"signing_algorithm,omitempty"`
 }
 
 // RefreshTokenConfig controls refresh issuance and snapshotted grant lifetimes.

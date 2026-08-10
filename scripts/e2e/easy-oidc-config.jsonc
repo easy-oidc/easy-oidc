@@ -81,6 +81,19 @@
     },
 
     "clients": {
+      "static-dpop-par-e2e": {
+        "redirect_uris": ["http://localhost:18000/dpop-callback"],
+        "user_group_mapping": "static-groups",
+        "require_par": true,
+        "dpop": {
+          "mode": "required",
+          "signing_algorithm": "ES256",
+        },
+        "refresh_tokens": {
+          "enabled": true,
+          "allow_offline_access": true,
+        },
+      },
       "static-ci-token-exchange-e2e": {
         "trust_bindings": [{
           "id": "dex-static-exchange-e2e",

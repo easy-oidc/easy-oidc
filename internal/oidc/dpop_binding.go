@@ -1,0 +1,45 @@
+// Easy OIDC <https://easy-oidc.dev>
+// Copyright The Easy OIDC Authors
+// SPDX-License-Identifier: Apache-2.0
+
+package oidc
+
+import (
+	"net/http"
+
+	"github.com/easy-oidc/easy-oidc/internal/config"
+)
+
+const supportedDPoPAlgorithmChallenge = "ES256 ES512"
+
+// stateSatisfiesClientPolicy revalidates policy-sensitive authorization state before final code issuance.
+func stateSatisfiesClientPolicy(state *OAuthState, client config.ClientConfig) bool {
+	if (client.RequirePAR && !state.PushedAuthorization) || !validateDPoPBinding(client, state.DPoPJKT) {
+		return false
+	}
+	switch state.RefreshMode {
+	case "":
+		return true
+	case "session":
+		return client.RefreshTokens.Enabled
+	case "offline":
+		return client.RefreshTokens.Enabled && client.RefreshTokens.AllowOfflineAccess
+	default:
+		return false
+	}
+}
+
+// validateDPoPBinding rejects incomplete bindings and client-profile drift.
+func validateDPoPBinding(client config.ClientConfig, jkt string) bool {
+	if jkt == "" {
+		return client.DPoP.Mode != "required"
+	}
+	return client.DPoP.Mode == "required"
+}
+
+// logDPoPReplay records a distinct endpoint-boundary security event without proof identifiers.
+func (s *Server) logDPoPReplay(endpoint, clientID string, r *http.Request) {
+	if s.logger != nil {
+		s.logger.Warn("DPoP proof replay rejected", "endpoint", endpoint, "client_id", clientID, "remote_addr", r.RemoteAddr, "user_agent", r.UserAgent())
+	}
+}

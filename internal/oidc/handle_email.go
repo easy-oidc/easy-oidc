@@ -80,7 +80,7 @@ func (s *Server) beginOTP(w http.ResponseWriter, r *http.Request, state OAuthSta
 		http.Error(w, "internal error", 500)
 		return
 	}
-	flow := statedb.OTPFlow{FlowID: state.FlowID, ConnectorID: id, Subject: subject, Email: email, ClientID: state.ClientID, RedirectURI: state.RedirectURI, CodeChallenge: state.CodeChallenge, Nonce: state.Nonce, OIDCState: state.OIDCState, Scopes: state.Scopes, RefreshMode: state.RefreshMode, AuthTime: state.AuthTime, OfflineConsent: state.OfflineConsent, Purpose: state.Purpose}
+	flow := statedb.OTPFlow{FlowID: state.FlowID, ConnectorID: id, Subject: subject, Email: email, ClientID: state.ClientID, RedirectURI: state.RedirectURI, CodeChallenge: state.CodeChallenge, Nonce: state.Nonce, OIDCState: state.OIDCState, Scopes: state.Scopes, RefreshMode: state.RefreshMode, AuthTime: state.AuthTime, OfflineConsent: state.OfflineConsent, Purpose: state.Purpose, DPoPJKT: state.DPoPJKT, PushedAuthorization: state.PushedAuthorization}
 	otpTTL := s.config.Email.OTPTTL.Duration()
 	expiresAt, err := s.store.CreateOTP(challenge, email, code, flow, s.otpSecret, time.Now(), otpTTL)
 	if err != nil {
@@ -100,7 +100,8 @@ func (s *Server) HandleEmailVerify(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "email verification unavailable", http.StatusNotFound)
 		return
 	}
-	flow, err := s.store.ConsumeOTP(r.FormValue("challenge"), r.FormValue("code"), s.otpSecret, time.Now())
+	challengeID := r.FormValue("challenge")
+	flow, err := s.store.ConsumeOTP(challengeID, r.FormValue("code"), s.otpSecret, time.Now())
 	if err != nil {
 		http.Error(w, "invalid code", 400)
 		return
@@ -109,7 +110,23 @@ func (s *Server) HandleEmailVerify(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", 500)
 		return
 	}
-	s.complete(w, r, OAuthState{FlowID: flow.FlowID, ConnectorID: flow.ConnectorID, ClientID: flow.ClientID, RedirectURI: flow.RedirectURI, CodeChallenge: flow.CodeChallenge, Nonce: flow.Nonce, OIDCState: flow.OIDCState, Scopes: flow.Scopes, RefreshMode: flow.RefreshMode, AuthTime: flow.AuthTime, OfflineConsent: flow.OfflineConsent, Purpose: flow.Purpose}, flow.Subject, flow.Email, true)
+	state := OAuthState{
+		FlowID:              flow.FlowID,
+		ConnectorID:         flow.ConnectorID,
+		ClientID:            flow.ClientID,
+		RedirectURI:         flow.RedirectURI,
+		CodeChallenge:       flow.CodeChallenge,
+		Nonce:               flow.Nonce,
+		OIDCState:           flow.OIDCState,
+		Scopes:              flow.Scopes,
+		RefreshMode:         flow.RefreshMode,
+		AuthTime:            flow.AuthTime,
+		OfflineConsent:      flow.OfflineConsent,
+		Purpose:             flow.Purpose,
+		DPoPJKT:             flow.DPoPJKT,
+		PushedAuthorization: flow.PushedAuthorization,
+	}
+	s.complete(w, r, state, flow.Subject, flow.Email, true)
 }
 
 // HandleEmailResend replaces and sends the code for an active challenge.

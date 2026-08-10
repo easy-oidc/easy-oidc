@@ -21,6 +21,7 @@ DB_TRUST_CLIENT_SECRET="db-ci-token-exchange-e2e-secret"
 DB_TRUST_BINDING_ID="db-dex-ci-exchange-e2e"
 DB_INTERACTIVE_CLIENT_ID="db-kubelogin-interactive-e2e"
 ID_TOKEN_TYPE="urn:ietf:params:oauth:token-type:id_token"
+OAUTH2C_VERSION="1.20.0"
 JWT_PAYLOAD_FILTER='split(".")[1] | gsub("-"; "+") | gsub("_"; "/") | . + ("=" * ((4 - (length % 4)) % 4)) | @base64d | fromjson'
 
 TEST_PORTS=()
@@ -63,12 +64,21 @@ esac
 export E2E_HEADLESS
 
 echo "==> Checking prerequisites..."
-for cmd in curl jq make go kubectl openssl; do
+for cmd in curl jq make go kubectl oauth2c openssl; do
     if ! command -v "$cmd" &> /dev/null; then
+        if [ "$cmd" = oauth2c ]; then
+            echo "ERROR: oauth2c is required; install it with: brew install oauth2c"
+            exit 1
+        fi
         echo "ERROR: Required command '$cmd' not found. Please install it first."
         exit 1
     fi
 done
+
+if ! oauth2c version 2>&1 | grep -Fq "oauth2c version $OAUTH2C_VERSION "; then
+    echo "ERROR: oauth2c $OAUTH2C_VERSION is required"
+    exit 1
+fi
 
 if ! kubectl oidc-login --version &> /dev/null 2>&1; then
     echo "ERROR: kubectl oidc-login plugin not found."
@@ -96,7 +106,7 @@ remove_test_containers() {
 
 cleanup() {
     echo "==> Cleaning up..."
-    for pid in "${EASY_OIDC_PIDS[@]:-}" "${EASY_OIDC_PROXY_PID:-}"; do
+    for pid in "${EASY_OIDC_PIDS[@]:-}" "${EASY_OIDC_PROXY_PID:-}" "${OAUTH2C_PID:-}"; do
         if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; fi
     done
     remove_test_containers
@@ -294,6 +304,98 @@ wait_for_replicas
     "http://127.0.0.1:${EASY_OIDC_REPLICA_PORTS[1]}") > "$E2E_TEMP_DIR/proxy.log" 2>&1 &
 EASY_OIDC_PROXY_PID=$!
 wait_for_proxy_health 200
+
+echo "==> Testing RFC 9449 DPoP and RFC 9126 PAR interoperability with oauth2c..."
+DPOP_KEY="$E2E_TEMP_DIR/dpop-key.jwks"
+DPOP_TOKENS="$E2E_TEMP_DIR/dpop-tokens.json"
+DPOP_REFRESHED_TOKENS="$E2E_TEMP_DIR/dpop-refreshed-tokens.json"
+DPOP_AUTH_URL="$E2E_TEMP_DIR/dpop-authorization-url"
+(cd "$PROJECT_ROOT/scripts/e2e/dpop-client" && go build -o "$E2E_TEMP_DIR/dpop-client" .)
+DPOP_JKT="$("$E2E_TEMP_DIR/dpop-client" key "$DPOP_KEY")"
+DIRECT_AUTH_RESPONSE="$E2E_TEMP_DIR/direct-authorization-response"
+DIRECT_AUTH_STATUS="$(curl -sS -o "$DIRECT_AUTH_RESPONSE" -w '%{http_code}' --get \
+    --data-urlencode 'client_id=static-dpop-par-e2e' \
+    --data-urlencode "redirect_uri=http://localhost:$EASY_OIDC_CALLBACK_PORT/dpop-callback" \
+    --data-urlencode 'response_type=code' \
+    --data-urlencode 'scope=openid' \
+    --data-urlencode 'code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM' \
+    --data-urlencode 'code_challenge_method=S256' \
+    --data-urlencode "dpop_jkt=$DPOP_JKT" \
+    "$EASY_OIDC_ISSUER/authorize")"
+if [ "$DIRECT_AUTH_STATUS" != 400 ] || ! grep -Fq 'pushed authorization request required' "$DIRECT_AUTH_RESPONSE"; then
+    echo "ERROR: the PAR-required client accepted a direct authorization request"
+    exit 1
+fi
+oauth2c "$EASY_OIDC_ISSUER" \
+    --client-id=static-dpop-par-e2e \
+    --grant-type=authorization_code \
+    --response-types=code \
+    --response-mode=query \
+    --auth-method=none \
+    --pkce \
+    --par \
+    --dpop \
+    --signing-key="$DPOP_KEY" \
+    --redirect-url="http://localhost:$EASY_OIDC_CALLBACK_PORT/dpop-callback" \
+    --callback-addr="127.0.0.1:$EASY_OIDC_CALLBACK_PORT" \
+    --scopes=openid \
+    --no-browser \
+    --silent > "$DPOP_TOKENS" 2> "$DPOP_AUTH_URL" &
+OAUTH2C_PID=$!
+for i in {1..100}; do
+    if [ -s "$DPOP_AUTH_URL" ]; then break; fi
+    if ! kill -0 "$OAUTH2C_PID" 2>/dev/null; then break; fi
+    sleep 0.05
+done
+if [ ! -s "$DPOP_AUTH_URL" ]; then
+    wait "$OAUTH2C_PID" || true
+    echo "ERROR: oauth2c did not produce an authorization URL"
+    cat "$DPOP_AUTH_URL"
+    show_replica_logs
+    exit 1
+fi
+CALLBACK_READY=false
+for i in {1..100}; do
+    if (: < "/dev/tcp/127.0.0.1/$EASY_OIDC_CALLBACK_PORT") 2>/dev/null; then
+        CALLBACK_READY=true
+        break
+    fi
+    if ! kill -0 "$OAUTH2C_PID" 2>/dev/null; then break; fi
+    sleep 0.05
+done
+if [ "$CALLBACK_READY" != true ]; then
+    wait "$OAUTH2C_PID" || true
+    echo "ERROR: oauth2c callback listener did not become ready"
+    cat "$DPOP_AUTH_URL"
+    show_replica_logs
+    exit 1
+fi
+if ! "$BROWSER_COMMAND" "$(head -n 1 "$DPOP_AUTH_URL")"; then
+    show_replica_logs
+    exit 1
+fi
+if ! wait "$OAUTH2C_PID"; then
+    cat "$DPOP_AUTH_URL"
+    show_replica_logs
+    exit 1
+fi
+OAUTH2C_PID=""
+if ! oauth2c "$EASY_OIDC_ISSUER" \
+    --client-id=static-dpop-par-e2e \
+    --grant-type=refresh_token \
+    --auth-method=none \
+    --refresh-token="$(jq -er '.refresh_token' "$DPOP_TOKENS")" \
+    --dpop \
+    --signing-key="$DPOP_KEY" \
+    --silent > "$DPOP_REFRESHED_TOKENS"; then
+    show_replica_logs
+    exit 1
+fi
+if ! "$E2E_TEMP_DIR/dpop-client" exercise \
+    "$EASY_OIDC_ISSUER" "$DPOP_KEY" "$DPOP_TOKENS" "$DPOP_REFRESHED_TOKENS"; then
+    show_replica_logs
+    exit 1
+fi
 
 echo "==> Testing OIDC discovery endpoint..."
 if ! curl -sf "$EASY_OIDC_ISSUER/.well-known/openid-configuration" | jq . > /dev/null; then

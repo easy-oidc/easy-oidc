@@ -15,8 +15,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-// NewSQLite creates a new SQLite-backed state database.
-// The database file is created at the specified path.
+// NewSQLite opens an initialized SQLite state database.
 func NewSQLite(dbPath string, logger *slog.Logger) (*Store, error) {
 	dsn := dbPath
 	if dbPath != ":memory:" {
@@ -67,7 +66,7 @@ func initSQLiteSchema(db *sql.DB) error {
 		oidc_state TEXT NOT NULL,
 		created_at DATETIME NOT NULL,
 		expires_at DATETIME NOT NULL,
-		connector_id TEXT NOT NULL DEFAULT '', scopes TEXT NOT NULL, refresh_mode TEXT NOT NULL, auth_time DATETIME NOT NULL, offline_consent INTEGER NOT NULL DEFAULT 0, purpose TEXT NOT NULL DEFAULT 'authorize'
+		connector_id TEXT NOT NULL DEFAULT '', scopes TEXT NOT NULL, refresh_mode TEXT NOT NULL, auth_time DATETIME NOT NULL, offline_consent INTEGER NOT NULL DEFAULT 0, purpose TEXT NOT NULL DEFAULT 'authorize', dpop_jkt TEXT, pushed_authorization INTEGER NOT NULL DEFAULT 0
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_states_expires_at ON oauth_states(expires_at);
@@ -83,7 +82,7 @@ func initSQLiteSchema(db *sql.DB) error {
 		created_at DATETIME NOT NULL,
 		expires_at DATETIME NOT NULL,
 		scopes TEXT NOT NULL, refresh_mode TEXT NOT NULL, auth_time DATETIME NOT NULL,
-		connector_id TEXT NOT NULL DEFAULT '', upstream_subject TEXT NOT NULL DEFAULT '', offline_consent INTEGER NOT NULL DEFAULT 0
+		connector_id TEXT NOT NULL DEFAULT '', upstream_subject TEXT NOT NULL DEFAULT '', offline_consent INTEGER NOT NULL DEFAULT 0, dpop_jkt TEXT, pushed_authorization INTEGER NOT NULL DEFAULT 0
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_codes_expires_at ON auth_codes(expires_at);
@@ -130,10 +129,32 @@ func initSQLiteSchema(db *sql.DB) error {
 		subject TEXT NOT NULL, emails_json TEXT NOT NULL, expires_at DATETIME NOT NULL
 	);
 	CREATE INDEX IF NOT EXISTS idx_identity_selections_expiry ON identity_selections(expires_at);
+	CREATE TABLE IF NOT EXISTS pushed_requests (
+		request_uri TEXT PRIMARY KEY, client_id TEXT NOT NULL, redirect_uri TEXT NOT NULL, response_type TEXT NOT NULL,
+		scopes TEXT NOT NULL, oidc_state TEXT NOT NULL, nonce TEXT, code_challenge TEXT NOT NULL,
+		code_challenge_method TEXT NOT NULL, prompt TEXT, dpop_jkt TEXT,
+		created_at DATETIME NOT NULL, expires_at DATETIME NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS idx_pushed_requests_expiry ON pushed_requests(expires_at);
+	CREATE TABLE IF NOT EXISTS dpop_proofs (
+		replay_hash BLOB PRIMARY KEY CHECK(length(replay_hash)=32), expires_at DATETIME NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS idx_dpop_proofs_expiry ON dpop_proofs(expires_at);
 	`
 
 	if _, err := db.Exec(schema); err != nil {
 		return err
+	}
+	for _, migration := range []struct{ table, column, definition string }{
+		{"oauth_states", "dpop_jkt", "TEXT"},
+		{"auth_codes", "dpop_jkt", "TEXT"},
+		{"oauth_states", "pushed_authorization", "INTEGER NOT NULL DEFAULT 0"},
+		{"auth_codes", "pushed_authorization", "INTEGER NOT NULL DEFAULT 0"},
+		{"refresh_grants", "dpop_jkt", "TEXT"},
+	} {
+		if _, err := db.Exec("ALTER TABLE " + migration.table + " ADD COLUMN " + migration.column + " " + migration.definition); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+			return err
+		}
 	}
 	return nil
 }

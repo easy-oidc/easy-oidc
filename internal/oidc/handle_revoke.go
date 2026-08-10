@@ -5,17 +5,20 @@
 package oidc
 
 import (
-	"fmt"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/easy-oidc/easy-oidc/internal/authpolicy"
+	"github.com/easy-oidc/easy-oidc/internal/config"
+	"github.com/easy-oidc/easy-oidc/internal/dpop"
 	"github.com/easy-oidc/easy-oidc/internal/statedb"
 	"github.com/easy-oidc/easy-oidc/internal/tokens"
 )
 
-// HandleRevoke implements RFC 7009 family revocation for refresh tokens.
+// HandleRevoke implements client-policy-first, non-enumerating RFC 7009 family revocation.
 func (s *Server) HandleRevoke(w http.ResponseWriter, r *http.Request) {
 	setOAuthNoStore(w)
 	if r.Method != http.MethodPost || r.URL.RawQuery != "" {
@@ -24,6 +27,11 @@ func (s *Server) HandleRevoke(w http.ResponseWriter, r *http.Request) {
 	}
 	if media := strings.ToLower(strings.TrimSpace(strings.Split(r.Header.Get("Content-Type"), ";")[0])); media != "application/x-www-form-urlencoded" {
 		oauthError(w, http.StatusBadRequest, "invalid_request", "form content type is required")
+		return
+	}
+	if !s.revokeRequests.allow(time.Now()) {
+		w.Header().Set("Retry-After", "1")
+		oauthError(w, http.StatusTooManyRequests, "temporarily_unavailable", "request rate exceeded")
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxTokenFormBytes)
@@ -37,20 +45,79 @@ func (s *Server) HandleRevoke(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, 400, "invalid_request", "token and client_id are required exactly once")
 		return
 	}
-	material, err := statedb.ParseRefreshToken(r.PostForm.Get("token"))
-	if err == nil {
-		if err := s.store.RevokeRefreshToken(material, r.PostForm.Get("client_id"), "application", time.Now().UTC()); err != nil {
-			oauthError(w, 503, "temporarily_unavailable", "storage unavailable")
+	if _, present := r.PostForm["dpop_jkt"]; present {
+		oauthError(w, http.StatusBadRequest, "invalid_request", "dpop_jkt is not accepted at this endpoint")
+		return
+	}
+	clientID := r.PostForm.Get("client_id")
+	resolved, err := s.policyResolver.ResolveClient(r.Context(), clientID, false)
+	if errors.Is(err, authpolicy.ErrDenied) {
+		oauthError(w, http.StatusBadRequest, "invalid_request", "invalid client")
+		return
+	}
+	if err != nil {
+		oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable", "policy unavailable")
+		return
+	}
+	proofHeaders := r.Header.Values("DPoP")
+	if resolved.Config.DPoP.Mode == "disabled" && len(proofHeaders) != 0 {
+		oauthError(w, http.StatusBadRequest, "invalid_request", "unexpected DPoP proof")
+		return
+	}
+	if resolved.Config.DPoP.Mode == "required" && len(proofHeaders) != 1 {
+		oauthError(w, http.StatusBadRequest, "invalid_dpop_proof", "exactly one DPoP proof is required")
+		return
+	}
+	now := time.Now().UTC()
+	var proof *dpop.Proof
+	if len(proofHeaders) == 1 {
+		proof, err = dpop.ParseAndVerify(proofHeaders[0], resolved.Config.DPoP.SigningAlgorithm, http.MethodPost, config.PublicEndpointURL(s.config.IssuerURL, "revoke"), now)
+		if err != nil {
+			oauthError(w, http.StatusBadRequest, "invalid_dpop_proof", "DPoP proof is invalid")
 			return
 		}
-		s.logger.Info("refresh grant revoked", "client_id", r.PostForm.Get("client_id"))
-	} else if token, verifyErr := s.signer.VerifyToken(r.PostForm.Get("token")); verifyErr == nil && tokens.HasAudience(token, r.PostForm.Get("client_id")) {
-		if sid, ok := token.Get("sid"); ok {
-			if err := s.store.RevokeGrant(fmt.Sprint(sid), r.PostForm.Get("client_id"), "application", time.Now().UTC()); err != nil {
-				oauthError(w, 503, "temporarily_unavailable", "storage unavailable")
-				return
-			}
+		err = s.store.ReserveDPoP(dpop.ReplayHash(proof.Thumbprint, proof.JTI, proof.Method, proof.Target), now)
+		if errors.Is(err, statedb.ErrDPoPReplay) {
+			s.logDPoPReplay("revoke", clientID, r)
+			oauthError(w, http.StatusBadRequest, "invalid_dpop_proof", "DPoP proof is invalid")
+			return
+		}
+		if err != nil {
+			oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable", "storage unavailable")
+			return
 		}
 	}
+	credential := s.revocationCredential(r.PostForm.Get("token"), clientID)
+	proofJKT := ""
+	if proof != nil {
+		proofJKT = proof.Thumbprint
+	}
+	err = s.store.RevokeCredential(credential, clientID, proofJKT, "application", now)
+	if err != nil {
+		oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable", "storage unavailable")
+		return
+	}
 	w.WriteHeader(http.StatusOK)
+}
+
+// revocationCredential cryptographically identifies refresh, access, or ID token state without a database read.
+func (s *Server) revocationCredential(raw, clientID string) statedb.RevocationCredential {
+	if material, err := statedb.ParseRefreshToken(raw); err == nil {
+		return statedb.RevocationCredential{Refresh: &material}
+	}
+	token, err := s.signer.VerifyToken(raw)
+	if err != nil || len(token.Audience()) != 1 || !tokens.HasAudience(token, clientID) {
+		return statedb.RevocationCredential{}
+	}
+	sidValue, ok := token.Get("sid")
+	sid, okString := sidValue.(string)
+	if !ok || !okString || sid == "" {
+		return statedb.RevocationCredential{}
+	}
+	jkt, err := tokens.DPoPThumbprint(token)
+	if err != nil {
+		return statedb.RevocationCredential{}
+	}
+	_, accessToken := token.Get("scope")
+	return statedb.RevocationCredential{SID: sid, TokenJKT: jkt, RequireTokenBinding: accessToken}
 }

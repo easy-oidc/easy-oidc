@@ -137,6 +137,14 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request, state OAuthSta
 		}
 		return
 	}
+	if !s.isValidRedirectURI(state.RedirectURI, resolved.Config) {
+		http.Error(w, "authorization profile changed", http.StatusBadRequest)
+		return
+	}
+	if !stateSatisfiesClientPolicy(&state, resolved.Config) || state.RefreshMode == "offline" && !state.OfflineConsent {
+		redirectAuthorizationError(w, r, state.RedirectURI, state.OIDCState, "invalid_request")
+		return
+	}
 	_, policyErr := s.policyResolver.ResolveUser(r.Context(), resolved, strings.ToLower(email))
 	if policyErr != nil {
 		if errors.Is(policyErr, authpolicy.ErrDenied) {
@@ -164,7 +172,7 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request, state OAuthSta
 		http.Error(w, "authorization flow is invalid", http.StatusBadRequest)
 		return
 	}
-	code, err := s.authCodeMgr.GenerateCode(AuthCodePayload{ClientID: state.ClientID, RedirectURI: state.RedirectURI, CodeChallenge: state.CodeChallenge, Email: email, EmailVerified: emailVerified, Nonce: state.Nonce, Scopes: state.Scopes, RefreshMode: state.RefreshMode, AuthTime: state.AuthTime, ConnectorID: state.ConnectorID, UpstreamSubject: subject, OfflineConsent: state.OfflineConsent})
+	code, err := s.authCodeMgr.GenerateCode(AuthCodePayload{ClientID: state.ClientID, RedirectURI: state.RedirectURI, CodeChallenge: state.CodeChallenge, Email: email, EmailVerified: emailVerified, Nonce: state.Nonce, Scopes: state.Scopes, RefreshMode: state.RefreshMode, AuthTime: state.AuthTime, ConnectorID: state.ConnectorID, UpstreamSubject: subject, OfflineConsent: state.OfflineConsent, DPoPJKT: state.DPoPJKT, PushedAuthorization: state.PushedAuthorization})
 	if err != nil {
 		http.Error(w, "internal error", 500)
 		return

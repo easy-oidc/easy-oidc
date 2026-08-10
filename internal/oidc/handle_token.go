@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/easy-oidc/easy-oidc/internal/authpolicy"
+	"github.com/easy-oidc/easy-oidc/internal/config"
+	"github.com/easy-oidc/easy-oidc/internal/dpop"
 	"mime"
 	"net"
 	"net/http"
@@ -70,11 +72,15 @@ func (s *Server) HandleToken(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, http.StatusBadRequest, "invalid_request", "invalid form")
 		return
 	}
-	for _, name := range []string{"grant_type", "code", "client_id", "client_secret", "redirect_uri", "code_verifier", "refresh_token", "scope", "subject_token", "subject_token_type", "requested_token_type"} {
+	for _, name := range []string{"grant_type", "code", "client_id", "client_secret", "redirect_uri", "code_verifier", "refresh_token", "scope", "subject_token", "subject_token_type", "requested_token_type", "dpop_jkt"} {
 		if len(r.PostForm[name]) > 1 {
 			oauthError(w, http.StatusBadRequest, "invalid_request", "duplicate parameter")
 			return
 		}
+	}
+	if _, present := r.PostForm["dpop_jkt"]; present {
+		oauthError(w, http.StatusBadRequest, "invalid_request", "dpop_jkt is not accepted at this endpoint")
+		return
 	}
 	if _, hasClientSecret := r.PostForm["client_secret"]; r.Header.Get("Authorization") != "" || hasClientSecret {
 		oauthError(w, http.StatusBadRequest, "invalid_request", "client authentication is not supported")
@@ -108,6 +114,64 @@ func (s *Server) HandleToken(w http.ResponseWriter, r *http.Request) {
 			oauthError(audit, http.StatusBadRequest, "invalid_request", "refresh_token and client_id are required")
 			return
 		}
+		material, inspectErr := statedb.ParseRefreshToken(r.PostForm.Get("refresh_token"))
+		if inspectErr != nil {
+			oauthError(audit, http.StatusBadRequest, "invalid_grant", "refresh token is invalid")
+			return
+		}
+		var inspected statedb.RefreshGrant
+		inspected, _, inspectErr = s.store.PrepareRefresh(material, r.PostForm.Get("client_id"), time.Now().UTC())
+		if errors.Is(inspectErr, statedb.ErrInvalidGrant) {
+			oauthError(audit, http.StatusBadRequest, "invalid_grant", "refresh token is invalid")
+			return
+		}
+		if inspectErr != nil && !errors.Is(inspectErr, statedb.ErrRefreshReplay) {
+			oauthError(audit, http.StatusServiceUnavailable, "temporarily_unavailable", "storage unavailable")
+			return
+		}
+		resolved, resolveErr := s.policyResolver.ResolveClient(r.Context(), inspected.ClientID, true)
+		if errors.Is(resolveErr, authpolicy.ErrDenied) {
+			oauthError(audit, http.StatusBadRequest, "invalid_grant", "refresh token is invalid")
+			return
+		}
+		if resolveErr != nil {
+			oauthError(audit, http.StatusServiceUnavailable, "temporarily_unavailable", "policy unavailable")
+			return
+		}
+		if !validateDPoPBinding(resolved.Config, inspected.DPoPJKT) {
+			oauthError(audit, http.StatusBadRequest, "invalid_grant", "refresh token is invalid")
+			return
+		}
+		proofHeaders := r.Header.Values("DPoP")
+		if inspected.DPoPJKT == "" {
+			if len(proofHeaders) != 0 {
+				oauthError(audit, 400, "invalid_request", "unexpected DPoP proof")
+				return
+			}
+		} else {
+			if len(proofHeaders) != 1 {
+				oauthError(audit, 400, "invalid_dpop_proof", "DPoP proof is required")
+				return
+			}
+			proof, proofErr := dpop.ParseAndVerify(proofHeaders[0], resolved.Config.DPoP.SigningAlgorithm, http.MethodPost, config.PublicEndpointURL(s.config.IssuerURL, "token"), time.Now())
+			if proofErr != nil {
+				oauthError(audit, 400, "invalid_dpop_proof", "DPoP proof is invalid")
+				return
+			}
+			if dpop.VerifyThumbprint(proof, inspected.DPoPJKT) != nil {
+				oauthError(audit, 400, "invalid_grant", "refresh token is invalid")
+				return
+			}
+			if reserveErr := s.store.ReserveDPoP(dpop.ReplayHash(proof.Thumbprint, proof.JTI, proof.Method, proof.Target), time.Now().UTC()); reserveErr != nil {
+				if errors.Is(reserveErr, statedb.ErrDPoPReplay) {
+					s.logDPoPReplay("token", inspected.ClientID, r)
+					oauthError(audit, 400, "invalid_dpop_proof", "DPoP proof is invalid")
+				} else {
+					oauthError(audit, 503, "temporarily_unavailable", "storage unavailable")
+				}
+				return
+			}
+		}
 		result, exchangeErr := s.refresh.Exchange(r.Context(), refreshdomain.Request{Token: r.PostForm.Get("refresh_token"), ClientID: r.PostForm.Get("client_id"), Scope: r.PostForm.Get("scope")})
 		audit.sid = result.SID
 		if exchangeErr != nil {
@@ -121,12 +185,20 @@ func (s *Server) HandleToken(w http.ResponseWriter, r *http.Request) {
 			oauthError(audit, status, exchangeErr.Code, exchangeErr.Description)
 			return
 		}
-		response := map[string]any{"access_token": result.AccessToken, "id_token": result.IDToken, "refresh_token": result.RefreshToken, "token_type": "Bearer", "expires_in": int64(time.Until(result.AccessExpiry).Seconds())}
+		tokenType := "Bearer"
+		if result.DPoPJKT != "" {
+			tokenType = "DPoP"
+		}
+		response := map[string]any{"access_token": result.AccessToken, "id_token": result.IDToken, "refresh_token": result.RefreshToken, "token_type": tokenType, "expires_in": int64(time.Until(result.AccessExpiry).Seconds())}
 		if result.Scope != "" {
 			response["scope"] = result.Scope
 		}
 		oauthJSON(audit, http.StatusOK, response)
 	case "urn:ietf:params:oauth:grant-type:token-exchange":
+		if len(r.Header.Values("DPoP")) != 0 {
+			oauthError(w, http.StatusBadRequest, "invalid_request", "DPoP is not supported for token exchange")
+			return
+		}
 		s.exchangeTrustedToken(w, r)
 	default:
 		oauthError(w, http.StatusBadRequest, "unsupported_grant_type", "unsupported grant type")
@@ -156,7 +228,7 @@ func (s *Server) exchangeCode(w http.ResponseWriter, r *http.Request) {
 	}
 	codeChallenge, _ := pkceChallenge(r.PostForm.Get("code_verifier"))
 	binding := statedb.AuthCodeBinding{ClientID: r.PostForm.Get("client_id"), RedirectURI: r.PostForm.Get("redirect_uri"), CodeChallenge: codeChallenge}
-	payload := AuthCodePayload{ClientID: stored.ClientID, RedirectURI: stored.RedirectURI, CodeChallenge: stored.CodeChallenge, Email: stored.Email, EmailVerified: stored.EmailVerified, Nonce: stored.Nonce, Scopes: stored.Scopes, RefreshMode: stored.RefreshMode, AuthTime: stored.AuthTime, ConnectorID: stored.ConnectorID, UpstreamSubject: stored.UpstreamSubject, OfflineConsent: stored.OfflineConsent}
+	payload := AuthCodePayload{ClientID: stored.ClientID, RedirectURI: stored.RedirectURI, CodeChallenge: stored.CodeChallenge, Email: stored.Email, EmailVerified: stored.EmailVerified, Nonce: stored.Nonce, Scopes: stored.Scopes, RefreshMode: stored.RefreshMode, AuthTime: stored.AuthTime, ConnectorID: stored.ConnectorID, UpstreamSubject: stored.UpstreamSubject, OfflineConsent: stored.OfflineConsent, DPoPJKT: stored.DPoPJKT, PushedAuthorization: stored.PushedAuthorization}
 	resolved, resolveErr := s.policyResolver.ResolveClient(r.Context(), payload.ClientID, true)
 	if errors.Is(resolveErr, authpolicy.ErrDenied) {
 		oauthError(w, http.StatusBadRequest, "invalid_grant", "authorization code is invalid")
@@ -167,6 +239,44 @@ func (s *Server) exchangeCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	client := resolved.Config
+	if (client.RequirePAR && !payload.PushedAuthorization) || !validateDPoPBinding(client, payload.DPoPJKT) {
+		oauthError(w, http.StatusBadRequest, "invalid_grant", "authorization code is invalid")
+		return
+	}
+	proofHeaders := r.Header.Values("DPoP")
+	if payload.DPoPJKT == "" && len(proofHeaders) != 0 {
+		oauthError(w, http.StatusBadRequest, "invalid_request", "unexpected DPoP proof")
+		return
+	}
+	var replayHash *[32]byte
+	if payload.DPoPJKT != "" {
+		if len(proofHeaders) != 1 {
+			oauthError(w, http.StatusBadRequest, "invalid_dpop_proof", "exactly one DPoP proof is required")
+			return
+		}
+		proof, proofErr := dpop.ParseAndVerify(proofHeaders[0], client.DPoP.SigningAlgorithm, http.MethodPost, config.PublicEndpointURL(s.config.IssuerURL, "token"), time.Now())
+		if proofErr != nil {
+			oauthError(w, http.StatusBadRequest, "invalid_dpop_proof", "DPoP proof is invalid")
+			return
+		}
+		if dpop.VerifyThumbprint(proof, payload.DPoPJKT) != nil {
+			oauthError(w, http.StatusBadRequest, "invalid_grant", "authorization code is invalid")
+			return
+		}
+		hash := dpop.ReplayHash(proof.Thumbprint, proof.JTI, proof.Method, proof.Target)
+		replayHash = &hash
+	}
+	if replayHash != nil {
+		if err = s.store.ReserveDPoP(*replayHash, time.Now().UTC()); err != nil {
+			if errors.Is(err, statedb.ErrDPoPReplay) {
+				s.logDPoPReplay("token", payload.ClientID, r)
+				oauthError(w, 400, "invalid_dpop_proof", "DPoP proof is invalid")
+			} else {
+				oauthError(w, 503, "temporarily_unavailable", "storage unavailable")
+			}
+			return
+		}
+	}
 	connectorConfig, connectorExists := s.config.UserLoginConnectors[payload.ConnectorID]
 	if payload.RefreshMode != "" && (!client.RefreshTokens.Enabled || !connectorExists || (payload.RefreshMode == "offline" && (!client.RefreshTokens.AllowOfflineAccess || !payload.OfflineConsent))) {
 		oauthError(w, http.StatusBadRequest, "invalid_grant", "authorization code is invalid")
@@ -221,7 +331,7 @@ func (s *Server) exchangeCode(w http.ResponseWriter, r *http.Request) {
 			idle, absolute = policy.OfflineIdleTTL.Duration(), policy.OfflineAbsoluteTTL.Duration()
 		}
 		absoluteExpiry := payload.AuthTime.Add(absolute)
-		grant := statedb.RefreshGrant{SID: sid, ClientID: payload.ClientID, Email: payload.Email, EmailVerified: payload.EmailVerified, Scopes: payload.Scopes, ConnectorID: payload.ConnectorID, UpstreamSubject: payload.UpstreamSubject, Mode: payload.RefreshMode, AuthTime: payload.AuthTime, IdleTTL: idle, AbsoluteExpiry: absoluteExpiry}
+		grant := statedb.RefreshGrant{SID: sid, ClientID: payload.ClientID, Email: payload.Email, EmailVerified: payload.EmailVerified, Scopes: payload.Scopes, ConnectorID: payload.ConnectorID, UpstreamSubject: payload.UpstreamSubject, Mode: payload.RefreshMode, AuthTime: payload.AuthTime, IdleTTL: idle, AbsoluteExpiry: absoluteExpiry, DPoPJKT: payload.DPoPJKT}
 		if credentialBacked {
 			plain, loadErr := statedb.DecryptTemporaryCredential(s.encryptionKey, stored.Code, payload.ClientID, payload.ConnectorID, credentialNonce, credentialCiphertext)
 			if loadErr != nil {
@@ -273,7 +383,7 @@ func (s *Server) exchangeCode(w http.ResponseWriter, r *http.Request) {
 		initialGrant = &grant
 		refresh = material.Token
 	}
-	context := tokens.TokenContext{Email: payload.Email, EmailVerified: payload.EmailVerified, ClientID: payload.ClientID, Groups: groups, Nonce: payload.Nonce, SID: sid, Scopes: payload.Scopes, AuthTime: payload.AuthTime, IDExpiry: idExpiry, AccessExpiry: accessExpiry}
+	context := tokens.TokenContext{Email: payload.Email, EmailVerified: payload.EmailVerified, ClientID: payload.ClientID, Groups: groups, Nonce: payload.Nonce, SID: sid, Scopes: payload.Scopes, AuthTime: payload.AuthTime, IDExpiry: idExpiry, AccessExpiry: accessExpiry, DPoPJKT: payload.DPoPJKT}
 	idToken, accessToken, err := s.signer.SignTokenPair(context)
 	if err != nil {
 		oauthError(w, http.StatusInternalServerError, "server_error", "token signing failed")
@@ -302,14 +412,21 @@ func (s *Server) exchangeCode(w http.ResponseWriter, r *http.Request) {
 		refresh = material.Token
 	}
 	if err != nil {
-		if errors.Is(err, statedb.ErrInvalidGrant) {
+		if errors.Is(err, statedb.ErrDPoPReplay) {
+			s.logDPoPReplay("token", payload.ClientID, r)
+			oauthError(w, http.StatusBadRequest, "invalid_dpop_proof", "DPoP proof is invalid")
+		} else if errors.Is(err, statedb.ErrInvalidGrant) {
 			oauthError(w, http.StatusBadRequest, "invalid_grant", "authorization code is invalid")
 		} else {
 			oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable", "storage unavailable")
 		}
 		return
 	}
-	response := map[string]any{"access_token": accessToken, "id_token": idToken, "token_type": "Bearer", "expires_in": int64(time.Until(accessExpiry).Seconds())}
+	tokenType := "Bearer"
+	if payload.DPoPJKT != "" {
+		tokenType = "DPoP"
+	}
+	response := map[string]any{"access_token": accessToken, "id_token": idToken, "token_type": tokenType, "expires_in": int64(time.Until(accessExpiry).Seconds())}
 	if refresh != "" {
 		response["refresh_token"] = refresh
 	}

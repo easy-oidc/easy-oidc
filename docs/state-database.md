@@ -53,6 +53,15 @@ easy-oidc migrate --config config.jsonc
 Migrations are forward-only. Easy OIDC refuses to start when the schema is
 missing, dirty, older, or newer than the binary expects.
 
+DPoP proofs use a shared table containing a replay hash primary key and its
+expiry. Every Easy OIDC replica must use the same table. A unique insert reserves a
+proof for the full 15-second acceptance window; expired rows are removed in bounded
+batches. Database failure returns HTTP 503 and fails DPoP requests closed. Resume
+normally if the original table returns intact. If replay records were lost, continue
+returning 503 for 15 seconds before accepting proofs against an empty replacement. This
+allows clients to retry with new proofs after every forgotten proof has expired. See the
+[DPoP integration guide](dpop.md) for the complete operational contract.
+
 In the uncommon event of a migration failing:
 
 - stop the rollout;

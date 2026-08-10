@@ -77,6 +77,8 @@ func (r *Resolver) ResolveClient(ctx context.Context, clientID string, fresh boo
 		RedirectURIs:                append([]string(nil), r.cfg.PolicyDatabase.RedirectURIs...),
 		RequireUserGroupsFromPolicy: defaults.RequireUserGroupsFromPolicy,
 		RefreshTokens:               defaults.RefreshTokens,
+		DPoP:                        defaults.DPoP,
+		RequirePAR:                  defaults.RequirePAR,
 	}}, nil
 }
 

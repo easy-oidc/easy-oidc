@@ -684,6 +684,37 @@
           "type": "boolean",
           "description": "Client-specific override for static_policy.require_user_groups_from_policy."
         },
+        "dpop": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["disabled", "required"],
+              "default": "disabled"
+            },
+            "signing_algorithm": {
+              "type": "string",
+              "enum": ["ES256", "ES512"],
+              "description": "Required proof algorithm. Defaults to ES256 when DPoP is required."
+            }
+          },
+          "allOf": [
+            {
+              "if": { "required": ["signing_algorithm"] },
+              "then": {
+                "properties": { "mode": { "const": "required" } },
+                "required": ["mode"]
+              }
+            }
+          ],
+          "description": "DPoP policy and proof algorithm for this public client."
+        },
+        "require_par": {
+          "type": "boolean",
+          "default": false,
+          "description": "Require authorization parameters to be submitted through PAR."
+        },
         "trust_bindings": {
           "type": "array",
           "maxItems": 100,
@@ -762,6 +793,8 @@
           "additionalProperties": false,
           "properties": {
             "require_user_groups_from_policy": { "type": "boolean" },
+            "dpop": { "$ref": "#/$defs/client/properties/dpop" },
+            "require_par": { "$ref": "#/$defs/client/properties/require_par" },
             "refresh_tokens": {
               "$ref": "#/$defs/client/properties/refresh_tokens"
             }

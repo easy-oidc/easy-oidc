@@ -31,7 +31,7 @@ func (s *Server) renderSelector(w http.ResponseWriter, state OAuthState, ids []s
 		site = s.config.Email.Turnstile.SiteKey
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err = s.templates.RenderPage(w, "selector", templates.SelectorData{Title: "Sign in", State: token, SiteKey: site, Connectors: items}); err != nil {
+	if err := s.templates.RenderPage(w, "selector", templates.SelectorData{Title: "Sign in", State: token, SiteKey: site, Connectors: items}); err != nil {
 		s.logger.Error("render selector", "error", err)
 	}
 }

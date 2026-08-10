@@ -43,6 +43,9 @@
     "clients": {
       "kubelogin-local": {
         "user_group_mapping": "local-groups",
+        "dpop": {
+          "mode": "disabled",
+        },
         // Optional: override require_user_groups_from_policy per-client
         // "require_user_groups_from_policy": false
       },

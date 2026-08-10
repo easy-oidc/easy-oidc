@@ -60,6 +60,7 @@ type RefreshGrant struct {
 	UpstreamAccessExpiry      time.Time
 	UpstreamRefreshExpiry     time.Time
 	UpstreamAccessNonExpiring bool
+	DPoPJKT                   string
 }
 
 // RefreshClaim fences one connector-backed refresh operation.
@@ -113,7 +114,7 @@ func (s *Store) ClaimRefresh(current RefreshMaterial, clientID string, now time.
 	var claimID sql.NullString
 	var started bool
 	var upstreamAccess, upstreamRefresh sql.NullTime
-	err = tx.QueryRow(`SELECT t.token_hash,t.consumed_at,t.expires_at,g.sid,g.client_id,g.email,g.email_verified,g.scopes,COALESCE(g.connector_id,''),COALESCE(g.upstream_subject,''),g.mode,g.auth_time,g.idle_ttl_ns,g.idle_expires_at,g.absolute_expires_at,g.revoked_at,g.credential_nonce,g.credential_ciphertext,g.claim_id,g.claim_expires_at,g.upstream_refresh_started,g.upstream_access_expires_at,g.upstream_refresh_expires_at,g.upstream_access_nonexpiring FROM refresh_tokens t JOIN refresh_grants g ON g.sid=t.sid WHERE t.handle_hash=?`+s.lockJoinedRows(), current.HandleHash[:]).Scan(&stored, &consumed, &tokenExpiry, &grant.SID, &grant.ClientID, &grant.Email, &grant.EmailVerified, &grant.Scopes, &grant.ConnectorID, &grant.UpstreamSubject, &grant.Mode, &grant.AuthTime, &grant.IdleTTL, &idleExpiry, &grant.AbsoluteExpiry, &revoked, &grant.CredentialNonce, &grant.CredentialCiphertext, &claimID, &claimExpiry, &started, &upstreamAccess, &upstreamRefresh, &grant.UpstreamAccessNonExpiring)
+	err = tx.QueryRow(`SELECT t.token_hash,t.consumed_at,t.expires_at,g.sid,g.client_id,g.email,g.email_verified,g.scopes,COALESCE(g.connector_id,''),COALESCE(g.upstream_subject,''),g.mode,g.auth_time,g.idle_ttl_ns,g.idle_expires_at,g.absolute_expires_at,g.revoked_at,g.credential_nonce,g.credential_ciphertext,g.claim_id,g.claim_expires_at,g.upstream_refresh_started,g.upstream_access_expires_at,g.upstream_refresh_expires_at,g.upstream_access_nonexpiring,COALESCE(g.dpop_jkt,'') FROM refresh_tokens t JOIN refresh_grants g ON g.sid=t.sid WHERE t.handle_hash=?`+s.lockJoinedRows(), current.HandleHash[:]).Scan(&stored, &consumed, &tokenExpiry, &grant.SID, &grant.ClientID, &grant.Email, &grant.EmailVerified, &grant.Scopes, &grant.ConnectorID, &grant.UpstreamSubject, &grant.Mode, &grant.AuthTime, &grant.IdleTTL, &idleExpiry, &grant.AbsoluteExpiry, &revoked, &grant.CredentialNonce, &grant.CredentialCiphertext, &claimID, &claimExpiry, &started, &upstreamAccess, &upstreamRefresh, &grant.UpstreamAccessNonExpiring, &grant.DPoPJKT)
 	if err == sql.ErrNoRows {
 		return RefreshGrant{}, RefreshClaim{}, time.Time{}, ErrInvalidGrant
 	}
@@ -263,7 +264,7 @@ func (s *Store) ConsumeAuthCode(expected AuthCode, binding AuthCodeBinding, gran
 	}
 	defer func() { _ = tx.Rollback() }()
 	var actual AuthCode
-	err = tx.QueryRow(`SELECT code,client_id,redirect_uri,code_challenge,email,email_verified,nonce,created_at,expires_at,scopes,refresh_mode,auth_time,connector_id,upstream_subject,offline_consent FROM auth_codes WHERE code=?`+s.lockRows(), expected.Code).Scan(&actual.Code, &actual.ClientID, &actual.RedirectURI, &actual.CodeChallenge, &actual.Email, &actual.EmailVerified, &actual.Nonce, &actual.CreatedAt, &actual.ExpiresAt, &actual.Scopes, &actual.RefreshMode, &actual.AuthTime, &actual.ConnectorID, &actual.UpstreamSubject, &actual.OfflineConsent)
+	err = tx.QueryRow(`SELECT code,client_id,redirect_uri,code_challenge,email,email_verified,nonce,created_at,expires_at,scopes,refresh_mode,auth_time,connector_id,upstream_subject,offline_consent,COALESCE(dpop_jkt,''),pushed_authorization FROM auth_codes WHERE code=?`+s.lockRows(), expected.Code).Scan(&actual.Code, &actual.ClientID, &actual.RedirectURI, &actual.CodeChallenge, &actual.Email, &actual.EmailVerified, &actual.Nonce, &actual.CreatedAt, &actual.ExpiresAt, &actual.Scopes, &actual.RefreshMode, &actual.AuthTime, &actual.ConnectorID, &actual.UpstreamSubject, &actual.OfflineConsent, &actual.DPoPJKT, &actual.PushedAuthorization)
 	if err == sql.ErrNoRows {
 		return ErrInvalidGrant
 	}
@@ -285,7 +286,7 @@ func (s *Store) ConsumeAuthCode(expected AuthCode, binding AuthCodeBinding, gran
 		if expires.After(grant.AbsoluteExpiry) {
 			expires = grant.AbsoluteExpiry
 		}
-		_, err = tx.Exec(`INSERT INTO refresh_grants(sid,client_id,email,email_verified,scopes,connector_id,upstream_subject,credential_nonce,credential_ciphertext,mode,auth_time,created_at,last_used_at,idle_ttl_ns,idle_expires_at,absolute_expires_at,upstream_access_expires_at,upstream_refresh_expires_at,upstream_access_nonexpiring) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, grant.SID, grant.ClientID, strings.ToLower(grant.Email), grant.EmailVerified, grant.Scopes, grant.ConnectorID, grant.UpstreamSubject, grant.CredentialNonce, grant.CredentialCiphertext, grant.Mode, grant.AuthTime, now, now, int64(grant.IdleTTL), expires, grant.AbsoluteExpiry, nullableTime(grant.UpstreamAccessExpiry), nullableTime(grant.UpstreamRefreshExpiry), grant.UpstreamAccessNonExpiring)
+		_, err = tx.Exec(`INSERT INTO refresh_grants(sid,client_id,email,email_verified,scopes,connector_id,upstream_subject,credential_nonce,credential_ciphertext,mode,auth_time,created_at,last_used_at,idle_ttl_ns,idle_expires_at,absolute_expires_at,upstream_access_expires_at,upstream_refresh_expires_at,upstream_access_nonexpiring,dpop_jkt) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, grant.SID, grant.ClientID, strings.ToLower(grant.Email), grant.EmailVerified, grant.Scopes, grant.ConnectorID, grant.UpstreamSubject, grant.CredentialNonce, grant.CredentialCiphertext, grant.Mode, grant.AuthTime, now, now, int64(grant.IdleTTL), expires, grant.AbsoluteExpiry, nullableTime(grant.UpstreamAccessExpiry), nullableTime(grant.UpstreamRefreshExpiry), grant.UpstreamAccessNonExpiring, nullable(grant.DPoPJKT))
 		if err == nil {
 			err = insertRefreshToken(tx, material, grant.SID, now, expires)
 		}
@@ -314,7 +315,7 @@ func (s *Store) PrepareRefresh(current RefreshMaterial, clientID string, now tim
 	var consumed, revoked sql.NullTime
 	var upstreamAccess, upstreamRefresh sql.NullTime
 	var tokenExpiry, idleExpiry time.Time
-	err := s.db.QueryRow(`SELECT t.token_hash,t.consumed_at,t.expires_at,g.sid,g.client_id,g.email,g.email_verified,g.scopes,COALESCE(g.connector_id,''),COALESCE(g.upstream_subject,''),g.mode,g.auth_time,g.idle_ttl_ns,g.idle_expires_at,g.absolute_expires_at,g.revoked_at,g.credential_nonce,g.credential_ciphertext,g.upstream_access_expires_at,g.upstream_refresh_expires_at,g.upstream_access_nonexpiring FROM refresh_tokens t JOIN refresh_grants g ON g.sid=t.sid WHERE t.handle_hash=?`, current.HandleHash[:]).Scan(&storedHash, &consumed, &tokenExpiry, &grant.SID, &grant.ClientID, &grant.Email, &grant.EmailVerified, &grant.Scopes, &grant.ConnectorID, &grant.UpstreamSubject, &grant.Mode, &grant.AuthTime, &grant.IdleTTL, &idleExpiry, &grant.AbsoluteExpiry, &revoked, &grant.CredentialNonce, &grant.CredentialCiphertext, &upstreamAccess, &upstreamRefresh, &grant.UpstreamAccessNonExpiring)
+	err := s.db.QueryRow(`SELECT t.token_hash,t.consumed_at,t.expires_at,g.sid,g.client_id,g.email,g.email_verified,g.scopes,COALESCE(g.connector_id,''),COALESCE(g.upstream_subject,''),g.mode,g.auth_time,g.idle_ttl_ns,g.idle_expires_at,g.absolute_expires_at,g.revoked_at,g.credential_nonce,g.credential_ciphertext,g.upstream_access_expires_at,g.upstream_refresh_expires_at,g.upstream_access_nonexpiring,COALESCE(g.dpop_jkt,'') FROM refresh_tokens t JOIN refresh_grants g ON g.sid=t.sid WHERE t.handle_hash=?`, current.HandleHash[:]).Scan(&storedHash, &consumed, &tokenExpiry, &grant.SID, &grant.ClientID, &grant.Email, &grant.EmailVerified, &grant.Scopes, &grant.ConnectorID, &grant.UpstreamSubject, &grant.Mode, &grant.AuthTime, &grant.IdleTTL, &idleExpiry, &grant.AbsoluteExpiry, &revoked, &grant.CredentialNonce, &grant.CredentialCiphertext, &upstreamAccess, &upstreamRefresh, &grant.UpstreamAccessNonExpiring, &grant.DPoPJKT)
 	if err == sql.ErrNoRows {
 		return RefreshGrant{}, time.Time{}, ErrInvalidGrant
 	}
@@ -523,7 +524,7 @@ func (s *Store) CreateRefreshGrant(grant RefreshGrant, material RefreshMaterial,
 		return fmt.Errorf("begin grant creation: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	_, err = tx.Exec(`INSERT INTO refresh_grants(sid,client_id,email,email_verified,scopes,connector_id,upstream_subject,credential_nonce,credential_ciphertext,mode,auth_time,created_at,last_used_at,idle_ttl_ns,idle_expires_at,absolute_expires_at,upstream_access_expires_at,upstream_refresh_expires_at,upstream_access_nonexpiring) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, grant.SID, grant.ClientID, strings.ToLower(grant.Email), grant.EmailVerified, grant.Scopes, grant.ConnectorID, grant.UpstreamSubject, nonce, ciphertext, grant.Mode, grant.AuthTime, now, now, int64(grant.IdleTTL), expires, grant.AbsoluteExpiry, nullableTime(grant.UpstreamAccessExpiry), nullableTime(grant.UpstreamRefreshExpiry), grant.UpstreamAccessNonExpiring)
+	_, err = tx.Exec(`INSERT INTO refresh_grants(sid,client_id,email,email_verified,scopes,connector_id,upstream_subject,credential_nonce,credential_ciphertext,mode,auth_time,created_at,last_used_at,idle_ttl_ns,idle_expires_at,absolute_expires_at,upstream_access_expires_at,upstream_refresh_expires_at,upstream_access_nonexpiring,dpop_jkt) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, grant.SID, grant.ClientID, strings.ToLower(grant.Email), grant.EmailVerified, grant.Scopes, grant.ConnectorID, grant.UpstreamSubject, nonce, ciphertext, grant.Mode, grant.AuthTime, now, now, int64(grant.IdleTTL), expires, grant.AbsoluteExpiry, nullableTime(grant.UpstreamAccessExpiry), nullableTime(grant.UpstreamRefreshExpiry), grant.UpstreamAccessNonExpiring, nullable(grant.DPoPJKT))
 	if err == nil {
 		err = insertRefreshToken(tx, material, grant.SID, now, expires)
 	}

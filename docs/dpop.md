@@ -1,0 +1,168 @@
+---
+draft: false
+title: 'DPoP Integration'
+weight: 8
+---
+
+# DPoP integration
+
+DPoP protects access and refresh tokens if they are copied. The SPA or BFF keeps a
+private signing key and sends a new signed proof with every protected request. Easy OIDC
+accepts the token only when the proof was signed by the key used during login.
+
+DPoP still requires TLS, PKCE, and normal token validation. It does not encrypt tokens
+or stop malicious code already running inside the SPA or BFF from using the key.
+
+## Configure a client
+
+```jsonc
+"dpop": {
+  "mode": "required",
+  "signing_algorithm": "ES256"
+},
+"require_par": true
+```
+
+`mode` is `disabled` by default. When it is `required`, the signing algorithm defaults
+to `ES256`. ES256 is normally the best choice because it provides strong security with
+smaller, faster proofs. Use `ES512` only when your security policy requires its stronger
+P-521 profile and accepts larger signatures and more CPU work.
+
+Give Bearer and DPoP clients different client IDs. If you need to change a client's DPoP
+mode or signing algorithm, create a new client ID instead; existing logins may otherwise
+stop working. Losing the private key also requires a new login.
+
+Browser clients should set `require_par: true`. PAR saves the authorization request in
+Easy OIDC before the browser redirect, so the redirect cannot change its PKCE or DPoP
+values.
+
+## The flow at a glance
+
+1. **SPA or BFF:** Create a signing key and keep it for the login and all later token
+   refreshes.
+2. **SPA or BFF:** Send the login request to `/par` with the key's thumbprint, a DPoP
+   proof, or both.
+3. **Browser:** Open `/authorize` with the returned one-use `request_uri` and complete
+   login.
+4. **SPA or BFF:** Exchange the authorization code at `/token` with a fresh proof from
+   the same key.
+5. **SPA or BFF:** Present the access token with a new proof on every API request.
+6. **SPA or BFF:** Use that key again when refreshing tokens or revoking the refresh
+   grant.
+
+Easy OIDC receives the public key and its thumbprint, never the private key.
+
+## Create the key and thumbprint
+
+For a direct SPA, create a non-extractable ECDSA `CryptoKey` with Web Crypto. Use P-256
+for ES256 or P-521 for ES512. A BFF creates the same kind of key on the server. Give each
+saved account or login its own key instead of sharing one key across users.
+
+Export only the public key as a JWK. To calculate `dpop_jkt`, serialize its required
+members in this exact order, hash the UTF-8 JSON with SHA-256, then encode the hash with
+URL-safe base64 and omit the trailing `=` padding:
+
+```json
+{"crv":"P-256","kty":"EC","x":"...","y":"..."}
+```
+
+Use `P-521` in `crv` for ES512; the thumbprint still uses SHA-256. Keep the private key,
+thumbprint, PKCE verifier, `state`, and expected ID-token `nonce` together until the
+login callback is complete. Keep the key afterward for refresh and revocation.
+
+## Create a proof
+
+A DPoP proof is a short-lived signed JWT describing the HTTP request you are about to
+send. Put the compact JWT in exactly one `DPoP` header. Its JWT header contains:
+
+```json
+{
+  "typ": "dpop+jwt",
+  "alg": "ES256",
+  "jwk": { "kty": "EC", "crv": "P-256", "x": "...", "y": "..." }
+}
+```
+
+Its payload contains:
+
+- `jti`: a new unpredictable ID; generate another one for every retry;
+- `htm`: the request's uppercase HTTP method, such as `POST`;
+- `htu`: the exact public URL being called, without its query or fragment;
+- `iat`: the current Unix timestamp in seconds; and
+- `ath`: only when calling an API, the SHA-256 hash of the exact access-token text,
+  encoded with URL-safe base64 without trailing `=` padding.
+
+Easy OIDC accepts `iat` from ten seconds in the past through five seconds in the future.
+Proofs are limited to 8 KiB. Create a new proof for every request and retry. For `htu`,
+use the public URL advertised to clients, not an internal address behind a proxy.
+
+## Start authorization with PAR
+
+POST the normal Authorization Code + PKCE form fields and `client_id` to `/par`. Also
+send `dpop_jkt`, a proof whose `htu` is the public `/par` URL, or both. If you send both,
+they must identify the same key.
+
+Easy OIDC returns a `request_uri` that expires after 60 seconds and works once. Open
+`/authorize` in the browser with only that value and `client_id`. With `require_par`
+enabled, Easy OIDC rejects login requests that skip `/par`.
+
+## Exchange, refresh, and revoke
+
+When exchanging the code or using a refresh token, send a new proof whose `htu` is the
+public `/token` URL. Sign it with the same key used during login. A successful response
+contains `token_type: DPoP`, and the access token contains the key's thumbprint in its
+`cnf.jkt` field.
+
+To revoke the refresh grant—the server-side session behind the refresh token—POST the
+token and `client_id` to `/revoke` with a new proof for the public `/revoke` URL. This
+proof does not need `ath`. Even if this network request fails, mark the local session
+logged out and delete its local tokens and key.
+
+## Call an API
+
+```http
+Authorization: DPoP <access-token>
+DPoP: <fresh-proof-with-ath>
+```
+
+The API must validate the access token and proof before handling the request:
+
+1. Validate the token's signature, issuer, audience, expiry, and authorization claims.
+2. Require `Authorization: DPoP <access-token>`; never accept a token containing
+   `cnf.jkt` as `Authorization: Bearer <access-token>`.
+3. Validate the proof signature, supported algorithm, matching key curve, and embedded
+   public key. Check `htm`, exact public `htu`, `iat`, and `ath` against the request and
+   token.
+4. Require the proof key's thumbprint to equal the token's `cnf.jkt`.
+5. Reject a reused `jti` using replay storage shared by every API replica.
+
+Reject private or symmetric embedded keys and JWT headers that refer to keys on another
+server. Easy OIDC does not use the optional DPoP nonce feature.
+
+## Replay protection and failures
+
+Every replica of a service that accepts proofs must use the same durable replay table.
+Easy OIDC replicas share their state database; replicas of your API need an equivalent
+shared store. An in-memory cache is not enough because an attacker could send the same
+proof to another replica. Store only a hash of the thumbprint, `jti`, method, and URL
+with its expiry; do not store proofs, tokens, public keys, or raw `jti` values.
+
+If replay storage is unavailable, return HTTP 503 instead of issuing, refreshing,
+revoking, or accepting a token. Resume normally when the original records return. If
+the records were deleted, operators must keep DPoP endpoints returning 503 for 15
+seconds before using the empty replacement table. The service cannot distinguish a
+legitimately empty table from one whose records were silently deleted, so this recovery
+pause is an operator action. It gives every forgotten proof time to expire.
+
+Easy OIDC limits PAR and revocation separately to 100 requests per second per process,
+with a burst of 200. Add per-user or per-IP limits at your reverse proxy or API gateway.
+Monitor replay attempts, database errors, cleanup backlog, request latency, and server
+clock accuracy.
+
+`/par` returns `invalid_request` when a required client sends neither `dpop_jkt` nor a
+proof. Token, revocation, and API calls report `invalid_dpop_proof` when a required proof
+is missing, too old, reused, or created for another method or URL. API errors use the
+`WWW-Authenticate` response header; token and revocation errors use JSON.
+
+For complete SPA and backend-for-frontend designs, see the
+[app integration guide](/docs/app-integration/).

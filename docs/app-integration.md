@@ -9,127 +9,203 @@ weight: 7
 
 This page describes a recommended way for developers to use Easy OIDC with their apps, using an SPA backed by a Go HTTP API as a reference example.
 
-The goal is to use the same OIDC access tokens for browser, CLI, and direct API access while retaining API-managed session listing and immediate revocation.
+The goal is for browser apps, CLIs, and other clients to call the same API using a consistent OIDC token model, while the application can still list active sessions and revoke them immediately.
 
-## Requirements & Assumptions
+## Key concepts
 
-This design assumes:
+- A **BFF** (backend for frontend) is an application backend that keeps OAuth tokens and
+  keys away from browser JavaScript and gives the browser a session cookie instead.
+- An **access token** authorizes a request to your application's protected API, such as
+  the Go HTTP API in this guide. Send it to that API with the request.
+- An **ID token** tells the app that started the login who completed it. The browser and BFF
+  designs in this guide validate it during login and use the access token for application
+  API requests. Other integrations can define a different contract: Kubernetes, for
+  example, intentionally uses an ID token as its API credential.
+- A **refresh token** obtains new tokens without another login. It lives longer than an
+  access token and therefore needs stronger protection.
+- **DPoP** ties access and refresh tokens to a cryptographic key held by the client. A
+  direct SPA creates a non-extractable Web Crypto `CryptoKey` and can persist it in
+  IndexedDB when login must survive a reload. A BFF keeps the key on the server. The
+  client signs a new DPoP proof for each protected request, so stealing a token alone is
+  not enough to use it. This helps prevent a copied access token from being used to call
+  an API, or a copied refresh token from being used to obtain new tokens, on another
+  device. DPoP does not bind ID tokens.
+- **PKCE** ties the authorization code to the browser or backend that started login.
+  This prevents someone who intercepts the code from redeeming it.
+- **PAR** sends the authorization request directly to Easy OIDC before starting the
+  browser redirect. The redirect then carries only a short-lived reference to the saved
+  request. This means values such as the redirect URI, PKCE challenge, or DPoP key
+  binding cannot be changed by modifying the browser redirect URL.
 
-- A single-page application (SPA) with a Go HTTP API backend
-- Browser credentials must only be stored in `Secure`, `HttpOnly` cookies
-- One browser may be logged in as multiple users concurrently
-- CLI and other API clients use OAuth bearer tokens
-- The Go API records sessions and revocations in its database (for example, PostgreSQL), but does not store raw access tokens
-- Easy OIDC issues access and rotating refresh tokens with a stable session identifier (`sid`), and supports refresh-token revocation
-- Refresh re-evaluates whether the user is still permitted by current Easy OIDC & upstream provider policy
+## Choose a browser architecture
 
-Easy OIDC issues rotating refresh tokens with a stable `sid` for clients that explicitly enable `refresh_tokens`. Applications should revoke the family at `/revoke` during logout.
+For a browser application, choose one of two designs:
 
-`POST /revoke` implements RFC 7009 for public clients. Send an URL-encoded `token` and the registered `client_id`; refresh tokens and signed access/ID tokens carrying `sid` revoke the whole grant family. Applications must delete local credentials even when this best-effort request fails.
+1. **Direct SPA with DPoP:** the browser owns the OAuth tokens and a non-extractable
+  signing key, then calls the API directly.
+2. **Backend for frontend (BFF):** the browser receives only an opaque, `HttpOnly`
+  session cookie. The BFF owns the OAuth tokens and DPoP key.
 
-Users can visit `GET /grants` to authenticate in a dedicated management flow that issues no tokens and creates no refresh grant. The resulting page lists only their active, unexpired grants. Each revoke button submits a five-minute, one-use action token in a POST body; no Easy OIDC cookie or persistent browser session is used. Self-service revocation prevents future refreshes, while already-issued stateless access and ID tokens remain valid until expiry.
+Do not put ordinary Bearer tokens in browser JavaScript. A copied Bearer token can be
+used from another machine until it expires or is revoked. DPoP binds a token to a key,
+so copying the token alone is not enough.
 
-## Architecture
+DPoP does not make an SPA immune to cross-site scripting. Malicious same-origin code can
+still ask the browser to sign requests while it is running. Continue to use a strict CSP,
+escape untrusted content, minimize third-party scripts, and keep access tokens short-lived.
+
+## Option 1: Direct SPA with DPoP
+
+Use this design when the SPA must call the API directly rather than via a BFF.
 
 ```text
-SPA/browser ── HttpOnly cookies ──┐
-                                  ▼
-CLI/API ────── Bearer JWT ─────▶ Go HTTP API ◀── Code + PKCE ──▶ Easy OIDC
-                                  │
-                                  │ session state
-                                  ▼
-                   Application database (e.g. PostgreSQL)
+┌───────────────┐  code + PKCE + DPoP   ┌───────────┐
+│ SPA + DPoP key│──────────────────────▶│ Easy OIDC │
+└───────┬───────┘                       └───────────┘
+        │ DPoP access token
+┌───────▼───────┐
+│ API           │
+└───────────────┘
 ```
 
-Easy OIDC authenticates users and issues tokens. The Go API validates those tokens and remains authoritative for application session revocation.
+Configure a dedicated client with `dpop.mode: required` and `require_par: true`. Also set
+`refresh_tokens.enabled: true` when the SPA needs refresh tokens, `sid`-based application
+sessions, or grant revocation.
 
-The application database stores the token's stable `sid`, user identity, timestamps, client ID, and revocation status. It does not store the raw access token. Revoked session records must remain until all associated tokens can no longer be used.
+1. Create a non-extractable P-256 Web Crypto key for the login. Give each saved account
+   or login session its own key; do not share one key across accounts.
+2. Start Authorization Code + PKCE through `/par`, binding the request to that key.
+3. Preserve `state`, the expected ID-token `nonce`, PKCE verifier, key, and key thumbprint
+   as one pending login. On callback, verify and consume `state`.
+4. Exchange the code with a fresh proof. Validate the ID token's signature, issuer,
+   audience, expiry, and `nonce`, then compare `token_type` case-insensitively with
+   `DPoP`.
+5. Send the access token and a new proof to the API on every request.
+6. Refresh and revoke with new proofs from the same key.
 
-## SPA and browser sessions
+If the SPA and Easy OIDC use different origins, put a reverse proxy, API gateway, or CDN
+configuration that you control in front of Easy OIDC. Configure it to answer browser
+`OPTIONS` requests and allow only the SPA's exact origin. Permit `Content-Type` and
+`DPoP` for `/par`, `/token`, and `/revoke`; permit `Authorization` and `DPoP` for
+`/userinfo`; and let browser code read `WWW-Authenticate`. Easy OIDC does not provide
+these CORS headers itself. The proxy must not change the public scheme, host, or path
+advertised by Easy OIDC because each proof names the exact URL it was created for. If
+the API is also on another origin, configure its CORS policy to allow `Authorization`
+and `DPoP` from the SPA's exact origin.
 
-The Go API handles the OAuth flow on behalf of the SPA:
+Web Crypto prevents JavaScript from exporting a non-extractable private key, but the
+SPA can still read its access and refresh tokens. Keep access tokens in memory where
+possible. Keeping a refresh token in browser storage allows login to survive a reload,
+but also makes that token available to malicious same-origin JavaScript. If persistence
+is necessary, use a short refresh-token lifetime, bind the token with DPoP, and do not
+treat `localStorage` as secure storage. If the browser loses the key or clears its
+storage, the user must log in again.
 
-1. The Go API starts Authorization Code + PKCE with `state` and `nonce` flow.
-2. Its callback handler exchanges the authorization code with Easy OIDC.
-3. It creates an application session for the token's `sid`.
-4. It places the access and refresh tokens in `Secure`, `HttpOnly` cookies. Access token cookies should use a short `Max-Age` matching the token lifetime. Refresh token cookies should use a longer `Max-Age` matching the refresh token lifetime. This ensures cookies expire even if the browser is not open when a server-side revocation occurs.
-5. It refreshes the tokens when the access token approaches expiry.
+See [DPoP integration](/docs/dpop/) for proof construction and endpoint details.
 
-Tokens are never exposed to SPA JavaScript due to the use of `HttpOnly` cookies.
+## Option 2: BFF with DPoP
 
-### Multiple concurrent users
+Use this design when you can operate a same-site backend. It provides the strongest
+browser token isolation because JavaScript in the browser cannot access the OAuth
+tokens.
 
-Assign each logged-in account a non-secret, browser-local slot number and include it in that account's cookie names:
+```text
+┌─────────┐  opaque HttpOnly cookie  ┌──────────────────┐
+│ SPA     │─────────────────────────▶│ BFF + DPoP key   │
+└─────────┘                          └────────┬─────────┘
+                                              │ DPoP tokens
+                                  ┌───────────┴───────────┐
+                                  ▼                       ▼
+                            ┌───────────┐           ┌───────────┐
+                            │ Easy OIDC │           │    API    │
+                            └───────────┘           └───────────┘
+```
+
+The BFF performs Authorization Code + PKCE and owns the DPoP key, access token, and
+refresh token. Configure refresh tokens when the application needs persistent sessions
+or grant revocation. Before `/par`, create the key and a short-lived, single-use pending
+login containing `state`, expected ID-token `nonce`, PKCE verifier, key, and thumbprint,
+bound to the initiating browser.
+
+If Easy OIDC is cross-site, use a separate opaque `Secure`, `HttpOnly`, `SameSite=Lax`
+transaction cookie for the top-level callback. On callback, consume the pending login,
+exchange the code with a fresh proof, and validate the ID token including `nonce`. Only
+then issue or rotate the random application session cookie:
 
 ```http
-Set-Cookie: __Host-easy-oidc-access-0=<access-token>; Path=/; Secure; HttpOnly; SameSite=Strict
-Set-Cookie: __Host-easy-oidc-refresh-0=<refresh-token>; Path=/; Secure; HttpOnly; SameSite=Strict
-
-Set-Cookie: __Host-easy-oidc-access-1=<access-token>; Path=/; Secure; HttpOnly; SameSite=Strict
-Set-Cookie: __Host-easy-oidc-refresh-1=<refresh-token>; Path=/; Secure; HttpOnly; SameSite=Strict
+Set-Cookie: __Host-app-session=<random-id>; Path=/; Secure; HttpOnly; SameSite=Strict
 ```
 
-The SPA sends the selected slot in the URL, query parameter, or a header such as `X-Auth-Slot: 0`. The Go API uses that value to select the matching cookie. The slot number is only a selector and must never be accepted as proof of authentication.
+Store tokens and the DPoP key in server-side session storage, encrypted where practical.
+If BFF replicas can serve the same session, they need shared access to that session's key
+or deterministic routing to its owner. Never place the raw OAuth tokens in cookies.
 
-This allows one tab to use slot `0` while another uses slot `1`. Include the slot number in client-side query cache keys so data from different users cannot share a cache entry.
+The SPA calls the BFF with its session cookie. The BFF applies CSRF protection, then
+either handles the operation itself or calls a downstream API with the DPoP access token
+and a fresh proof. The BFF also creates fresh proofs for token refresh and revocation.
 
-Cookie-authenticated requests require CSRF protection. Use `SameSite`, verify `Origin`, and require a custom header or CSRF token for state-changing requests.
+Cookie-authenticated state changes must verify `Origin` and require a custom header or
+CSRF token in addition to an appropriate `SameSite` policy.
 
-### Session management
+## Sessions and multiple accounts
 
-The Go API can expose endpoints that list active and recent sessions from its database. A session record should include:
+Easy OIDC access tokens issued with a refresh grant contain its stable session ID
+(`sid`), which the grant retains across rotation. When `sid` is present, keep an
+application session record containing it, the issuer, subject, client ID, creation and
+expiry times, and revocation state. Do not reactivate a revoked `sid` merely because an
+old access token is presented again.
 
-- `sid`, issuer, subject, and client ID
-- Creation, last-used, expiry, and revocation times
-- A user-provided device name and approximate user agent/IP metadata
-
-Logging out a session should:
-
-1. Mark its `sid` revoked in the application database.
-2. Revoke its refresh token with Easy OIDC.
-3. Expire its access and refresh cookies when logging out the current browser.
-
-Revoking the database session makes logout immediate for this application even if an access JWT has not expired. Remote logout cannot delete another browser's cookies immediately, but the revoked `sid` causes the API to reject them. On the browser's next request, the API should expire the selected slot's cookies and return `401 Unauthorized`; the SPA can then start a new login flow.
-
-## CLI access
-
-A CLI should be registered as its own public client and use Authorization Code + PKCE with a loopback callback:
-
-1. Open the user's browser for authentication.
-2. Exchange the authorization code for access and refresh tokens.
-3. Store tokens using the operating system credential store, or a file with restrictive permissions when no credential store is available.
-4. Send the access token as `Authorization: Bearer <token>`.
-5. Refresh it directly with Easy OIDC when needed.
-
-The Go API validates the token and creates or updates its application session from `sid`. A revoked `sid` must never be recreated as active merely because the same token is presented again.
-
-A CLI logout command should:
-
-1. Call the Go API to revoke the current `sid`.
-2. Revoke the refresh token with Easy OIDC.
-3. Delete its locally cached access and refresh tokens, even if either remote revocation request fails.
-
-## Direct API access
-
-Scripts, `curl`, and other OAuth-capable clients use the same bearer-token interface:
-
-```http
-Authorization: Bearer <access-token>
-```
-
-Each client should have a registered client ID, and the Go API must allow only expected audiences. Direct clients obtain tokens through Authorization Code + PKCE; direct API access is not a separate grant and does not imply password, static-token, or client-credentials support.
-
-Browser endpoints should use cookies, while non-browser endpoints should use the `Authorization` header. Reject requests that provide conflicting credentials through both mechanisms.
+For multiple simultaneous accounts, give each saved login a local slot. For example, an
+SPA might store work account `user+work@example.com` as slot `1` and personal account
+`user+personal@example.com` as slot `2`; each slot has its own DPoP key, tokens, and cached data.
+A BFF can use the slot in the session-cookie name, while a direct SPA can use it in its
+local account record. The slot only selects local state—it does not prove who the user
+is. Include it in cache keys so one account cannot reuse another account's cached data.
 
 ## API validation
 
-For every authenticated request, the Go API must:
+This section applies to both designs whenever an API receives a DPoP access token. With
+Option 1, the SPA sends the token to the API. With Option 2, the BFF sends it to the API;
+the browser-to-BFF request uses the session cookie instead.
 
-1. Verify the JWT signature using Easy OIDC's JWKS. Cache the JWKS locally and refresh it periodically (for example, every 5 minutes). If a signature verification fails and the JWKS has not been refreshed within the last 60 seconds, fetch it again before rejecting the token — this handles key rotation gracefully. Do not allow verification failures to trigger fetches more frequently than this floor to prevent an attacker from using forged tokens to force excessive upstream requests.
-2. Validate issuer, audience, expiry, and required claims.
-3. Apply authorization using the token's groups or scopes.
-4. Look up `sid` and reject expired or revoked application sessions.
+Validate the JWT before reading application session state:
 
-Refresh tokens improve continuity, but application revocation still requires the database check. Any other resource server that does not check the same session state may continue accepting an access token until it expires.
+1. Verify its signature using Easy OIDC's JWKS. Cache keys and rate-limit refreshes so
+   forged tokens cannot cause an upstream request flood.
+2. Validate issuer, intended audience, expiry, token purpose, and required scopes or
+   groups.
+3. Inspect `cnf.jkt`. If present, require `Authorization: DPoP`, validate the proof and
+   `ath`, match its key thumbprint, and reserve its `jti` in replay storage shared by all
+   API replicas. Never accept that token as Bearer.
+4. If `cnf.jkt` is absent, accept only Bearer and only for a client intentionally
+   configured for Bearer access.
+5. If `sid` is present, apply a bounded per-`sid` rate limit, then reject expired or
+   revoked application sessions.
 
-To protect the session database from request floods, validate the JWT first, then apply a per-`sid` rate limit before looking up the session. Keep limiter entries in a bounded in-memory LRU so they cannot consume unbounded memory. Because `sid` is read only from a verified token, an attacker must possess valid tokens for enough distinct sessions to churn the LRU.
+Resource servers that do not share the application session check may continue accepting
+an otherwise valid access token until it expires.
+
+## Logout and revocation
+
+Logging out should:
+
+1. mark the application session's `sid` revoked;
+2. revoke the refresh grant with Easy OIDC using the correct DPoP proof; and
+3. delete browser, BFF, or local credentials even if remote revocation fails.
+
+The application session check makes logout immediate for that API. Easy OIDC's
+`GET /grants` also lets a user list and revoke active refresh grants without creating a
+new token-bearing session. Already-issued stateless access tokens remain valid at APIs
+that do not consult application revocation state.
+
+## CLI and other direct clients
+
+Register CLIs and automation under separate client IDs. Prefer DPoP when the client can
+protect a persistent signing key; use Authorization Code + PKCE with a loopback callback
+for interactive CLIs. Store tokens and keys in the operating-system credential store,
+or in files with restrictive permissions when no credential store exists.
+
+Bearer can remain available for clients that cannot implement DPoP, but keep those
+clients separate and accept the greater consequence of token theft. Browser and BFF
+endpoints must reject requests that present conflicting cookie and `Authorization`
+credentials.

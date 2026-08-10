@@ -22,12 +22,16 @@ func TestHandleDiscoveryAdvertisesConfiguredSigningAlgorithm(t *testing.T) {
 	server.HandleDiscovery(response, httptest.NewRequest(http.MethodGet, "/.well-known/openid-configuration", nil))
 
 	var discovery struct {
-		SigningAlgorithms []string `json:"id_token_signing_alg_values_supported"`
+		SigningAlgorithms     []string `json:"id_token_signing_alg_values_supported"`
+		DPoPSigningAlgorithms []string `json:"dpop_signing_alg_values_supported"`
 	}
 	if err := json.NewDecoder(response.Body).Decode(&discovery); err != nil {
 		t.Fatal(err)
 	}
 	if len(discovery.SigningAlgorithms) != 1 || discovery.SigningAlgorithms[0] != "PS512" {
 		t.Fatalf("signing algorithms = %v, want [PS512]", discovery.SigningAlgorithms)
+	}
+	if got := discovery.DPoPSigningAlgorithms; len(got) != 2 || got[0] != "ES256" || got[1] != "ES512" {
+		t.Fatalf("DPoP signing algorithms = %v, want [ES256 ES512]", got)
 	}
 }

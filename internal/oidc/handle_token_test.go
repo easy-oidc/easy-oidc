@@ -8,9 +8,11 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -208,10 +210,11 @@ func boolPtr(b bool) *bool {
 }
 
 // refreshTokenServer creates a token endpoint configured for one direct-email connector.
-func refreshTokenServer(t *testing.T) (*Server, *statedb.Store, *AuthCodeManager, []byte) {
+func refreshTokenServer(t *testing.T) (*Server, *statedb.Store, *AuthCodeManager, []byte, string) {
 	t.Helper()
+	path := t.TempDir() + "/test.db"
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	store, err := statedb.NewSQLite(t.TempDir()+"/test.db", logger)
+	store, err := statedb.NewSQLite(path, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,7 +238,52 @@ func refreshTokenServer(t *testing.T) (*Server, *statedb.Store, *AuthCodeManager
 	}
 	key := []byte("01234567890123456789012345678901")
 	signer := tokens.NewSigner(newTestSigningKey(t), "kid", cfg.IssuerURL, time.Hour)
-	return NewServer(cfg, nil, manager, signer, nil, logger, store, nil, nil, nil, nil, nil, key, nil), store, manager, key
+	return NewServer(cfg, nil, manager, signer, nil, logger, store, nil, nil, nil, nil, nil, key, nil), store, manager, key, path
+}
+
+// TestDPoPReservationFailurePreservesAuthorizationCode verifies fail-closed ordering.
+func TestDPoPReservationFailurePreservesAuthorizationCode(t *testing.T) {
+	server, store, manager, _, path := refreshTokenServer(t)
+	client := server.config.StaticPolicy.Clients["client"]
+	client.DPoP = config.DPoPConfig{Mode: "required", SigningAlgorithm: "ES256"}
+	client.RefreshTokens.Enabled = false
+	server.config.StaticPolicy.Clients["client"] = client
+	key := newEndpointProofKey(t, "ES256")
+	verifier := strings.Repeat("f", 43)
+	code, err := manager.GenerateCode(AuthCodePayload{ClientID: "client", RedirectURI: "https://client.example/callback", CodeChallenge: computeChallenge(verifier), Email: "user@example.com", Scopes: "openid", AuthTime: time.Now(), DPoPJKT: key.jkt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	breaker, err := sql.Open("sqlite3", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = breaker.Exec(`DROP TABLE dpop_proofs`); err != nil {
+		t.Fatal(err)
+	}
+	if err = breaker.Close(); err != nil {
+		t.Fatal(err)
+	}
+	values := url.Values{"grant_type": {"authorization_code"}, "code": {code}, "client_id": {"client"}, "redirect_uri": {"https://client.example/callback"}, "code_verifier": {verifier}}
+	request := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(values.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("DPoP", key.proof(t, endpointProofOptions{Method: http.MethodPost, URL: "https://issuer.example/token", IAT: time.Now(), JTI: "reservation-failure"}))
+	response := httptest.NewRecorder()
+	server.HandleToken(response, request)
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if err = store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := statedb.NewSQLite(path, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+	if _, err = reopened.PeekAuthCode(code, time.Now()); err != nil {
+		t.Fatalf("replay-store failure consumed authorization code: %v", err)
+	}
 }
 
 // exchangeCodeRequest sends a valid authorization-code token request.
@@ -248,9 +296,96 @@ func exchangeCodeRequest(server *Server, code, verifier string) *httptest.Respon
 	return response
 }
 
+// TestHandleTokenRedeemsDPoPBoundCode verifies proof failures preserve a bound code and successful JWT shaping.
+func TestHandleTokenRedeemsDPoPBoundCode(t *testing.T) {
+	server, store, manager, _, _ := refreshTokenServer(t)
+	client := server.config.StaticPolicy.Clients["client"]
+	client.DPoP, client.RefreshTokens.Enabled = config.DPoPConfig{Mode: "required", SigningAlgorithm: "ES256"}, false
+	server.config.StaticPolicy.Clients["client"] = client
+	key, wrong := newEndpointProofKey(t, "ES256"), newEndpointProofKey(t, "ES256")
+	verifier := strings.Repeat("a", 43)
+	code, err := manager.GenerateCode(AuthCodePayload{ClientID: "client", RedirectURI: "https://client.example/callback", CodeChallenge: computeChallenge(verifier), Email: "user@example.com", Scopes: "openid", AuthTime: time.Now(), DPoPJKT: key.jkt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	send := func(proofs ...string) *httptest.ResponseRecorder {
+		values := url.Values{"grant_type": {"authorization_code"}, "code": {code}, "client_id": {"client"}, "redirect_uri": {"https://client.example/callback"}, "code_verifier": {verifier}}
+		request := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(values.Encode()))
+		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		for _, proof := range proofs {
+			request.Header.Add("DPoP", proof)
+		}
+		response := httptest.NewRecorder()
+		server.HandleToken(response, request)
+		return response
+	}
+	now := time.Now()
+	valid := key.proof(t, endpointProofOptions{Method: http.MethodPost, URL: "https://issuer.example/token", IAT: now, JTI: "valid"})
+	tests := []struct {
+		name, wantError string
+		proofs          []string
+	}{{"missing", "invalid_dpop_proof", nil}, {"wrong key", "invalid_grant", []string{wrong.proof(t, endpointProofOptions{Method: http.MethodPost, URL: "https://issuer.example/token", IAT: now, JTI: "wrong"})}}, {"stale", "invalid_dpop_proof", []string{key.proof(t, endpointProofOptions{Method: http.MethodPost, URL: "https://issuer.example/token", IAT: now.Add(-time.Hour), JTI: "stale"})}}, {"wrong target", "invalid_dpop_proof", []string{key.proof(t, endpointProofOptions{Method: http.MethodPost, URL: "https://issuer.example/other", IAT: now, JTI: "target"})}}, {"duplicate headers", "invalid_dpop_proof", []string{valid, valid}}}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if response := send(test.proofs...); response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), `"error":"`+test.wantError+`"`) {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+			if _, peekErr := store.PeekAuthCode(code, time.Now()); peekErr != nil {
+				t.Fatalf("proof failure consumed code: %v", peekErr)
+			}
+		})
+	}
+	response := send(valid)
+	if response.Code != http.StatusOK {
+		t.Fatalf("valid status=%d body=%s", response.Code, response.Body.String())
+	}
+	var body map[string]any
+	if err = json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["token_type"] != "DPoP" {
+		t.Fatalf("token_type=%v", body["token_type"])
+	}
+	access, err := server.signer.VerifyToken(body["access_token"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if jkt, thumbErr := tokens.DPoPThumbprint(access); thumbErr != nil || jkt != key.jkt {
+		t.Fatalf("access cnf.jkt=%q err=%v", jkt, thumbErr)
+	}
+	id, err := server.signer.VerifyToken(body["id_token"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, present := id.Get("cnf"); present {
+		t.Fatal("ID token unexpectedly contains cnf")
+	}
+}
+
+// TestHandleTokenRejectsDirectCodeAfterPARBecomesRequired verifies current policy before consumption.
+func TestHandleTokenRejectsDirectCodeAfterPARBecomesRequired(t *testing.T) {
+	server, store, manager, _, _ := refreshTokenServer(t)
+	client := server.config.StaticPolicy.Clients["client"]
+	client.RefreshTokens.Enabled = false
+	client.RequirePAR = true
+	server.config.StaticPolicy.Clients["client"] = client
+	verifier := strings.Repeat("p", 43)
+	code, err := manager.GenerateCode(AuthCodePayload{ClientID: "client", RedirectURI: "https://client.example/callback", CodeChallenge: computeChallenge(verifier), Email: "user@example.com", Scopes: "openid", AuthTime: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := exchangeCodeRequest(server, code, verifier)
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "invalid_grant") {
+		t.Fatalf("response = %d %s", response.Code, response.Body.String())
+	}
+	if _, err = store.PeekAuthCode(code, time.Now()); err != nil {
+		t.Fatalf("policy rejection consumed code: %v", err)
+	}
+}
+
 // TestDynamicCodeRedemptionPreservesCodeUntilDefinitiveAuthorization verifies retry-safe SQLite redemption.
 func TestDynamicCodeRedemptionPreservesCodeUntilDefinitiveAuthorization(t *testing.T) {
-	server, store, manager, _ := refreshTokenServer(t)
+	server, store, manager, _, _ := refreshTokenServer(t)
 	client := server.config.StaticPolicy.Clients["client"]
 	client.RefreshTokens.Enabled = false
 	fake := &fakePolicyResolver{
@@ -298,7 +433,7 @@ func TestDynamicCodeRedemptionPreservesCodeUntilDefinitiveAuthorization(t *testi
 
 // TestDynamicCodeRedemptionDenialIssuesNothing verifies definitive denial consumes no code or token state.
 func TestDynamicCodeRedemptionDenialIssuesNothing(t *testing.T) {
-	server, store, manager, _ := refreshTokenServer(t)
+	server, store, manager, _, _ := refreshTokenServer(t)
 	client := server.config.StaticPolicy.Clients["client"]
 	client.RefreshTokens.Enabled = false
 	server.policyResolver = &fakePolicyResolver{client: authpolicy.ResolvedClient{Config: client}, userErrors: []error{authpolicy.ErrDenied}}
@@ -415,7 +550,7 @@ func TestResponseWriteLossReplaysAndRevokes(t *testing.T) {
 
 // TestHandleTokenIssuesAndRotatesDirectRefresh verifies authorization-code wiring into the refresh domain.
 func TestHandleTokenIssuesAndRotatesDirectRefresh(t *testing.T) {
-	server, _, manager, _ := refreshTokenServer(t)
+	server, _, manager, _, _ := refreshTokenServer(t)
 	verifier := strings.Repeat("a", 43)
 	code, err := manager.GenerateCode(AuthCodePayload{ClientID: "client", RedirectURI: "https://client.example/callback", CodeChallenge: computeChallenge(verifier), Email: "user@example.com", EmailVerified: true, Scopes: "openid email", RefreshMode: "session", AuthTime: time.Now().UTC(), ConnectorID: "provider", UpstreamSubject: "user@example.com"})
 	if err != nil {
@@ -443,9 +578,129 @@ func TestHandleTokenIssuesAndRotatesDirectRefresh(t *testing.T) {
 	}
 }
 
+// TestHandleTokenRotatesDPoPBoundDirectRefresh verifies proof failures do not rotate or revoke a direct family.
+func TestHandleTokenRotatesDPoPBoundDirectRefresh(t *testing.T) {
+	server, store, _, _, _ := refreshTokenServer(t)
+	client := server.config.StaticPolicy.Clients["client"]
+	client.DPoP = config.DPoPConfig{Mode: "required", SigningAlgorithm: "ES512"}
+	server.config.StaticPolicy.Clients["client"] = client
+	key, wrong := newEndpointProofKey(t, "ES512"), newEndpointProofKey(t, "ES512")
+	now := time.Now().UTC()
+	create := func(sid string) statedb.RefreshMaterial {
+		material, err := statedb.GenerateRefreshMaterial()
+		if err != nil {
+			t.Fatal(err)
+		}
+		grant := statedb.RefreshGrant{SID: sid, ClientID: "client", Email: "user@example.com", Scopes: "openid", ConnectorID: "provider", Mode: "session", AuthTime: now, IdleTTL: time.Hour, AbsoluteExpiry: now.Add(3 * time.Hour), DPoPJKT: key.jkt}
+		if err = store.CreateRefreshGrant(grant, material, nil, nil, now); err != nil {
+			t.Fatal(err)
+		}
+		return material
+	}
+	send := func(material statedb.RefreshMaterial, proofs ...string) *httptest.ResponseRecorder {
+		values := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {material.Token}, "client_id": {"client"}}
+		request := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(values.Encode()))
+		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		for _, proof := range proofs {
+			request.Header.Add("DPoP", proof)
+		}
+		response := httptest.NewRecorder()
+		server.HandleToken(response, request)
+		return response
+	}
+	material := create("bound-direct")
+	wrongProof := wrong.proof(t, endpointProofOptions{Method: http.MethodPost, URL: "https://issuer.example/token", IAT: now, JTI: "refresh-wrong"})
+	for _, proofs := range [][]string{nil, {wrongProof}} {
+		if response := send(material, proofs...); response.Code != http.StatusBadRequest {
+			t.Fatalf("invalid proof status=%d body=%s", response.Code, response.Body.String())
+		}
+		if _, _, err := store.PrepareRefresh(material, "client", time.Now()); err != nil {
+			t.Fatalf("invalid proof changed family: %v", err)
+		}
+	}
+	replayedProof := key.proof(t, endpointProofOptions{Method: http.MethodPost, URL: "https://issuer.example/token", IAT: now, JTI: "refresh-replay"})
+	sacrificial := create("replay-source")
+	if response := send(sacrificial, replayedProof); response.Code != http.StatusOK {
+		t.Fatalf("replay source status=%d body=%s", response.Code, response.Body.String())
+	}
+	if response := send(material, replayedProof); response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "invalid_dpop_proof") {
+		t.Fatalf("replay status=%d body=%s", response.Code, response.Body.String())
+	}
+	if _, _, err := store.PrepareRefresh(material, "client", time.Now()); err != nil {
+		t.Fatalf("replayed proof changed family: %v", err)
+	}
+	valid := key.proof(t, endpointProofOptions{Method: http.MethodPost, URL: "https://issuer.example/token", IAT: time.Now(), JTI: "refresh-valid"})
+	response := send(material, valid)
+	if response.Code != http.StatusOK {
+		t.Fatalf("valid status=%d body=%s", response.Code, response.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["token_type"] != "DPoP" || body["refresh_token"] == material.Token {
+		t.Fatalf("rotation response=%#v", body)
+	}
+	access, err := server.signer.VerifyToken(body["access_token"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if jkt, thumbErr := tokens.DPoPThumbprint(access); thumbErr != nil || jkt != key.jkt {
+		t.Fatalf("rotated access cnf.jkt=%q err=%v", jkt, thumbErr)
+	}
+}
+
+// TestHandleTokenRefreshOutagesAreRetryable distinguishes unavailable dependencies from invalid grants.
+func TestHandleTokenRefreshOutagesAreRetryable(t *testing.T) {
+	send := func(server *Server, token string) *httptest.ResponseRecorder {
+		values := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {token}, "client_id": {"client"}}
+		request := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(values.Encode()))
+		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		response := httptest.NewRecorder()
+		server.HandleToken(response, request)
+		return response
+	}
+	create := func(t *testing.T, store *statedb.Store, sid string) statedb.RefreshMaterial {
+		t.Helper()
+		material, err := statedb.GenerateRefreshMaterial()
+		if err != nil {
+			t.Fatal(err)
+		}
+		now := time.Now().UTC()
+		grant := statedb.RefreshGrant{SID: sid, ClientID: "client", Email: "user@example.com", Scopes: "openid", ConnectorID: "provider", Mode: "session", AuthTime: now, IdleTTL: time.Hour, AbsoluteExpiry: now.Add(2 * time.Hour)}
+		if err = store.CreateRefreshGrant(grant, material, nil, nil, now); err != nil {
+			t.Fatal(err)
+		}
+		return material
+	}
+	t.Run("storage", func(t *testing.T) {
+		server, store, _, _, _ := refreshTokenServer(t)
+		material := create(t, store, "storage-outage")
+		if err := store.Close(); err != nil {
+			t.Fatal(err)
+		}
+		response := send(server, material.Token)
+		if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "temporarily_unavailable") {
+			t.Fatalf("storage outage = %d %q", response.Code, response.Body.String())
+		}
+	})
+	t.Run("policy", func(t *testing.T) {
+		server, store, _, _, _ := refreshTokenServer(t)
+		material := create(t, store, "policy-outage")
+		server.policyResolver = &fakePolicyResolver{clientErrors: []error{errors.New("policy unavailable")}}
+		response := send(server, material.Token)
+		if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "temporarily_unavailable") {
+			t.Fatalf("policy outage = %d %q", response.Code, response.Body.String())
+		}
+		if _, _, err := store.PrepareRefresh(material, "client", time.Now()); err != nil {
+			t.Fatalf("policy outage changed grant: %v", err)
+		}
+	})
+}
+
 // TestHandleTokenRejectsCredentialProvenanceDrift verifies provider credentials cannot become local grants.
 func TestHandleTokenRejectsCredentialProvenanceDrift(t *testing.T) {
-	server, store, manager, key := refreshTokenServer(t)
+	server, store, manager, key, _ := refreshTokenServer(t)
 	verifier := strings.Repeat("a", 43)
 	code, err := manager.GenerateCode(AuthCodePayload{ClientID: "client", RedirectURI: "https://client.example/callback", CodeChallenge: computeChallenge(verifier), Email: "user@example.com", EmailVerified: true, Scopes: "openid", RefreshMode: "session", AuthTime: time.Now().UTC(), ConnectorID: "provider", UpstreamSubject: "subject"})
 	if err != nil {
@@ -485,6 +740,7 @@ func TestHandleTokenRejectsInvalidProtocolRequests(t *testing.T) {
 		{name: "basic authentication", method: http.MethodPost, target: "/token", contentType: "application/x-www-form-urlencoded", body: "grant_type=refresh_token", authorizationHeader: "Basic Y2xpZW50OnNlY3JldA==", wantStatus: http.StatusBadRequest, wantError: "invalid_request"},
 		{name: "client secret", method: http.MethodPost, target: "/token", contentType: "application/x-www-form-urlencoded", body: "grant_type=refresh_token&client_secret=secret", wantStatus: http.StatusBadRequest, wantError: "invalid_request"},
 		{name: "empty client secret", method: http.MethodPost, target: "/token", contentType: "application/x-www-form-urlencoded", body: "grant_type=refresh_token&client_secret=", wantStatus: http.StatusBadRequest, wantError: "invalid_request"},
+		{name: "DPoP thumbprint", method: http.MethodPost, target: "/token", contentType: "application/x-www-form-urlencoded", body: "grant_type=password&dpop_jkt=thumbprint", wantStatus: http.StatusBadRequest, wantError: "invalid_request"},
 		{name: "refresh token on code grant", method: http.MethodPost, target: "/token", contentType: "application/x-www-form-urlencoded", body: "grant_type=authorization_code&refresh_token=token", wantStatus: http.StatusBadRequest, wantError: "invalid_request"},
 		{name: "code on refresh grant", method: http.MethodPost, target: "/token", contentType: "application/x-www-form-urlencoded", body: "grant_type=refresh_token&code=code", wantStatus: http.StatusBadRequest, wantError: "invalid_request"},
 	}

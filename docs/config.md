@@ -139,7 +139,8 @@ in each deployment module.
 `state_database.driver` is `sqlite` (the default) or `postgresql`. SQLite accepts
 `path`; production deployments should use an absolute path. PostgreSQL accepts
 `connection_string_secret`, `max_connections`, `query_timeout`, and a migration-only
-secret under `migrations.connection_string_secret`. See the [state database guide](state-database.md).
+secret under `migrations.connection_string_secret`. The state database also holds the
+shared durable DPoP replay table. See the [state database guide](state-database.md).
 
 ## Secrets
 
@@ -285,6 +286,17 @@ support is intended to keep this integration vendor-neutral.
 `redirect_uris`, `user_group_mapping`, and `require_user_groups_from_policy`. When
 `redirect_uris` is omitted, `static_policy.default_redirect_uris` is used. Plain HTTP
 redirects are accepted only for localhost.
+
+Each client also has a `dpop` object. Its `mode` is `disabled` (the default) or
+`required`; `signing_algorithm` is `ES256` by default for required clients and may be
+`ES512`. ES256 requires P-256 and ES512 requires P-521. Use separate client IDs rather
+than changing an existing client between modes or algorithms. `require_par` defaults to
+`false`; when true, authorization parameters must first be posted to `/par` and the
+browser sends only `client_id` and the returned one-time `request_uri` to `/authorize`.
+The same settings are available under `policy_database.client_defaults` for dynamically
+resolved clients.
+See [DPoP Integration](/docs/dpop/) for PAR flows, client key lifecycle, BFF design,
+resource-server verification, replay storage, and operational requirements.
 
 `static_policy.user_group_mappings` contains named email-to-group maps. A client's
 `user_group_mapping` selects one map. Emails are normalized to lowercase before

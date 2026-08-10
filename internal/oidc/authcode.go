@@ -19,18 +19,20 @@ type AuthCodeManager struct {
 
 // AuthCodePayload contains the information embedded in an authorization code.
 type AuthCodePayload struct {
-	ClientID        string
-	RedirectURI     string
-	CodeChallenge   string
-	Email           string
-	EmailVerified   bool
-	Nonce           string
-	Scopes          string
-	RefreshMode     string
-	AuthTime        time.Time
-	ConnectorID     string
-	UpstreamSubject string
-	OfflineConsent  bool
+	ClientID            string
+	RedirectURI         string
+	CodeChallenge       string
+	Email               string
+	EmailVerified       bool
+	Nonce               string
+	Scopes              string
+	RefreshMode         string
+	AuthTime            time.Time
+	ConnectorID         string
+	UpstreamSubject     string
+	OfflineConsent      bool
+	DPoPJKT             string
+	PushedAuthorization bool
 }
 
 // NewAuthCodeManager creates and initializes an authorization code manager.
@@ -63,7 +65,9 @@ func (m *AuthCodeManager) GenerateCode(payload AuthCodePayload) (string, error) 
 		ExpiresAt:     now.Add(5 * time.Minute),
 		Scopes:        payload.Scopes, RefreshMode: payload.RefreshMode, AuthTime: payload.AuthTime,
 		ConnectorID: payload.ConnectorID, UpstreamSubject: payload.UpstreamSubject,
-		OfflineConsent: payload.OfflineConsent,
+		OfflineConsent:      payload.OfflineConsent,
+		DPoPJKT:             payload.DPoPJKT,
+		PushedAuthorization: payload.PushedAuthorization,
 	}
 
 	if err := m.store.SaveAuthCode(authCode); err != nil {
@@ -95,7 +99,9 @@ func (m *AuthCodeManager) ValidateAndExtract(code string) (*AuthCodePayload, err
 		Nonce:         authCode.Nonce,
 		Scopes:        authCode.Scopes, RefreshMode: authCode.RefreshMode, AuthTime: authCode.AuthTime,
 		ConnectorID: authCode.ConnectorID, UpstreamSubject: authCode.UpstreamSubject,
-		OfflineConsent: authCode.OfflineConsent,
+		OfflineConsent:      authCode.OfflineConsent,
+		DPoPJKT:             authCode.DPoPJKT,
+		PushedAuthorization: authCode.PushedAuthorization,
 	}
 
 	return payload, nil

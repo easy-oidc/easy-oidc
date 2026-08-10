@@ -56,7 +56,12 @@ func resetPostgreSQLState(dsn string) error {
 		return err
 	}
 	defer func() { _ = db.Close() }()
-	_, err = db.Exec(`TRUNCATE easy_oidc_state.oauth_states,
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err = tx.Exec(`TRUNCATE easy_oidc_state.oauth_states,
 		easy_oidc_state.auth_codes,
 		easy_oidc_state.flow_credentials,
 		easy_oidc_state.upstream_credentials,
@@ -65,8 +70,12 @@ func resetPostgreSQLState(dsn string) error {
 		easy_oidc_state.refresh_grants,
 		easy_oidc_state.refresh_tokens,
 		easy_oidc_state.grant_actions,
-		easy_oidc_state.identity_selections CASCADE`)
-	return err
+		easy_oidc_state.identity_selections,
+		easy_oidc_state.pushed_requests,
+		easy_oidc_state.dpop_proofs CASCADE`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // TestPostgreSQLPlaceholderBinding verifies application SQL is rebound without a driver wrapper.
@@ -165,6 +174,47 @@ func TestPostgreSQLCrossReplicaSemantics(t *testing.T) {
 	}
 	if winners.Load() != 5 {
 		t.Fatalf("OTP quota admitted %d sends", winners.Load())
+	}
+}
+
+// TestPostgreSQLDPoPReplayCrossReplica verifies replay uniqueness and durability across pools and restarts.
+func TestPostgreSQLDPoPReplayCrossReplica(t *testing.T) {
+	a, b := postgreSQLStores(t)
+	now := time.Now().UTC()
+	hash := [32]byte{1, 2, 3, 4}
+	errs := make(chan error, 2)
+	start := make(chan struct{})
+	for _, store := range []*Store{a, b} {
+		go func(s *Store) {
+			<-start
+			errs <- s.ReserveDPoP(hash, now)
+		}(store)
+	}
+	close(start)
+	var succeeded, replayed int
+	for range 2 {
+		if err := <-errs; err == nil {
+			succeeded++
+		} else if errors.Is(err, ErrDPoPReplay) {
+			replayed++
+		} else {
+			t.Fatal(err)
+		}
+	}
+	if succeeded != 1 || replayed != 1 {
+		t.Fatalf("DPoP race succeeded=%d replayed=%d", succeeded, replayed)
+	}
+	if err := a.Close(); err != nil {
+		t.Fatal(err)
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	reopened, err := NewPostgreSQL(context.Background(), os.Getenv("EASYOIDC_STATE_TEST_DB_URL"), 2, 5*time.Second, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = reopened.Close() }()
+	if err = reopened.ReserveDPoP(hash, now.Add(time.Second)); !errors.Is(err, ErrDPoPReplay) {
+		t.Fatalf("replay after reopen = %v, want ErrDPoPReplay", err)
 	}
 }
 

@@ -15,20 +15,22 @@ import (
 
 // OTPFlow preserves the authorization and identity context of an OTP challenge.
 type OTPFlow struct {
-	FlowID         string
-	ConnectorID    string
-	Subject        string
-	Email          string
-	ClientID       string
-	RedirectURI    string
-	CodeChallenge  string
-	Nonce          string
-	OIDCState      string
-	Scopes         string
-	RefreshMode    string
-	AuthTime       time.Time
-	OfflineConsent bool
-	Purpose        string
+	FlowID              string
+	ConnectorID         string
+	Subject             string
+	Email               string
+	ClientID            string
+	RedirectURI         string
+	CodeChallenge       string
+	Nonce               string
+	OIDCState           string
+	Scopes              string
+	RefreshMode         string
+	AuthTime            time.Time
+	OfflineConsent      bool
+	Purpose             string
+	DPoPJKT             string
+	PushedAuthorization bool
 }
 
 // otpMAC authenticates a code while binding it to its challenge.

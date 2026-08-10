@@ -6,7 +6,9 @@ package cmd
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
+	"path/filepath"
 
 	"github.com/easy-oidc/easy-oidc/internal/config"
 	"github.com/easy-oidc/easy-oidc/internal/secrets"
@@ -25,8 +27,15 @@ func newMigrateCmd() *cobra.Command {
 		if err != nil {
 			return fmt.Errorf("configuration error: %w", err)
 		}
-		if cfg.StateDatabase.Driver != "postgresql" {
-			return fmt.Errorf("state database migrations are not required for sqlite")
+		if cfg.StateDatabase.Driver == "sqlite" {
+			if err = os.MkdirAll(filepath.Dir(cfg.StateDatabase.Path), 0755); err != nil {
+				return fmt.Errorf("create state database directory: %w", err)
+			}
+			store, bootstrapErr := statedb.NewSQLite(cfg.StateDatabase.Path, slog.Default())
+			if bootstrapErr != nil {
+				return bootstrapErr
+			}
+			return store.Close()
 		}
 		provider, err := secrets.NewProvider(command.Context(), cfg.Secrets)
 		if err != nil {

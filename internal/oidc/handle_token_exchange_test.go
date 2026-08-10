@@ -156,6 +156,20 @@ func validTokenExchangeForm(raw string) url.Values {
 	return url.Values{"grant_type": {tokenExchangeGrant}, "client_id": {"client"}, "subject_token": {raw}, "subject_token_type": {idTokenType}, "requested_token_type": {idTokenType}}
 }
 
+// TestTokenExchangeRejectsDPoPAtBoundary verifies RFC 8693 does not accept a supplied proof.
+func TestTokenExchangeRejectsDPoPAtBoundary(t *testing.T) {
+	server := &Server{}
+	values := validTokenExchangeForm("subject")
+	request := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(values.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("DPoP", "supplied")
+	response := httptest.NewRecorder()
+	server.HandleToken(response, request)
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), `"error":"invalid_request"`) {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
 // TestTokenExchangePolicyResolver verifies live trust replacement, exact matching, and temporary failures.
 func TestTokenExchangePolicyResolver(t *testing.T) {
 	issuer := newTokenExchangeIssuer(t)

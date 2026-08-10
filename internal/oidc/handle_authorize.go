@@ -5,6 +5,7 @@
 package oidc
 
 import (
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"net/url"
@@ -13,13 +14,26 @@ import (
 	"time"
 
 	"github.com/easy-oidc/easy-oidc/internal/authpolicy"
+	"github.com/easy-oidc/easy-oidc/internal/statedb"
 	"github.com/easy-oidc/easy-oidc/internal/templates"
 )
 
 // HandleAuthorize validates a downstream authorization request and starts connector selection.
 func (s *Server) HandleAuthorize(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
+	if requestURIs, present := q["request_uri"]; present {
+		if len(q) != 2 || len(q["client_id"]) != 1 || len(requestURIs) != 1 || q.Get("client_id") == "" || requestURIs[0] == "" {
+			http.Error(w, "invalid_request", http.StatusBadRequest)
+			return
+		}
+		s.handlePushedAuthorize(w, r, q.Get("client_id"), requestURIs[0])
+		return
+	}
 	clientID := q.Get("client_id")
+	if len(q["client_id"]) != 1 || len(q["redirect_uri"]) != 1 {
+		http.Error(w, "invalid_request", http.StatusBadRequest)
+		return
+	}
 	resolved, err := s.policyResolver.ResolveClient(r.Context(), clientID, false)
 	if errors.Is(err, authpolicy.ErrDenied) {
 		http.Error(w, "unknown client_id", 400)
@@ -30,9 +44,33 @@ func (s *Server) HandleAuthorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	client := resolved.Config
+	if client.RequirePAR {
+		http.Error(w, "invalid_request: pushed authorization request required", http.StatusBadRequest)
+		return
+	}
 	redirect := q.Get("redirect_uri")
 	if redirect == "" || !s.isValidRedirectURI(redirect, client) {
 		http.Error(w, "invalid redirect_uri", 400)
+		return
+	}
+	for _, values := range q {
+		if len(values) != 1 {
+			redirectAuthorizationError(w, r, redirect, q.Get("state"), "invalid_request")
+			return
+		}
+	}
+	if len(r.Header.Values("DPoP")) != 0 {
+		redirectAuthorizationError(w, r, redirect, q.Get("state"), "invalid_request")
+		return
+	}
+	dpopJKT := q.Get("dpop_jkt")
+	if values, present := q["dpop_jkt"]; present && (len(values) != 1 || values[0] == "") {
+		redirectAuthorizationError(w, r, redirect, q.Get("state"), "invalid_request")
+		return
+	}
+	dpopJKT, dpopError := selectDPoP(client.DPoP.Mode, dpopJKT, false)
+	if dpopError != "" {
+		redirectAuthorizationError(w, r, redirect, q.Get("state"), dpopError)
 		return
 	}
 	if q.Get("response_type") != "code" {
@@ -71,7 +109,7 @@ func (s *Server) HandleAuthorize(w http.ResponseWriter, r *http.Request) {
 	if offline {
 		mode = "offline"
 	}
-	state := OAuthState{ClientID: clientID, RedirectURI: redirect, CodeChallenge: challenge, Nonce: q.Get("nonce"), OIDCState: q.Get("state"), Scopes: strings.Join(requested, " "), RefreshMode: mode, AuthTime: time.Now()}
+	state := OAuthState{ClientID: clientID, RedirectURI: redirect, CodeChallenge: challenge, Nonce: q.Get("nonce"), OIDCState: q.Get("state"), Scopes: strings.Join(requested, " "), RefreshMode: mode, AuthTime: time.Now(), DPoPJKT: dpopJKT}
 	if offline {
 		token, err := s.authCodeMgr.EncodeState(state)
 		if err != nil {
@@ -79,6 +117,86 @@ func (s *Server) HandleAuthorize(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_ = s.templates.RenderPage(w, "consent", templates.ConsentData{Title: "Allow offline access", State: token, ClientID: clientID})
+		return
+	}
+	s.continueAuthorization(w, r, state)
+}
+
+// selectDPoP validates a canonical thumbprint and applies the configured client mode.
+func selectDPoP(mode, thumbprint string, proofPresent bool) (string, string) {
+	selected := thumbprint != "" || proofPresent
+	if mode == "disabled" && selected {
+		return "", "invalid_request"
+	}
+	if mode == "required" && !selected {
+		return "", "invalid_request"
+	}
+	if thumbprint != "" {
+		decoded, err := base64.RawURLEncoding.DecodeString(thumbprint)
+		if err != nil || len(decoded) != 32 || base64.RawURLEncoding.EncodeToString(decoded) != thumbprint {
+			return "", "invalid_request"
+		}
+	}
+	if !selected {
+		return "", ""
+	}
+	return thumbprint, ""
+}
+
+// handlePushedAuthorize consumes a PAR object and continues with opaque browser state.
+func (s *Server) handlePushedAuthorize(w http.ResponseWriter, r *http.Request, clientID, requestURI string) {
+	resolved, err := s.policyResolver.ResolveClient(r.Context(), clientID, false)
+	if err != nil {
+		if errors.Is(err, authpolicy.ErrDenied) {
+			http.Error(w, "invalid_request", http.StatusBadRequest)
+		} else {
+			http.Error(w, "temporarily_unavailable", http.StatusServiceUnavailable)
+		}
+		return
+	}
+	now := time.Now()
+	pushed, err := s.store.ConsumePushedRequest(requestURI, clientID, now)
+	if err != nil {
+		if errors.Is(err, statedb.ErrInvalidGrant) {
+			http.Error(w, "invalid_request", http.StatusBadRequest)
+		} else {
+			http.Error(w, "temporarily_unavailable", http.StatusServiceUnavailable)
+		}
+		return
+	}
+	client := resolved.Config
+	if !s.isValidRedirectURI(pushed.RedirectURI, client) {
+		http.Error(w, "invalid_request", http.StatusBadRequest)
+		return
+	}
+	if (client.DPoP.Mode == "required") != (pushed.DPoPJKT != "") {
+		redirectAuthorizationError(w, r, pushed.RedirectURI, pushed.State, "invalid_request")
+		return
+	}
+	mode := ""
+	if client.RefreshTokens.Enabled {
+		mode = "session"
+	}
+	if strings.Contains(" "+pushed.Scopes+" ", " offline_access ") {
+		if !client.RefreshTokens.Enabled || !client.RefreshTokens.AllowOfflineAccess {
+			redirectAuthorizationError(w, r, pushed.RedirectURI, pushed.State, "invalid_request")
+			return
+		}
+		mode = "offline"
+	}
+	if strings.Contains(" "+pushed.Scopes+" ", " offline_access ") && pushed.Prompt == "none" {
+		redirectAuthorizationError(w, r, pushed.RedirectURI, pushed.State, "consent_required")
+		return
+	}
+	state := OAuthState{ClientID: clientID, RedirectURI: pushed.RedirectURI, CodeChallenge: pushed.CodeChallenge, Nonce: pushed.Nonce, OIDCState: pushed.State, Scopes: pushed.Scopes, RefreshMode: mode, AuthTime: now, Purpose: "authorize", DPoPJKT: pushed.DPoPJKT, PushedAuthorization: true}
+	if strings.Contains(" "+state.Scopes+" ", " offline_access ") {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		token, encodeErr := s.authCodeMgr.EncodeState(state)
+		if encodeErr != nil {
+			http.Error(w, "internal error", 500)
+			return
+		}
 		_ = s.templates.RenderPage(w, "consent", templates.ConsentData{Title: "Allow offline access", State: token, ClientID: clientID})
 		return
 	}
