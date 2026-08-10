@@ -1,0 +1,28 @@
+# Easy OIDC <https://easy-oidc.dev>
+# Copyright The Easy OIDC Authors
+# SPDX-License-Identifier: Apache-2.0
+
+{{- if .Values.server.tls.certManager.enabled }}
+{{- include "easy-oidc.validateConfig" . }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "easy-oidc.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "easy-oidc.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "easy-oidc.serverTLSSecretName" . }}
+  issuerRef:
+    name: {{ .Values.server.tls.certManager.issuerRef.name | quote }}
+    kind: {{ .Values.server.tls.certManager.issuerRef.kind | quote }}
+    group: {{ .Values.server.tls.certManager.issuerRef.group | quote }}
+  dnsNames:
+    {{- toYaml .Values.server.tls.certManager.dnsNames | nindent 4 }}
+  {{- with .Values.server.tls.certManager.duration }}
+  duration: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.server.tls.certManager.renewBefore }}
+  renewBefore: {{ . | quote }}
+  {{- end }}
+{{- end }}

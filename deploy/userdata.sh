@@ -13,6 +13,7 @@ set -eo pipefail
 # CADDY_SHA512="def456..."
 # OIDC_HOSTNAME="auth.example.com"
 # EASY_OIDC_CONFIG='{"static_policy":{"clients":{}}}'
+# RUN_DB_MIGRATIONS=false
 # SSH=false
 # FIREWALL=true
 # AUTO_UPDATES=true
@@ -33,6 +34,7 @@ CADDYEOF
 SSH="${SSH:-false}"
 FIREWALL="${FIREWALL:-true}"
 AUTO_UPDATES="${AUTO_UPDATES:-true}"
+RUN_DB_MIGRATIONS="${RUN_DB_MIGRATIONS:-false}"
 
 echo "=== Starting Installation ==="
 
@@ -200,7 +202,12 @@ chown caddy:caddy /etc/caddy/Caddyfile
 # === Install systemd services ===
 echo "Installing systemd services..."
 
-cat > /etc/systemd/system/easy-oidc.service <<'EOF'
+MIGRATION_EXEC_START_PRE=""
+if [ "${RUN_DB_MIGRATIONS}" = "true" ]; then
+    MIGRATION_EXEC_START_PRE="ExecStartPre=/usr/local/bin/easy-oidc migrate --config /etc/easy-oidc/config.jsonc"
+fi
+
+cat > /etc/systemd/system/easy-oidc.service <<EOF
 [Unit]
 Description=Easy OIDC Server
 After=network.target
@@ -210,6 +217,7 @@ Type=simple
 User=easy-oidc
 Group=easy-oidc
 WorkingDirectory=/opt/easy-oidc
+${MIGRATION_EXEC_START_PRE}
 ExecStart=/usr/local/bin/easy-oidc serve --config /etc/easy-oidc/config.jsonc
 Restart=on-failure
 RestartSec=5

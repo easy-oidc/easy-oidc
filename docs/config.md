@@ -9,6 +9,9 @@ Easy OIDC reads a JSONC configuration file. Run it with
 `easy-oidc serve --config config.jsonc` or set `EASYOIDC_CONFIG_PATH`; the
 default is `./config.jsonc`.
 
+For OIDC, OAuth, and token terminology used here, see the
+[concepts and terminology reference](/docs/concepts/).
+
 Add the versioned JSON Schema to receive editor validation, completion, and
 field documentation:
 
@@ -27,11 +30,14 @@ See the [example configurations](https://github.com/easy-oidc/easy-oidc/tree/mai
 including `config-multiple.jsonc` for multiple connectors, email codes, SMTP, and
 Turnstile.
 
-For shared PostgreSQL protocol state, see the [state database guide](state-database.md)
+SQLite is the simplest state database for one replica. For PostgreSQL protocol
+state shared across replicas, see the [state database guide](state-database.md)
 and `config-state-db.jsonc`.
 
 For clients, users, groups, and trust bindings supplied by database policy, see
 the [policy database guide](policy-database.md) and `config-policy-db.jsonc`.
+Easy OIDC only reads this optional PostgreSQL policy database; operators or
+another system write its policy data. It is separate from the state database.
 
 ## External OIDC trust
 
@@ -108,24 +114,26 @@ the approved workflow or step; and assign a dedicated least-privilege Kubernetes
 ## Deployment modules
 
 This page is the source of truth for Easy OIDC application configuration. The
-official OpenTofu/Terraform modules accept the same settings as an
-`easy_oidc_config` object and add deployment-owned values such as the issuer,
-listen address, state database, and cloud secrets provider.
+official OpenTofu/Terraform modules model the application-owned settings as a
+typed `easy_oidc_config` object and add deployment-owned values such as the
+issuer, listen address, state database path, and cloud secrets provider.
 
 - [AWS module inputs](https://github.com/easy-oidc/terraform-aws-easy-oidc#variables)
 - [Google Cloud module inputs](https://github.com/easy-oidc/terraform-google-easy-oidc#variables)
 - [Deployment guides](/docs/deploy/)
 
 Keep infrastructure settings in the module arguments and application settings
-under `easy_oidc_config`; this avoids maintaining a second configuration schema
-in each deployment module.
+under `easy_oidc_config`. The modules catch type errors and selected cross-field
+errors during planning; Easy OIDC remains authoritative for complete runtime
+validation.
 
 ## Core settings
 
 | Setting | Required | Description |
 |---|---:|---|
 | `issuer_url` | yes | Public issuer URL. HTTPS is required except on localhost. |
-| `http_listen_addr` | yes | Address used by the built-in HTTP server. |
+| `http_listen_addr` | yes | Address used by the built-in server. |
+| `serving_certificate` | no | Enables native HTTPS using `certificate_file` and `private_key_file`. Both paths are required when set. The files are reloaded in place after certificate rotation; a failed reload retains the last valid certificate. |
 | `state_database` | no | Protocol-state database. Defaults to SQLite at `./data/easy-oidc-state.db`. |
 | `signing_algorithm` | no | Defaults to `RS256`. Supports the asymmetric algorithms advertised by Easy OIDC. |
 | `jwks_kid` | no | Signing key ID. Derived from the public key when omitted. |
@@ -137,25 +145,54 @@ in each deployment module.
 | `static_policy` | conditional | Static clients and authorization policy. Required without `policy_database`. |
 
 `state_database.driver` is `sqlite` (the default) or `postgresql`. SQLite accepts
-`path`; production deployments should use an absolute path. PostgreSQL accepts
+`path`, is simplest for one replica, and should use an absolute path in production.
+PostgreSQL shares protocol state across replicas and accepts
 `connection_string_secret`, `max_connections`, `query_timeout`, and a migration-only
 secret under `migrations.connection_string_secret`. The state database also holds the
 shared durable DPoP replay table. See the [state database guide](state-database.md).
 
+## Native HTTPS
+
+Easy OIDC can serve HTTPS directly when a trusted proxy does not terminate TLS
+for it. Configure paths to a PEM certificate chain and matching private key:
+
+```jsonc
+"serving_certificate": {
+  "certificate_file": "/var/run/easy-oidc/tls/tls.crt",
+  "private_key_file": "/var/run/easy-oidc/tls/tls.key"
+}
+```
+
+Both files must be readable and valid at startup. Easy OIDC periodically reloads
+the pair, so cert-manager and other atomic file mounts can renew the certificate
+without restarting the process. An invalid replacement is logged and the last
+valid certificate remains active. When this setting is omitted, the server uses
+HTTP and a proxy such as Caddy or an Ingress should terminate TLS.
+
 ## Secrets
 
 `secrets.provider` is one of `aws-secrets-manager`, `aws-parameter-store`,
-`google-secret-manager`, `azure`, or `env`. Secret values are
+`google-secret-manager`, `azure`, `file`, or `env`. Secret values are
 loaded once during startup. With the `env` provider, each configured secret name
-is the exact environment variable to read.
+is the exact environment variable to read. With `file`, `file_directory` is
+required and each secret name is a relative path beneath
+that directory. Absolute paths, traversal, and symlinks that escape the directory
+are rejected.
 
 ```jsonc
 "secrets": {
-  "provider": "env",
-  "signing_key_name": "EASYOIDC_SIGNING_KEY",
-  "encryption_key_name": "EASYOIDC_ENCRYPTION_KEY"
+  "provider": "file",
+  "file_directory": "/var/run/secrets/easy-oidc",
+  "signing_key_name": "signing-key.pem",
+  "encryption_key_name": "encryption-key"
 }
 ```
+
+The file provider is recommended when an orchestrator can mount values
+directly from an external secret manager, such as with the Kubernetes Secrets
+Store CSI Driver. Secret files are read once during startup; restart Easy OIDC
+after rotation. Avoid synchronizing mounted values into Kubernetes Secrets when
+the external provider can supply them directly.
 
 `signing_key_name` is always required. `encryption_key_name` is required for GitHub
 connectors and whenever a refresh-enabled client can use a non-email connector. Its

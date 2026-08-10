@@ -521,6 +521,14 @@ func validate(cfg *Config) error {
 	if cfg.HTTPListenAddr == "" {
 		return fmt.Errorf("http_listen_addr is required")
 	}
+	if cfg.ServingCertificate != nil {
+		if strings.TrimSpace(cfg.ServingCertificate.CertificateFile) == "" {
+			return fmt.Errorf("serving_certificate.certificate_file is required")
+		}
+		if strings.TrimSpace(cfg.ServingCertificate.PrivateKeyFile) == "" {
+			return fmt.Errorf("serving_certificate.private_key_file is required")
+		}
+	}
 
 	if _, ok := supportedSigningAlgorithms[cfg.SigningAlgorithm]; !ok {
 		return fmt.Errorf("signing_algorithm must be one of RS256, RS384, RS512, ES256, ES384, ES512, PS256, PS384, PS512, or EdDSA")
@@ -536,6 +544,9 @@ func validate(cfg *Config) error {
 
 	if cfg.Secrets.Provider == "azure" && cfg.Secrets.AzureKeyVaultURL == "" {
 		return fmt.Errorf("secrets.azure_keyvault_url is required for Azure provider")
+	}
+	if cfg.Secrets.Provider == "file" && cfg.Secrets.FileDirectory == "" {
+		return fmt.Errorf("secrets.file_directory is required for file provider")
 	}
 
 	if len(cfg.UserLoginConnectors) == 0 {
@@ -766,9 +777,9 @@ func validateIssuerURL(issuer string) error {
 }
 
 func validateSecretsProvider(provider string) error {
-	valid := map[string]bool{"aws-secrets-manager": true, "aws-parameter-store": true, "google-secret-manager": true, "azure": true, "env": true}
+	valid := map[string]bool{"aws-secrets-manager": true, "aws-parameter-store": true, "google-secret-manager": true, "azure": true, "env": true, "file": true}
 	if !valid[provider] {
-		return fmt.Errorf("must be one of: aws-secrets-manager, aws-parameter-store, google-secret-manager, azure, env")
+		return fmt.Errorf("must be one of: aws-secrets-manager, aws-parameter-store, google-secret-manager, azure, env, file")
 	}
 	return nil
 }

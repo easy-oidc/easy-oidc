@@ -1,0 +1,26 @@
+# Easy OIDC <https://easy-oidc.dev>
+# Copyright The Easy OIDC Authors
+# SPDX-License-Identifier: Apache-2.0
+
+{{- if and (eq .Values.config.state_database.driver "sqlite") .Values.config.state_database.persistence.enabled (not .Values.config.state_database.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "easy-oidc.claimName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "easy-oidc.labels" . | nindent 4 }}
+  {{- with .Values.config.state_database.persistence.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    {{- toYaml .Values.config.state_database.persistence.accessModes | nindent 4 }}
+  {{- if .Values.config.state_database.persistence.storageClass }}
+  storageClassName: {{ .Values.config.state_database.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.config.state_database.persistence.size }}
+{{- end }}

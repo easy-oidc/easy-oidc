@@ -58,6 +58,7 @@ type Config struct {
 	Schema              string                       `json:"$schema,omitempty"`
 	IssuerURL           string                       `json:"issuer_url"`
 	HTTPListenAddr      string                       `json:"http_listen_addr"`
+	ServingCertificate  *ServingCertificateConfig    `json:"serving_certificate,omitempty"`
 	SigningAlgorithm    string                       `json:"signing_algorithm,omitempty"`
 	JWKSKID             string                       `json:"jwks_kid,omitempty"`
 	AccessTokenTTL      Duration                     `json:"access_token_ttl,omitempty"`
@@ -70,6 +71,12 @@ type Config struct {
 	StaticPolicy        StaticPolicyConfig           `json:"static_policy,omitzero"`
 	StateDatabase       *StateDatabaseConfig         `json:"state_database,omitempty"`
 	PolicyDatabase      *PolicyDatabaseConfig        `json:"policy_database,omitempty"`
+}
+
+// ServingCertificateConfig configures the certificate used by the HTTPS server.
+type ServingCertificateConfig struct {
+	CertificateFile string `json:"certificate_file"`
+	PrivateKeyFile  string `json:"private_key_file"`
 }
 
 // StaticPolicyConfig contains authorization policy defined in the configuration file.
@@ -142,13 +149,14 @@ type PolicyBuildCacheConfig struct {
 
 // SecretsConfig defines the secrets provider configuration.
 // Supports AWS Secrets Manager, AWS Systems Manager Parameter Store,
-// Google Secret Manager, Azure Key Vault, and env-based secrets.
+// Google Secret Manager, Azure Key Vault, file, and env-based secrets.
 type SecretsConfig struct {
 	Provider          string `json:"provider"`
 	SigningKeyName    string `json:"signing_key_name"`
 	EncryptionKeyName string `json:"encryption_key_name,omitempty"`
 	AWSRegion         string `json:"aws_region,omitempty"`
 	AzureKeyVaultURL  string `json:"azure_keyvault_url"`
+	FileDirectory     string `json:"file_directory,omitempty"`
 }
 
 // ConnectorConfig defines the upstream OAuth provider configuration.

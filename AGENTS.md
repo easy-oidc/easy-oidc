@@ -14,8 +14,14 @@ This file contains guidance for AI coding agents working on the easy-oidc projec
 ```bash
 make setup          # Verify tools and install Git hooks
 make build          # Build the binary
+make image          # Package prebuilt Linux binaries with ocimage
 make clean          # Clean build artifacts
 ```
+
+`make build` accepts standard `GOOS`, `GOARCH`, and `CC` settings plus
+`BUILD_OUTPUT`, `BUILD_TAGS`, and `BUILD_EXTRA_LDFLAGS`. Before `make image`,
+build each architecture selected by `IMAGE_ARCHES` into
+`bin/linux_<arch>/easy-oidc`.
 
 ### Testing
 ```bash
@@ -30,6 +36,7 @@ make e2e            # Run E2E test with Dex container as upstream
 make fmt            # Format code
 make lint           # Run linter
 make precommit      # Check formatting and lint without modifying files
+make helm-validate  # Lint, render, and validate the Helm chart
 make check          # Run fmt, lint, and test
 ```
 
@@ -61,12 +68,14 @@ make check          # Run fmt, lint, and test
 │   ├── upstream/           # Google/GitHub connectors
 │   └── tokens/             # Token signing, JWKS, groups
 ├── examples/               # Example configs and deployment files
+├── deploy/helm/            # Kubernetes application chart
+├── images/easy-oidc/       # Packaging-only ocimage definition
 └── scripts/                # Helper scripts, automation, and Git hooks
 ```
 
 ## Generated Files
 
-The repository does not currently commit generated source files. Go module sums are maintained by Go module commands and must remain committed. Build output, coverage, and temporary SQLite data belong under ignored paths and are removed by `make clean`.
+The repository does not currently commit generated source files. Go module sums are maintained by Go module commands and must remain committed. Build output, image binaries, the staged image CA bundle, coverage, and temporary SQLite data belong under ignored paths and are removed by `make clean`.
 
 ## Code Conventions
 

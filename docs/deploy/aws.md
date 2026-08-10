@@ -4,91 +4,94 @@ title: 'Deploy to AWS using OpenTofu/Terraform'
 linkTitle: 'AWS'
 ---
 
-This guide shows you how to deploy Easy OIDC on AWS using the official OpenTofu/Terraform module.
+This guide deploys a persistent Easy OIDC issuer on AWS with Google sign-in and
+one kubelogin client. It uses the official OpenTofu/Terraform module and creates
+a small dual-stack VPC for the example.
 
-## What Gets Deployed
+The module runs Easy OIDC and Caddy on one EC2 instance. Caddy obtains the HTTPS
+certificate, SQLite stores login state, and the instance reads only the encrypted
+parameters named in your configuration.
 
-The `terraform-aws-easy-oidc` module provisions:
+## Before you begin
 
-- **EC2 Instance**: Single ARM64 or AMD64 instance (t4g.nano by default) running Debian 13 (Trixie)
-    - **Easy OIDC Binary**: Downloaded and installed via systemd service
-    - **Caddy Reverse Proxy**: Provides automatic HTTPS via Let's Encrypt
-    - **SQLite Database**: Stored at `/var/lib/easy-oidc/easy-oidc-state.db` for OAuth state and authorization codes
-- **Security Group**: Allows HTTP (80) and HTTPS (443) from configurable CIDRs
-- **IAM Role**: Grants read-only access to explicitly listed Parameter Store parameters or Secrets Manager secrets
-- **Subnet** (optional): Auto-created with dual-stack IPv4/IPv6 support if not provided
+You need:
 
-## What You Need to Provide
+- an AWS account and credentials with permission to manage EC2, IAM, VPC,
+  Route 53, and Systems Manager Parameter Store resources;
+- a public Route 53 hosted zone, such as `example.com`;
+- [OpenTofu](https://opentofu.org/) or Terraform 1.5 or later;
+- the AWS CLI, OpenSSL, and curl; and
+- a Google account that can create an OAuth application.
 
-Before deploying, you must have:
+This guide uses these example values. Choose your own now and use them
+consistently in every step.
 
-1. **VPC with Internet Gateway**: For outbound connectivity to Google/GitHub OAuth endpoints
-2. **Route53 DNS Zone**: For configuring DNS records (required for Let's Encrypt TLS)
-3. **Encrypted parameters in AWS Systems Manager Parameter Store** (the default):
-   - OAuth client credentials (created via [upstream provider setup](/docs/upstream/))
-   - PKCS8 PEM private key compatible with `signing_algorithm` (RSA-3072 for the default RS256 algorithm)
+| Setting | Example |
+|---|---|
+| AWS region | `us-east-1` |
+| Route 53 hosted zone | `example.com` |
+| Easy OIDC hostname | `auth.example.com` |
+| Sign-in method ID | `google` |
+| Google callback URL | `https://auth.example.com/callback/google` |
+| kubelogin client ID | `kubelogin-prod` |
+| Allowed user | `alice@example.com` |
 
-The module **does not** create:
-- VPC, Internet Gateway, or Route Table (you create these)
-- Route53 DNS records (you create these, pointing to the instance IP)
-- Parameter Store parameters or Secrets Manager secrets (you create these via AWS CLI before running OpenTofu/Terraform)
+The hostname must be final before you create the Google OAuth application,
+because Google only redirects to callback URLs registered in advance.
 
-## Prerequisites
+## 1. Create the Google OAuth application
 
-**Required:**
-- OpenTofu/Terraform >= 1.5
-- AWS CLI configured with appropriate credentials
-- An existing VPC with an Internet Gateway
-- A Route53 hosted zone for your domain
-- OAuth app credentials (see [Google](/docs/upstream/google/) or [GitHub](/docs/upstream/github/) setup)
+Follow the [Google sign-in provider guide](/docs/upstream/google/) to create a
+web OAuth client. Register the callback URL from the table above, then keep the
+client ID and client secret for the next step.
 
-**Create Parameters First:**
+The provider guide also covers how to store these credentials. Skip that part
+for now—the next step stores them in AWS Systems Manager Parameter Store.
 
-```bash
+## 2. Create the encrypted parameters
+
+Parameter Store is the module's default secret backend. First put the Google
+client ID and secret in a temporary JSON file:
+
+```console
+cat > google-credentials.json <<'EOF'
+{"client_id":"YOUR_GOOGLE_CLIENT_ID","client_secret":"YOUR_GOOGLE_CLIENT_SECRET"}
+EOF
+
 aws ssm put-parameter \
+  --region us-east-1 \
   --name /easy-oidc/google-credentials \
   --type SecureString \
-  --value '{"client_id":"your-client-id","client_secret":"your-client-secret"}'
+  --value file://google-credentials.json
 
+rm google-credentials.json
+```
+
+Generate the RSA signing key and store it as a second encrypted parameter:
+
+```console
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 > signing-key.pem
+
 aws ssm put-parameter \
+  --region us-east-1 \
   --name /easy-oidc/signing-key \
   --type SecureString \
   --value "$(cat signing-key.pem)"
+
 rm signing-key.pem
-
-aws ssm put-parameter \
-  --name /easy-oidc/encryption-key \
-  --type SecureString \
-  --value "$(openssl rand -hex 32)"
 ```
 
-Alternatively, select `aws-secrets-manager` in the module and create Secrets
-Manager secrets:
+Use `--overwrite` only when you intentionally want to replace an existing
+parameter. Replacing a signing key invalidates tokens signed by the previous key.
 
-```bash
-# OAuth credentials (replace with your values)
-aws secretsmanager create-secret \
-  --name easy-oidc-google-credentials \
-  --secret-string '{
-    "client_id": "your-client-id",
-    "client_secret": "your-client-secret"
-  }'
+To use AWS Secrets Manager instead, set the module's `secrets_provider` to
+`aws-secrets-manager` and use Secrets Manager names or ARNs in the application
+configuration. See the [module input reference](https://github.com/easy-oidc/terraform-aws-easy-oidc#variables).
 
-# PKCS8 PEM private key (generates RSA-3072 key for the default RS256 algorithm)
-openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 | aws secretsmanager create-secret \
-  --name easy-oidc-signing-key \
-  --secret-string file:///dev/stdin
+## 3. Create the OpenTofu configuration
 
-# Encryption key
-aws secretsmanager create-secret \
-  --name easy-oidc-encryption-key \
-  --secret-string "$(openssl rand -hex 32)"
-```
-
-## Example Deployment
-
-Create a new directory and a `main.tf` file:
+Create an empty directory and save the following as `main.tf`. Change the region,
+hosted zone, hostname, and allowed email address to your values.
 
 ```hcl
 terraform {
@@ -104,14 +107,48 @@ terraform {
 
 locals {
   region        = "us-east-1"
-  vpc_cidr      = "10.0.0.0/16"
   route53_zone  = "example.com"
   oidc_hostname = "auth.example.com"
+}
+
+provider "aws" {
+  region = local.region
+}
+
+resource "aws_vpc" "main" {
+  cidr_block                       = "10.0.0.0/16"
+  assign_generated_ipv6_cidr_block = true
+  enable_dns_hostnames             = true
+  enable_dns_support               = true
+}
+
+resource "aws_internet_gateway" "main" {
+  vpc_id = aws_vpc.main.id
+}
+
+resource "aws_route_table" "main" {
+  vpc_id = aws_vpc.main.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.main.id
+  }
+
+  route {
+    ipv6_cidr_block = "::/0"
+    gateway_id      = aws_internet_gateway.main.id
+  }
+}
+
+module "easy_oidc" {
+  source = "easy-oidc/easy-oidc/aws"
+
+  vpc_id    = aws_vpc.main.id
+  oidc_addr = local.oidc_hostname
 
   easy_oidc_config = {
     secrets = {
-      signing_key_name    = "/easy-oidc/signing-key"
-      encryption_key_name = "/easy-oidc/encryption-key"
+      signing_key_name = "/easy-oidc/signing-key"
     }
     user_login_connectors = {
       google = {
@@ -121,60 +158,18 @@ locals {
       }
     }
     static_policy = {
-      default_redirect_uris = ["http://localhost:8000"]
       user_group_mappings = {
-        prod-groups = {
-          "demo@example.com" = ["prod-admins", "devs"]
+        kubernetes-users = {
+          "alice@example.com" = ["developers"]
         }
       }
       clients = {
         kubelogin-prod = {
-          user_group_mapping = "prod-groups"
+          redirect_uris      = ["http://localhost:8000"]
+          user_group_mapping = "kubernetes-users"
         }
       }
     }
-  }
-}
-
-provider "aws" {
-  region = local.region
-}
-
-# VPC with dual-stack support
-resource "aws_vpc" "main" {
-  cidr_block                       = local.vpc_cidr
-  assign_generated_ipv6_cidr_block = true
-  enable_dns_hostnames             = true
-  enable_dns_support               = true
-  
-  tags = {
-    Name = "easy-oidc-vpc"
-  }
-}
-
-resource "aws_internet_gateway" "main" {
-  vpc_id = aws_vpc.main.id
-  
-  tags = {
-    Name = "easy-oidc-igw"
-  }
-}
-
-resource "aws_route_table" "main" {
-  vpc_id = aws_vpc.main.id
-  
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.main.id
-  }
-  
-  route {
-    ipv6_cidr_block = "::/0"
-    gateway_id      = aws_internet_gateway.main.id
-  }
-  
-  tags = {
-    Name = "easy-oidc-rt"
   }
 }
 
@@ -183,21 +178,11 @@ resource "aws_route_table_association" "main" {
   route_table_id = aws_route_table.main.id
 }
 
-# Deploy easy-oidc
-module "easy_oidc" {
-  source = "easy-oidc/easy-oidc/aws"
-
-  vpc_id           = aws_vpc.main.id
-  oidc_addr        = local.oidc_hostname
-  easy_oidc_config = local.easy_oidc_config
-}
-
-# DNS records (required for Let's Encrypt TLS)
 data "aws_route53_zone" "main" {
   name = local.route53_zone
 }
 
-resource "aws_route53_record" "oidc_dns_a" {
+resource "aws_route53_record" "oidc_a" {
   count   = module.easy_oidc.enable_ipv4 ? 1 : 0
   zone_id = data.aws_route53_zone.main.zone_id
   name    = local.oidc_hostname
@@ -206,7 +191,7 @@ resource "aws_route53_record" "oidc_dns_a" {
   records = [module.easy_oidc.public_ipv4]
 }
 
-resource "aws_route53_record" "oidc_dns_aaaa" {
+resource "aws_route53_record" "oidc_aaaa" {
   zone_id = data.aws_route53_zone.main.zone_id
   name    = local.oidc_hostname
   type    = "AAAA"
@@ -215,54 +200,84 @@ resource "aws_route53_record" "oidc_dns_aaaa" {
 }
 ```
 
-## Deploy
+The module creates the subnet and security group. This example creates the VPC,
+internet gateway, route table, and DNS records around it. For production, you can
+instead pass an existing subnet and apply your normal networking controls.
 
-```bash
+Before production use, pin a reviewed module version and set
+`easy_oidc_version` rather than tracking the latest releases implicitly.
+
+## 4. Deploy
+
+Review the plan before applying it:
+
+```console
 tofu init
 tofu plan
 tofu apply
 ```
 
-After deployment completes, OpenTofu/Terraform will output the issuer URL and instance details.
+If you use Terraform, replace `tofu` with `terraform`. The apply output includes
+the issuer URL, client IDs, public addresses, and resolved software versions.
+Certificate issuance can take a few minutes after the DNS records appear.
 
-## Verify Deployment
+## 5. Verify the issuer and sign in
 
-1. **Check DNS propagation**:
+Check DNS propagation:
 
 ```bash
 dig auth.example.com A
 dig auth.example.com AAAA
 ```
 
-2. **Test OIDC discovery endpoint**:
+Check that the OIDC discovery document is available:
 
-```bash
-curl https://auth.example.com/.well-known/openid-configuration
+```console
+curl --fail https://auth.example.com/.well-known/openid-configuration
 ```
 
-You should see a JSON response with the OIDC configuration.
+A successful request returns JSON describing the issuer and its endpoints. If it
+fails, wait for DNS propagation, then check that ports 80 and 443 reach the
+instance.
 
-3. **Test authentication** (see [kubelogin guide](/docs/kubelogin/)):
+Install kubelogin as described in the [kubelogin guide](/docs/kubelogin/), then
+test the browser flow:
 
-```bash
+```console
 kubectl oidc-login setup \
   --oidc-issuer-url=https://auth.example.com \
   --oidc-client-id=kubelogin-prod \
   --oidc-use-pkce
 ```
 
+Sign in with the allowed Google account. kubelogin should report the email and
+`developers` group configured above. This confirms login; it does not yet grant
+access to a Kubernetes cluster.
+
+## 6. Connect Kubernetes
+
+Follow the [Kubernetes integration guide](/docs/kubernetes/) to make the API
+server trust this issuer and client ID. Create RBAC bindings for the
+`developers` group, then follow the [kubelogin guide](/docs/kubelogin/) to add the
+exec-based credentials to each user's kubeconfig.
+
 ## Configuration boundaries
 
-The module owns infrastructure and injects `issuer_url`, `http_listen_addr`,
-`state_database`, `secrets.provider`, and `secrets.aws_region`. Put the
-remaining Easy OIDC settings under `easy_oidc_config`. The module derives
-least-privilege IAM resources from every parameter or secret referenced by
-that object.
+The module injects the deployment-owned `issuer_url`, `http_listen_addr`,
+`secrets.provider`, and `secrets.aws_region` settings. It also supplies a
+writable SQLite state path when no state database is configured. Put the
+remaining application settings under `easy_oidc_config`. The module derives its
+IAM read permissions from the runtime parameters or secrets referenced there.
+Migration credentials remain separate by default. To let the instance migrate
+the state database before starting Easy OIDC, set
+`run_state_database_migrations = true`; this grants it access to the configured
+migration secret. See the [state database guide](/docs/state-database/) for the
+least-privilege tradeoff.
 
-Use the module's [complete input reference](https://github.com/easy-oidc/terraform-aws-easy-oidc#variables)
-for networking, KMS, SSH, tagging, and version controls. See the
-[application configuration reference](/docs/config/) for connectors, secrets,
-email verification, clients, groups, and templates.
+Use the [module input reference](https://github.com/easy-oidc/terraform-aws-easy-oidc#variables)
+for networking, KMS, SSH, tagging, secrets backends, and version controls. Use
+the [application configuration reference](/docs/config/) for sign-in methods,
+clients, users, groups, email verification, and templates.
 
 ## IPv6-Only Deployment
 
@@ -323,20 +338,25 @@ Then run `tofu apply` to trigger instance replacement.
 **Let's Encrypt certificate errors**:
 - Verify DNS records point to the correct instance IP
 - Ensure security group allows incoming HTTP (80) and HTTPS (443)
-- Check `/var/log/caddy.log` on the instance for errors
+- Check Caddy logs with `journalctl -u caddy -f`
 
 **OAuth callback errors**:
 - Verify each OAuth app redirect URI matches `https://auth.example.com/callback/<connector-id>`
 - Check Easy OIDC logs: `journalctl -u easy-oidc -f`
 
-**Secrets Manager errors**:
-- Verify IAM role has `secretsmanager:GetSecretValue` permission
-- Check secret names match OpenTofu/Terraform configuration
+**Parameter Store errors**:
+- Verify the instance role has `ssm:GetParameter` permission
+- For a customer-managed KMS key, verify it also has `kms:Decrypt` permission
+- Check parameter names and the AWS region against the application configuration
+
+If you selected the optional Secrets Manager provider instead, verify
+`secretsmanager:GetSecretValue` and the configured secret names or ARNs.
 
 See [Troubleshooting](/docs/troubleshooting/) for more common issues.
 
 ## Next Steps
 
 - [Configure Kubernetes integration](/docs/kubernetes/)
-- [Set up kubelogin for authentication](/docs/kubelogin/)
-- [Configure additional clients and groups](/docs/config/)
+- [Set up kubelogin](/docs/kubelogin/)
+- [Add clients and groups](/docs/config/)
+- [Troubleshoot a deployment](/docs/troubleshooting/)

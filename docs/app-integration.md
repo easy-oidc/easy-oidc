@@ -9,33 +9,14 @@ weight: 7
 
 This page describes a recommended way for developers to use Easy OIDC with their apps, using an SPA backed by a Go HTTP API as a reference example.
 
-The goal is for browser apps, CLIs, and other clients to call the same API using a consistent OIDC token model, while the application can still list active sessions and revoke them immediately.
+The goal is for browser apps, CLIs, and other clients to call the same API using
+a consistent OIDC token model, while the application can still list active
+sessions and revoke them immediately. See
+[Concepts and terminology](/docs/concepts/) for definitions of the tokens and
+protocol protections used below.
 
-## Key concepts
-
-- A **BFF** (backend for frontend) is an application backend that keeps OAuth tokens and
-  keys away from browser JavaScript and gives the browser a session cookie instead.
-- An **access token** authorizes a request to your application's protected API, such as
-  the Go HTTP API in this guide. Send it to that API with the request.
-- An **ID token** tells the app that started the login who completed it. The browser and BFF
-  designs in this guide validate it during login and use the access token for application
-  API requests. Other integrations can define a different contract: Kubernetes, for
-  example, intentionally uses an ID token as its API credential.
-- A **refresh token** obtains new tokens without another login. It lives longer than an
-  access token and therefore needs stronger protection.
-- **DPoP** ties access and refresh tokens to a cryptographic key held by the client. A
-  direct SPA creates a non-extractable Web Crypto `CryptoKey` and can persist it in
-  IndexedDB when login must survive a reload. A BFF keeps the key on the server. The
-  client signs a new DPoP proof for each protected request, so stealing a token alone is
-  not enough to use it. This helps prevent a copied access token from being used to call
-  an API, or a copied refresh token from being used to obtain new tokens, on another
-  device. DPoP does not bind ID tokens.
-- **PKCE** ties the authorization code to the browser or backend that started login.
-  This prevents someone who intercepts the code from redeeming it.
-- **PAR** sends the authorization request directly to Easy OIDC before starting the
-  browser redirect. The redirect then carries only a short-lived reference to the saved
-  request. This means values such as the redirect URI, PKCE challenge, or DPoP key
-  binding cannot be changed by modifying the browser redirect URL.
+A **BFF** (backend for frontend) is an application backend that keeps OAuth tokens and
+keys away from browser JavaScript and gives the browser a session cookie instead.
 
 ## Choose a browser architecture
 

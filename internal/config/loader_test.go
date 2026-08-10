@@ -152,6 +152,8 @@ func TestValidateSecretsProvider(t *testing.T) {
 		{"valid Google Secret Manager", "google-secret-manager", false},
 		{"valid azure", "azure", false},
 		{"valid env", "env", false},
+		{"valid file", "file", false},
+		{"unreleased filesystem name", "filesystem", true},
 		{"old aws name", "aws", true},
 		{"old gcp name", "gcp", true},
 		{"invalid provider", "vault", true},
@@ -497,6 +499,19 @@ func TestValidate(t *testing.T) {
 			expectError: true,
 		},
 		{
+			name: "file without directory",
+			config: Config{
+				IssuerURL:      "https://auth.example.com",
+				HTTPListenAddr: "127.0.0.1:8080",
+				JWKSKID:        "key-1",
+				Secrets: SecretsConfig{
+					Provider:       "file",
+					SigningKeyName: "key",
+				},
+			},
+			expectError: true,
+		},
+		{
 			name: "no clients",
 			config: Config{
 				IssuerURL:      "https://auth.example.com",
@@ -520,6 +535,37 @@ func TestValidate(t *testing.T) {
 			err := validate(&tt.config)
 			if (err != nil) != tt.expectError {
 				t.Errorf("expected error: %v, got: %v (error: %v)", tt.expectError, err != nil, err)
+			}
+		})
+	}
+}
+
+// TestValidateServingCertificate verifies that native HTTPS is optional but complete when configured.
+func TestValidateServingCertificate(t *testing.T) {
+	base := Config{
+		IssuerURL: "https://auth.example.com", HTTPListenAddr: "127.0.0.1:8080",
+		SigningAlgorithm: DefaultSigningAlgorithm, JWKSKID: "key-1",
+		Secrets:             SecretsConfig{Provider: "env", SigningKeyName: "SIGNING_KEY"},
+		UserLoginConnectors: map[string]ConnectorConfig{"google": {Type: "google", DisplayName: "Google", CredentialsSecret: "CREDS"}},
+		StaticPolicy:        StaticPolicyConfig{DefaultRedirectURIs: []string{"http://localhost:8000"}, Clients: map[string]ClientConfig{"client": {}}},
+	}
+	for _, test := range []struct {
+		name        string
+		certificate *ServingCertificateConfig
+		valid       bool
+	}{
+		{"omitted", nil, true},
+		{"complete", &ServingCertificateConfig{CertificateFile: "/cert/tls.crt", PrivateKeyFile: "/cert/tls.key"}, true},
+		{"empty object", &ServingCertificateConfig{}, false},
+		{"missing certificate", &ServingCertificateConfig{PrivateKeyFile: "/cert/tls.key"}, false},
+		{"missing private key", &ServingCertificateConfig{CertificateFile: "/cert/tls.crt"}, false},
+		{"whitespace paths", &ServingCertificateConfig{CertificateFile: " ", PrivateKeyFile: "\t"}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := base
+			cfg.ServingCertificate = test.certificate
+			if err := validate(&cfg); (err == nil) != test.valid {
+				t.Fatalf("validate() error = %v, want valid = %v", err, test.valid)
 			}
 		})
 	}

@@ -7,11 +7,13 @@ weight: 8
 
 By default, Easy OIDC uses SQLite for persisting OIDC protocol state such as
 authorization codes, OTPs, and refresh grants. This is the easiest option
-for single VM deployments and can scale vertically.
+for one Easy OIDC replica.
 
-However, if you need to horizontally scale Easy OIDC, it also supports using
-PostgreSQL instead of SQLite for persisting OIDC protocol state. To enable
-this, add a `state_database` block to your config file:
+For multiple replicas, use PostgreSQL so every replica shares temporary browser
+and authorization-code state as well as refresh grants and replay records. The
+state database is operational protocol storage. It is separate from the
+optional read-only [policy database](policy-database.md), which supplies clients,
+users, groups, and trust policy.
 
 ## Configuration
 
@@ -25,7 +27,7 @@ If `state_database` is omitted, it uses `./data/easy-oidc-state.db` e.g:
 ```
 
 Set an absolute `path` in production. SQLite is suitable for one Easy OIDC
-replica and scales vertically.
+replica.
 
 To use PostgreSQL, explicitly configure `state_database` with the
 `postgresql` driver and relevant settings:
@@ -81,6 +83,14 @@ For least privilege, give migration and runtime operations different roles:
 
 `USAGE` on `public` is still required if its default PUBLIC privilege has been
 revoked. Reapply runtime table grants after migrations when needed.
+
+The AWS and Google Cloud Terraform modules leave migration-only credentials off
+the VM by default. Set the module's `run_state_database_migrations` input to
+`true` to grant the VM access to the configured migration secret and run
+`easy-oidc migrate` before every service start. A failed migration prevents the
+service from starting. Keep the default and migrate from your deployment
+pipeline when the application VM should not hold the more privileged migration
+credential.
 
 ## Production checklist
 

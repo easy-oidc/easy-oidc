@@ -8,7 +8,9 @@ weight: 8
 
 DPoP protects access and refresh tokens if they are copied. The SPA or BFF keeps a
 private signing key and sends a new signed proof with every protected request. Easy OIDC
-accepts the token only when the proof was signed by the key used during login.
+validates proofs only for requests to its own endpoints, including `/par`, `/token`,
+`/revoke`, and `/userinfo`. Each application API must independently validate the access
+token and the DPoP proof for requests it receives.
 
 DPoP still requires TLS, PKCE, and normal token validation. It does not encrypt tokens
 or stop malicious code already running inside the SPA or BFF from using the key.
@@ -125,7 +127,8 @@ Authorization: DPoP <access-token>
 DPoP: <fresh-proof-with-ath>
 ```
 
-The API must validate the access token and proof before handling the request:
+Easy OIDC does not validate requests sent to an application API. The API must
+independently validate the access token and proof before handling the request:
 
 1. Validate the token's signature, issuer, audience, expiry, and authorization claims.
 2. Require `Authorization: DPoP <access-token>`; never accept a token containing

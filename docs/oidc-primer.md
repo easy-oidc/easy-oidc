@@ -5,68 +5,101 @@ linkTitle: 'OIDC Primer'
 weight: 1
 ---
 
-This page provides a beginner-friendly introduction to OAuth2 and OpenID Connect (OIDC), the technologies that power Easy OIDC.
+This page provides a beginner-friendly introduction to OAuth2 and OpenID
+Connect (OIDC), the technologies that power Easy OIDC. See
+[Concepts and terminology](/docs/concepts/) for a concise reference to the
+terms used throughout the documentation.
 
 ## What is OAuth2?
 
-OAuth2 is a protocol that lets applications request access to user accounts on other services. Think of it as a secure way to sign in through an existing identity provider without giving your password to the application.
+OAuth2 is a protocol that lets applications request access to user accounts on
+other services. Think of it as a secure way to sign in through an existing
+identity provider without giving your password to the application.
 
-### Key Concepts
+### Key concepts
 
-**Authorization Server**: The service that manages user authentication (e.g., Google, GitHub)
+**Authorization server:** The service that manages user authentication, such
+as Google, GitHub, or Easy OIDC.
 
-**Client**: The application requesting access (e.g., kubectl, your Kubernetes cluster)
+**Client:** The application requesting access, such as kubectl or your own
+application.
 
-**Resource Owner**: The user (you!)
+**Resource owner:** The user granting access.
 
-**Redirect URI**: Where the authorization server sends the user back after login
+**Redirect URI:** The registered URL where the authorization server sends the
+browser after login.
 
 ## What is OpenID Connect (OIDC)?
 
-OIDC is a layer on top of OAuth2 that adds **identity**. While OAuth2 focuses on authorization ("can this app access my data?"), OIDC answers "who is this user?"
+OIDC is a layer on top of OAuth2 that adds **identity**. While OAuth2 focuses on
+authorization—“can this application access a protected resource?”—OIDC answers
+“who is this user?”
 
 OIDC provides:
-- **ID Token**: A signed JWT containing user information (email, name, groups)
-- **UserInfo Endpoint**: An API to fetch additional user details
-- **Standard Claims**: Predictable fields like `email`, `sub` (subject/user ID), `email_verified`
 
-## How Easy OIDC Uses OIDC
+- **ID token:** A signed JWT containing identity claims such as the subject,
+  email, and groups.
+- **UserInfo endpoint:** An API through which a client can retrieve identity
+  claims using an access token.
+- **Standard claims:** Predictable fields such as `sub`, `email`, and
+  `email_verified`.
+
+## How Easy OIDC uses OIDC
 
 When you authenticate to a Kubernetes cluster using Easy OIDC:
 
-1. **kubectl** (via kubelogin) initiates an OIDC login
-2. **Easy OIDC** automatically selects the only configured provider or displays its sign-in selector
-3. You authenticate with an upstream provider or an email code
+1. **kubectl**, through kubelogin, starts an OIDC login.
+2. **Easy OIDC** selects the only configured provider or displays its sign-in
+   selector.
+3. You authenticate with an upstream provider or an email code.
 4. **Easy OIDC** establishes an email identity, applies the configured email
-   verification policy, and looks up your groups
-5. **Easy OIDC** issues an **ID token** (a signed JWT) containing your email and groups
-6. **kubectl** sends this token with every API request
-7. **Kubernetes API server** validates the token and enforces RBAC based on your groups
+   verification policy, and looks up your groups.
+5. **Easy OIDC** issues an ID token—a signed JWT—containing your email and
+   groups.
+6. **kubectl** sends this token with each Kubernetes API request.
+7. The **Kubernetes API server** validates the token and enforces RBAC using
+   its subject and groups.
 
-## PKCE: Extra Security for Public Clients
+Easy OIDC handles authentication and identity claims. Kubernetes remains
+responsible for authorization: its RBAC rules decide what that identity may do.
 
-Easy OIDC requires **PKCE** (Proof Key for Code Exchange, pronounced "pixie"). This prevents token theft when the OAuth client (kubectl) can't keep secrets secure.
+## PKCE: extra security for public clients
 
-**Without PKCE**: An attacker could intercept the authorization code and exchange it for tokens
+Easy OIDC requires **PKCE** (Proof Key for Code Exchange, pronounced “pixie”).
+This protects clients such as kubelogin and browser applications that cannot
+safely keep a client secret.
 
-**With PKCE**: The client generates a random `code_verifier`, sends a hashed `code_challenge` during authorization, and must provide the original `code_verifier` when exchanging the code for tokens. An attacker can't do this without the original verifier.
+**Without PKCE:** An attacker who intercepts an authorization code may be able
+to exchange it for tokens.
 
-## Why OIDC for Kubernetes?
+**With PKCE:** The client generates a random `code_verifier`, sends a hash of it
+as the `code_challenge` when starting authorization, and must provide the
+original verifier when exchanging the code. An attacker who obtains only the
+authorization code cannot complete that exchange.
 
-**Traditional approach**: Distribute kubeconfig files with long-lived certificates or static tokens
-- ❌ Credentials live forever (or until manual expiration)
-- ❌ No centralized revocation
-- ❌ Credentials stored in files that can be leaked
+## Why use OIDC for Kubernetes?
 
-**OIDC approach**: Users authenticate with their corporate identity provider
-- ✅ Tokens expire automatically (typically 1 hour)
-- ✅ Revoke federated access through the relevant upstream identity provider
-- ✅ Tokens are short-lived and refreshed automatically
-- ✅ Centralized audit trail of who accessed what
+**Traditional approach:** Distribute kubeconfig files containing long-lived
+certificates or static tokens.
 
-## Next Steps
+- Credentials may remain valid for a long time.
+- Revocation often requires replacing credentials or certificate authority
+  configuration.
+- Credential files can be copied or leaked.
 
-Now that you understand the basics, you can:
+**OIDC approach:** Users authenticate through an existing identity provider and
+receive short-lived tokens.
+
+- Easy OIDC ID tokens expire after 15 minutes by default.
+- Upstream access can be removed through the relevant identity provider and
+  Easy OIDC policy.
+- kubelogin can start a new login when fresh credentials are needed.
+- Kubernetes audit records identify the token subject and groups used for each
+  request.
+
+## Next steps
+
+- [Review concepts and terminology](/docs/concepts/)
 - [Set up an upstream provider](/docs/upstream/)
-- [Deploy Easy OIDC to AWS](/docs/deploy/aws/)
+- [Deploy Easy OIDC](/docs/deploy/)
 - [Configure Kubernetes to use OIDC](/docs/kubernetes/)

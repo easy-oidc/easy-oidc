@@ -1,0 +1,176 @@
+# Easy OIDC <https://easy-oidc.dev>
+# Copyright The Easy OIDC Authors
+# SPDX-License-Identifier: Apache-2.0
+
+{{- include "easy-oidc.validateConfig" . }}
+{{- $probeScheme := ternary "HTTPS" "HTTP" .Values.server.tls.enabled -}}
+{{- $livenessProbe := deepCopy .Values.livenessProbe -}}
+{{- $readinessProbe := deepCopy .Values.readinessProbe -}}
+{{- $startupProbe := deepCopy .Values.startupProbe -}}
+{{- if hasKey $livenessProbe "httpGet" -}}{{- $_ := set (index $livenessProbe "httpGet") "scheme" $probeScheme -}}{{- end -}}
+{{- if hasKey $readinessProbe "httpGet" -}}{{- $_ := set (index $readinessProbe "httpGet") "scheme" $probeScheme -}}{{- end -}}
+{{- if hasKey $startupProbe "httpGet" -}}{{- $_ := set (index $startupProbe "httpGet") "scheme" $probeScheme -}}{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "easy-oidc.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "easy-oidc.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    {{- toYaml .Values.deploymentStrategy | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "easy-oidc.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "easy-oidc.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}{{ toYaml . | nindent 8 }}{{- end }}
+      annotations:
+        {{- if not .Values.config.existingConfigMap }}
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}{{ toYaml . | nindent 8 }}{{- end }}
+    spec:
+      serviceAccountName: {{ include "easy-oidc.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.migrations.enabled }}
+      initContainers:
+        - name: migrate
+          image: {{ include "easy-oidc.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/easy-oidc", "migrate", "--config", "/etc/easy-oidc/config.jsonc"]
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.migrations.resources | nindent 12 }}
+          {{- with concat .Values.env .Values.migrations.env }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with concat .Values.envFrom .Values.migrations.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/easy-oidc
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/easy-oidc
+            - name: tmp
+              mountPath: /tmp
+            {{- if or .Values.secretFiles.enabled .Values.migrations.secretFiles.enabled }}
+            - name: {{ ternary "migration-secret-files" "secret-files" .Values.migrations.secretFiles.enabled }}
+              mountPath: {{ .Values.secretFiles.mountPath }}
+              readOnly: true
+            {{- end }}
+      {{- end }}
+      containers:
+        - name: easy-oidc
+          image: {{ include "easy-oidc.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/easy-oidc", "serve", "--config", "/etc/easy-oidc/config.jsonc"]
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: web
+              containerPort: 8080
+              protocol: TCP
+          {{- with .Values.env }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          livenessProbe:
+            {{- toYaml $livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml $readinessProbe | nindent 12 }}
+          startupProbe:
+            {{- toYaml $startupProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/easy-oidc
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/easy-oidc
+            - name: tmp
+              mountPath: /tmp
+            {{- if .Values.secretFiles.enabled }}
+            - name: secret-files
+              mountPath: {{ .Values.secretFiles.mountPath }}
+              readOnly: true
+            {{- end }}
+            {{- if .Values.server.tls.enabled }}
+            - name: serving-certificate
+              mountPath: /var/run/easy-oidc/tls
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "easy-oidc.configMapName" . }}
+            items:
+              - key: {{ .Values.config.existingConfigMapKey }}
+                path: config.jsonc
+        - name: data
+          {{- if and (eq .Values.config.state_database.driver "sqlite") .Values.config.state_database.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "easy-oidc.claimName" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: tmp
+          emptyDir: {}
+        {{- if .Values.server.tls.enabled }}
+        - name: serving-certificate
+          secret:
+            secretName: {{ include "easy-oidc.serverTLSSecretName" . }}
+            defaultMode: 0440
+        {{- end }}
+        {{- if .Values.secretFiles.enabled }}
+        - name: secret-files
+          csi:
+            driver: {{ .Values.secretFiles.csi.driver }}
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: {{ .Values.secretFiles.csi.secretProviderClass | quote }}
+        {{- end }}
+        {{- if .Values.migrations.secretFiles.enabled }}
+        - name: migration-secret-files
+          csi:
+            driver: {{ .Values.migrations.secretFiles.csi.driver }}
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: {{ .Values.migrations.secretFiles.csi.secretProviderClass | quote }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

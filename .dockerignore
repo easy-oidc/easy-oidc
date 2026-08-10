@@ -1,0 +1,15 @@
+# Easy OIDC <https://easy-oidc.dev>
+# Copyright The Easy OIDC Authors
+# SPDX-License-Identifier: Apache-2.0
+
+.git
+.github
+.agents
+.vscode
+.idea
+coverage.out
+data
+dist
+temp
+*.log
+*.local.jsonc

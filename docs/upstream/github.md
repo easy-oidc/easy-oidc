@@ -4,20 +4,22 @@ title: 'GitHub Upstream Auth'
 linkTitle: "GitHub"
 ---
 
-This guide shows you how to create a GitHub OAuth application for use with Easy OIDC.
+This guide connects GitHub as a sign-in provider. GitHub verifies the user's
+GitHub account; Easy OIDC then decides whether to accept that identity and what
+downstream identity and groups to issue.
 
 ## Prerequisites
 
 - A GitHub account (personal or organization)
 - Admin access to create OAuth applications
 
-## Step 1: Create a GitHub OAuth App
+## 1. Create a GitHub OAuth App
 
 1. Go to [GitHub Settings](https://github.com/settings/developers)
 2. In the left sidebar, click **OAuth Apps**
 3. Click **New OAuth App** (or **Register a new application**)
 
-## Step 2: Configure the OAuth App
+## 2. Configure the OAuth App
 
 Fill in the application details:
 
@@ -31,7 +33,10 @@ Fill in the application details:
 
 Click **Register application**.
 
-## Step 3: Generate a Client Secret
+The callback URL is where GitHub returns the browser after sign-in. It must
+exactly match the public Easy OIDC URL and connector ID.
+
+## 3. Generate and store the credentials
 
 After creating the OAuth app, GitHub will show you the **Client ID**.
 
@@ -43,31 +48,12 @@ You should now have:
 - **Client ID**: `Iv1.abc123def456`
 - **Client Secret**: `abc123def456789...` (long string)
 
-**Important**: Copy these values now—you'll need them in the next step.
-
-## Step 4: Store Secrets in AWS Secrets Manager
-
-Use the AWS CLI to store your GitHub OAuth credentials and a random encryption
-master key. Easy OIDC uses the encryption key to protect stateless identity
-selection data.
-
-```bash
-aws secretsmanager create-secret \
-  --name easy-oidc-github-credentials \
-  --secret-string '{
-    "client_id": "Iv1.abc123def456",
-    "client_secret": "abc123def456789..."
-  }'
-
-aws secretsmanager create-secret \
-  --name easy-oidc-encryption-key \
-  --secret-string "$(openssl rand -hex 32)"
-```
-
-Replace the `client_id` and `client_secret` values with your actual credentials from Step 3.
-Set `secrets.encryption_key_name` to `easy-oidc-encryption-key` in the Easy OIDC
-configuration. See the [configuration reference](/docs/config/) for other
-supported secrets providers.
+The client ID identifies Easy OIDC to GitHub. The client secret proves that
+Easy OIDC is that registered application; copy it immediately because GitHub
+does not show it again, and do not put it in source control. Store both values
+using the secret provider for your chosen deployment, then reference that
+credential from the connector. See the [configuration reference](/docs/config/)
+and your [deployment documentation](/docs/deploy/).
 
 ## Organization OAuth Apps (Alternative)
 
@@ -103,9 +89,7 @@ To verify your OAuth app is configured correctly:
 
 1. Note your callback URL: `https://auth.example.com/callback/github` (replace
    `github` with your connector ID)
-2. After deploying Easy OIDC using the [AWS](/docs/deploy/aws/) or
-   [Google Cloud](https://github.com/easy-oidc/terraform-google-easy-oidc/blob/main/README.md#usage)
-   module, test authentication:
+2. After deploying Easy OIDC, test authentication:
 
 ```bash
 kubectl oidc-login setup \
@@ -125,10 +109,15 @@ unverified selection is subject to the configured email-verification policy.
 GitHub-generated `users.noreply` addresses are excluded because they cannot
 receive verification codes.
 
-**Group Mappings**: GitHub's OAuth flow doesn't provide organization/team membership by default. Easy OIDC requires you to configure static group mappings (see [Configuration Reference](/docs/config/)).
+**Identity acceptance**: GitHub confirms the account and email information, but
+Easy OIDC's policy determines whether to accept it and which downstream groups
+to issue. GitHub's OAuth flow does not provide organization/team membership by
+default, so configure group mappings explicitly. Disabling this connector does
+not necessarily block the same person or email address through another enabled
+connector. See the [configuration reference](/docs/config/).
 
 ## Next Steps
 
-- [Deploy Easy OIDC to AWS](/docs/deploy/aws/)
+- [Configure Easy OIDC](/docs/config/)
+- [Choose a deployment](/docs/deploy/)
 - [Configure Kubernetes integration](/docs/kubernetes/)
-- [Set up group mappings](/docs/config/)

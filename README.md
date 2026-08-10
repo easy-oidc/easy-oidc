@@ -6,91 +6,80 @@ SPDX-License-Identifier: Apache-2.0
 
 # Easy OIDC
 
-Minimal OIDC server designed for use with Kubernetes, with Google/GitHub/Generic federation, typed email codes, and static user group mappings.
+Easy OIDC is designed to make setting up and operating an OIDC server straightforward:
 
-## Overview
+- Supports Google/GitHub/other OIDC providers, or OTP email login.
+- No passwords stored in its database.
+- Stores state in SQLite (default), or an external PostgreSQL database for horizontal scaling.
+- Policy configuration (like mapping users to groups) can be in a config file, or queried from any PostgreSQL database (even when SQLite is used for state).
+- Can be used for Kubernetes control plane auth, simplifying RBAC.
+- All HTML page and email templates can be customised without rebuilding the binary.
+- Can run on a single VM instance for minimal cost.
 
-`easy-oidc` is a lightweight, single-binary OIDC server designed specifically for Kubernetes clusters. Instead of managing passwords, it delegates authentication to one or more GitHub, Google, generic OAuth2/OIDC, or email-code connectors and maps emails to Kubernetes groups through static configuration.
+Use Easy OIDC if you:
 
-**Perfect for:**
-- Developers already using GitHub or GMail/Google Workspace or wanting email authentication
-- Simple RBAC with static user group mappings
-- Running on a single EC2 instance with minimal cost
+- want users to sign in with accounts they already have;
+- want to manage email-to-group mapping policies in config files in git, or a database;
+- want a small, self-hosted login service; and
+- use Kubernetes RBAC to decide what each group can do, or just need an OIDC service for your app.
 
-Easy OIDC was created by [Nadrama](https://nadrama.com). Nadrama is an Open Source PaaS that helps you deploy containers, in your cloud account, in minutes.
+Official OpenTofu/Terraform modules are available
+  for [AWS](https://github.com/easy-oidc/terraform-aws-easy-oidc) and
+  [Google Cloud](https://github.com/easy-oidc/terraform-google-easy-oidc), and an OCI Helm chart is published for each release.
 
-## Key Features
+See [Why Easy OIDC?](docs/why-easy-oidc.md) for its intended scope and
+operational limits.
 
-- **Zero password management** - Delegates to GitHub, Google, or any OAuth2+UserInfo/OIDC provider
-- **Multiple sign-in methods** - Configure several upstream providers and optional email codes behind one issuer
-- **Consistent email identity** - Normalise sign-in methods to one email identity downstream, with configurable verification
-- **Static user group mappings** - Map email addresses to groups in the JSONC config
-- **PKCE-only downstream clients** - Secure public client flow with no downstream client secrets to leak
-- **Custom templates** - Overlay embedded page and email templates without rebuilding the binary
-- **Kubernetes-compatible signing** - RS256 by default, with all Kubernetes-supported algorithms plus EdDSA
-- **Single binary** - Embedded SQLite with no external database to operate
-- **Multi-cloud support** - OpenTofu/Terraform modules for [AWS](https://github.com/easy-oidc/terraform-aws-easy-oidc) and [Google Cloud](https://github.com/easy-oidc/terraform-google-easy-oidc); Azure is planned
+## Try it locally
 
-## Quick Start
+You can see the complete email-code sign-in flow without a cloud account. You
+need Go, [kubelogin](https://github.com/int128/kubelogin), and two terminals.
 
-For a local email-code demo, start Mailpit in one terminal:
+Start [Mailpit](https://mailpit.axllent.org/) in the first terminal. It captures
+the demo email instead of sending it for real:
 
 ```console
 go run github.com/axllent/mailpit@latest
 ```
 
-Then run Easy OIDC in another terminal. Demo mode generates process-scoped
-signing and OTP secrets and removes its temporary SQLite database on exit:
+Start Easy OIDC in the second terminal:
 
 ```console
 go run ./cmd/easy-oidc serve --demo
 ```
 
-Open Mailpit at <http://localhost:8025>. The demo issuer is
-`http://localhost:8080`, and its client ID is `kubelogin-local` with
-`http://localhost:8000` as the allowed redirect URI.
+Then begin a login:
 
-Deploy using the OpenTofu/Terraform module for:
+```console
+kubectl oidc-login setup \
+  --oidc-issuer-url=http://localhost:8080 \
+  --oidc-client-id=kubelogin-local \
+  --oidc-use-pkce
+```
 
-- [AWS](https://github.com/easy-oidc/terraform-aws-easy-oidc?tab=readme-ov-file#prerequisites)
-- [Google Cloud](https://github.com/easy-oidc/terraform-google-easy-oidc/blob/main/README.md#prerequisites)
+Your browser will ask for an email address. Enter any address, open Mailpit at
+<http://localhost:8025>, and copy the code from the new message back into the
+browser. kubelogin will print the identity returned by Easy OIDC.
+
+Demo mode is for local evaluation only. It generates temporary signing and
+email-code secrets and removes its SQLite database when the process exits.
+
+## Deploy
+
+Choose a deployment target when you are ready to deploy to a real environment:
+
+- [AWS deployment guide](docs/deploy/aws.md)
+- [Google Cloud module](https://github.com/easy-oidc/terraform-google-easy-oidc)
+- [Kubernetes and Helm deployment guide](docs/deploy/kubernetes.md)
 
 ## Documentation
 
-- **[Local development](DEV.md)** - Set up dependencies and run Easy OIDC locally
-- **[Configuration](docs/config.md)** - Connectors, email verification, secrets, clients, and templates
-- **[State Database](docs/state-database.md)** - PostgreSQL protocol state for replicas and durable operations
-- **[Policy Database](docs/policy-database.md)** - Clients, users, groups, and trust bindings supplied by database policy
-- **[Example configurations](examples/config/)** - AWS, Azure, GCP, GitHub, Google, and generic connector examples
-- **[Documentation](docs/)** - Deployment, Kubernetes integration, and operational guides
-- **[AWS OpenTofu/Terraform module](https://github.com/easy-oidc/terraform-aws-easy-oidc)** - AWS infrastructure
-- **[Google Cloud OpenTofu/Terraform module](https://github.com/easy-oidc/terraform-google-easy-oidc)** - Google Cloud infrastructure
-
-## Architecture
-
-```
-                                    ┌─────────────────┐
-                                    │ Secrets Manager │
-                                    │ (AWS/GCP/Azure) │
-                                    └──────┬──────────┘
-                                           │
-┌──────────┐        ┌─────────┐        ┌───▼─────┐
-│kubelogin │───────▶│ Caddy   │───────▶│easy-oidc│
-└──────────┘  HTTPS │ (TLS)   │  :8080 │  (Go)   │
-              :443  └─────────┘        └────┬────┘
-                                            │
-                            ┌───────┴────┬───────────┬──────────┐
-                            │            │           │          │
-                      ┌─────▼────┐  ┌────▼───┐  ┌────▼────┐ ┌───▼───┐
-                      │  Google  │  │ GitHub │  │ Generic │ │ SMTP  │
-                      │   OAuth  │  │ OAuth  │  │  OAuth  │ │ email │
-                      └──────────┘  └────────┘  └─────────┘ └───────┘
-```
-
-- Single VM instance (minimal footprint)
-- Caddy handles automatic TLS (via Let's Encrypt)
-- Embedded SQLite for OAuth state and authorization code storage with replay protection
-- Secrets from cloud-native stores (AWS/GCP/Azure)
+- [Getting started](docs/getting-started.md)
+- [Configuration reference](docs/config.md)
+- [Kubernetes integration](docs/kubernetes.md)
+- [kubelogin setup](docs/kubelogin.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [Example configurations](examples/config/)
 
 ## Development
 
@@ -104,15 +93,6 @@ make test
 ```
 
 `make precommit` is the fast, read-only check used by the pre-commit hook and CI. Contributor commits must include a [Developer Certificate of Origin](https://developercertificate.org/) sign-off; use `git commit -s` to add it. See [DEV.md](DEV.md) for local OAuth configuration and end-to-end testing.
-
-## Releases
-
-Releases are built from semantic-version tags such as `v2.0.0`. The release workflow validates the source and uses GoReleaser to publish Linux AMD64 and ARM64 archives. Each release includes SHA-512 checksums, SPDX JSON SBOMs, a keyless Cosign bundle for the checksum file, and GitHub build provenance. Create a release tag with:
-
-```console
-make tag VERSION=v2.0.0
-git push origin v2.0.0
-```
 
 ## License
 

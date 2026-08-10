@@ -25,7 +25,7 @@ type OAuthCredentials struct {
 
 // NewProvider creates a new secrets provider based on the configuration.
 // It supports AWS Secrets Manager, AWS Systems Manager Parameter Store,
-// Google Secret Manager, Azure Key Vault, and environment variables.
+// Google Secret Manager, Azure Key Vault, files, and environment variables.
 func NewProvider(ctx context.Context, cfg config.SecretsConfig) (Provider, error) {
 	switch cfg.Provider {
 	case "aws-secrets-manager":
@@ -38,6 +38,8 @@ func NewProvider(ctx context.Context, cfg config.SecretsConfig) (Provider, error
 		return NewAzureProvider(ctx, cfg.AzureKeyVaultURL)
 	case "env":
 		return NewEnvProvider(cfg), nil
+	case "file":
+		return NewFileProvider(cfg.FileDirectory)
 	default:
 		return nil, fmt.Errorf("unsupported secrets provider: %s", cfg.Provider)
 	}

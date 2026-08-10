@@ -4,21 +4,23 @@ title: 'Google Upstream Auth'
 linkTitle: "Google"
 ---
 
-This guide shows you how to create a Google OAuth application for use with Easy OIDC.
+This guide connects Google as a sign-in provider. Google verifies the user's
+Google account; Easy OIDC then decides whether to accept that identity and what
+downstream identity and groups to issue.
 
 ## Prerequisites
 
 - A Google account (Google Workspace or personal Gmail)
 - Admin access to create OAuth applications
 
-## Step 1: Create a Google Cloud Project
+## 1. Create a Google project
 
 1. Go to the [Google Cloud Console](https://console.cloud.google.com/)
 2. Click **Select a project** → **New Project**
 3. Enter a project name (e.g., `easy-oidc`)
 4. Click **Create**
 
-## Step 2: Configure OAuth Consent Screen
+## 2. Configure the OAuth consent screen
 
 1. In the Google Cloud Console, navigate to **APIs & Services** → **OAuth consent screen**
 2. Select **Internal** if you have a Google Workspace account (recommended), or **External** for personal Gmail
@@ -36,45 +38,37 @@ This guide shows you how to create a Google OAuth application for use with Easy 
 8. Click **Update** → **Save and Continue**
 9. Review and click **Back to Dashboard**
 
-## Step 3: Create OAuth Credentials
+## 3. Create OAuth credentials
 
 1. Navigate to **APIs & Services** → **Credentials**
 2. Click **Create Credentials** → **OAuth client ID**
 3. Select **Application type**: **Web application**
 4. Enter a **Name**: `Easy OIDC`
 5. Under **Authorized redirect URIs**, click **Add URI**
-6. Add your redirect URI: `https://auth.example.com/callback/google`
+6. Add the callback URL: `https://auth.example.com/callback/google`
    - Replace `auth.example.com` with your actual OIDC hostname
    - Replace `google` when your configured connector ID is different
 7. Click **Create**
 
-## Step 4: Save Client ID and Secret
+The callback URL is where Google returns the browser after sign-in. It must
+exactly match the public Easy OIDC URL and connector ID.
 
-After creating the OAuth client, Google will display your credentials:
+## 4. Store the client ID and secret
+
+Google displays two credentials:
 
 - **Client ID**: `123456789-abcdefghijklmnop.apps.googleusercontent.com`
 - **Client Secret**: `GOCSPX-xxxxxxxxxxxxxxxxxxxx`
 
-**Important**: Copy these values now—you'll need them in the next step.
-
-## Step 5: Store Credentials in AWS Secrets Manager
-
-Use the AWS CLI to store your Google OAuth credentials:
-
-```bash
-aws secretsmanager create-secret \
-  --name easy-oidc-google-credentials \
-  --secret-string '{
-    "client_id": "123456789-abcdefghijklmnop.apps.googleusercontent.com",
-    "client_secret": "GOCSPX-xxxxxxxxxxxxxxxxxxxx"
-  }'
-```
-
-Replace the `client_id` and `client_secret` values with your actual credentials from Step 4.
+The client ID identifies Easy OIDC to Google. The client secret proves that
+Easy OIDC is that registered application, so do not put it in source control.
+Store both values using the secret provider for your chosen deployment, then
+reference that credential from the connector. See the [configuration
+reference](/docs/config/) and your [deployment documentation](/docs/deploy/).
 
 ## Optional: Hint a Google Workspace Domain
 
-If you're using Google Workspace, you can hint your orgs's domain in
+If you're using Google Workspace, you can hint your organization's domain in
 Google's account chooser:
 
 1. Set `google.hd` on that connector:
@@ -90,8 +84,14 @@ Google's account chooser:
 }
 ```
 
-The `hd` parameter improves Google's sign-in experience but is not an access
-control. Use `static_policy.require_user_groups_from_policy` to enforce allowed users.
+The `hd` setting only improves Google's account chooser; it is not an access
+control. Google confirms the account, but Easy OIDC's policy determines whether
+to accept it. Configure allowed users and groups in the [configuration
+reference](/docs/config/).
+
+Disabling this connector blocks Google sign-in through this route, but does not
+necessarily block the same person or email address through another enabled
+connector.
 
 ## Verification
 
@@ -99,9 +99,7 @@ To verify your OAuth app is configured correctly:
 
 1. Note your redirect URI: `https://auth.example.com/callback/google` (replace
    `google` with your connector ID)
-2. After deploying Easy OIDC using the [AWS](/docs/deploy/aws/) or
-   [Google Cloud](https://github.com/easy-oidc/terraform-google-easy-oidc/blob/main/README.md#usage)
-   module, test authentication:
+2. After deploying Easy OIDC, test authentication:
 
 ```bash
 kubectl oidc-login setup \
@@ -114,5 +112,6 @@ You should be redirected to Google's login page.
 
 ## Next Steps
 
-- [Deploy Easy OIDC to AWS](/docs/deploy/aws/)
+- [Configure Easy OIDC](/docs/config/)
+- [Choose a deployment](/docs/deploy/)
 - [Configure Kubernetes integration](/docs/kubernetes/)

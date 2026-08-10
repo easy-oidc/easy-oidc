@@ -1,0 +1,14 @@
+# Easy OIDC <https://easy-oidc.dev>
+# Copyright The Easy OIDC Authors
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: v2
+name: easy-oidc
+description: A minimal, production-ready deployment of Easy OIDC
+type: application
+version: 0.1.0
+appVersion: "2.0.0"
+kubeVersion: ">=1.24.0-0"
+home: https://easy-oidc.dev
+sources:
+  - https://github.com/easy-oidc/easy-oidc

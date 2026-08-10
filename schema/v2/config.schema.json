@@ -24,7 +24,17 @@
     "http_listen_addr": {
       "type": "string",
       "minLength": 1,
-      "description": "Address and port on which Easy OIDC listens for HTTP requests."
+      "description": "Address and port on which Easy OIDC serves requests."
+    },
+    "serving_certificate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["certificate_file", "private_key_file"],
+      "properties": {
+        "certificate_file": { "type": "string", "minLength": 1 },
+        "private_key_file": { "type": "string", "minLength": 1 }
+      },
+      "description": "Optional PEM certificate and private key files for native HTTPS. Files are reloaded automatically when certificates rotate."
     },
     "signing_algorithm": {
       "type": "string",
@@ -146,6 +156,25 @@
         "properties": {
           "secrets": {
             "required": ["azure_keyvault_url"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "secrets": {
+            "properties": {
+              "provider": { "const": "file" }
+            },
+            "required": ["provider"]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "secrets": {
+            "required": ["file_directory"]
           }
         }
       }
@@ -306,7 +335,8 @@
             "aws-parameter-store",
             "google-secret-manager",
             "azure",
-            "env"
+            "env",
+            "file"
           ],
           "description": "Backend from which secret values are loaded once during startup."
         },
@@ -329,6 +359,11 @@
           "type": "string",
           "format": "uri",
           "description": "Azure Key Vault URL. Required when provider is azure."
+        },
+        "file_directory": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Directory containing secret files. Required when provider is file; secret names are relative paths beneath it."
         }
       }
     },

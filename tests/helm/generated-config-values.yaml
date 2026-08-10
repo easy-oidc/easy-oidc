@@ -1,0 +1,40 @@
+# Easy OIDC <https://easy-oidc.dev>
+# Copyright The Easy OIDC Authors
+# SPDX-License-Identifier: Apache-2.0
+
+# Representative values used by `make helm-validate` to exercise generated
+# configuration and optional chart resources. This is not an install example.
+
+config:
+  issuer_url: https://auth.example.com
+  user_login_connectors:
+    google:
+      type: google
+      display_name: Google
+      credentials_secret: google-credentials.json
+  static_policy:
+    clients:
+      example:
+        redirect_uris:
+          - http://localhost:8000
+
+secretFiles:
+  enabled: true
+  csi:
+    secretProviderClass: easy-oidc
+
+migrations:
+  enabled: true
+
+server:
+  tls:
+    enabled: true
+    certManager:
+      enabled: true
+      issuerRef:
+        name: test-issuer
+      dnsNames:
+        - auth.example.com
+
+ingress:
+  enabled: true

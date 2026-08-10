@@ -14,6 +14,20 @@ COMMIT_BRANCH := $(shell branch=$$(git symbolic-ref --short -q HEAD); if [ -n "$
 BUILDVARS_PKG := github.com/easy-oidc/easy-oidc/internal/buildvars
 
 BINARY_DIR := bin
+OCIMAGE ?= ocimage
+IMAGE_ARCHES ?= amd64,arm64
+IMAGE_PLATFORMS := $(shell printf '%s' '$(IMAGE_ARCHES)' | tr -d ' ' | sed 's/[^,][^,]*/linux\/&/g')
+IMAGE_TAGS ?= ghcr.io/easy-oidc/easy-oidc:$(patsubst v%,%,$(BUILD_VERSION))
+IMAGE_PUSH ?= false
+GOOS ?= $(shell go env GOOS)
+GOARCH ?= $(shell go env GOARCH)
+BUILD_OUTPUT ?= $(BINARY_DIR)/easy-oidc
+BUILD_TAGS ?=
+BUILD_EXTRA_LDFLAGS ?=
+# Kubeconform only bundles schemas for native Kubernetes resources. Resolve
+# schemas for rendered CRDs, including cert-manager Certificate, from Datree's
+# CRDs catalog. Pin the catalog commit so validation is reproducible.
+KUBECONFORM_CRD_SCHEMA_LOCATION := https://raw.githubusercontent.com/datreeio/CRDs-catalog/52b0261318acc7dd0b66e032759b1f218216b980/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
 
 # SQLite requires CGO
 export CGO_ENABLED=1
@@ -24,7 +38,7 @@ LDFLAGS := -X $(BUILDVARS_PKG).buildVersion=$(BUILD_VERSION) \
            -X $(BUILDVARS_PKG).commitDate=$(COMMIT_DATE) \
            -X $(BUILDVARS_PKG).commitBranch=$(COMMIT_BRANCH)
 
-.PHONY: help setup fmt lint precommit test test-postgresql e2e check build dev clean tag
+.PHONY: help setup fmt lint precommit test test-postgresql e2e check build image helm-lint helm-validate dev clean tag
 
 help: ## Show available targets
 	@echo "Usage: make <target>"
@@ -83,8 +97,57 @@ check: fmt lint test ## Format, lint, and test
 
 build: ## Build the easy-oidc binary
 	@echo "Building easy-oidc..."
-	@mkdir -p $(BINARY_DIR)
-	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY_DIR)/easy-oidc ./cmd/easy-oidc
+	@mkdir -p "$(dir $(BUILD_OUTPUT))"
+	@rm -f "$(BUILD_OUTPUT)"
+	CGO_ENABLED="$(CGO_ENABLED)" GOOS="$(GOOS)" GOARCH="$(GOARCH)" CC="$(CC)" go build \
+		-trimpath \
+		$(if $(strip $(BUILD_TAGS)),-tags="$(BUILD_TAGS)",) \
+		-ldflags="$(BUILD_EXTRA_LDFLAGS) $(LDFLAGS)" \
+		-o "$(BUILD_OUTPUT)" \
+		./cmd/easy-oidc
+
+image: ## Package prebuilt architecture-specific binaries as an OCI image
+	@set -eu; \
+	for arch in $$(printf '%s' '$(IMAGE_ARCHES)' | tr ',' ' '); do \
+		binary="$(BINARY_DIR)/linux_$$arch/easy-oidc"; \
+		test -x "$$binary" || { \
+			echo "prebuilt image binary not found or not executable: $$binary" >&2; \
+			echo "run make build for linux/$$arch before make image" >&2; \
+			exit 1; \
+		}; \
+	done
+	$(OCIMAGE) build \
+		--file images/easy-oidc/Containerfile \
+		--platform $(IMAGE_PLATFORMS) \
+		$(foreach tag,$(IMAGE_TAGS),--tag $(tag)) \
+		--build-arg VERSION=$(BUILD_VERSION) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		--build-arg COMMIT_HASH=$(COMMIT_HASH) \
+		$(if $(filter true,$(IMAGE_PUSH)),--push,) \
+		.
+
+helm-lint: ## Lint the Easy OIDC Helm chart
+	@command -v helm >/dev/null 2>&1 || { echo "helm is required but not installed"; exit 1; }
+	helm lint --strict deploy/helm --set config.existingConfigMap=easy-oidc-config
+
+helm-validate: helm-lint ## Render and validate representative Helm configurations
+	@command -v kubeconform >/dev/null 2>&1 || { echo "kubeconform is required but not installed"; exit 1; }
+	bash -o pipefail -c 'helm template easy-oidc deploy/helm \
+		--set config.existingConfigMap=easy-oidc-config \
+		| kubeconform -strict -summary -kubernetes-version 1.34.0 \
+			-schema-location default -schema-location "$(KUBECONFORM_CRD_SCHEMA_LOCATION)"'
+	bash -o pipefail -c 'helm template easy-oidc deploy/helm \
+		--values tests/helm/generated-config-values.yaml \
+		| kubeconform -strict -summary -kubernetes-version 1.34.0 \
+			-schema-location default -schema-location "$(KUBECONFORM_CRD_SCHEMA_LOCATION)"'
+	bash -o pipefail -c 'helm template easy-oidc deploy/helm \
+		--values tests/helm/generated-config-values.yaml \
+		--set config.state_database.driver=postgresql \
+		--set config.state_database.connection_string_secret=EASYOIDC_STATE_DB_URL \
+		--set replicaCount=2 \
+		--set deploymentStrategy.type=RollingUpdate \
+		| kubeconform -strict -summary -kubernetes-version 1.34.0 \
+			-schema-location default -schema-location "$(KUBECONFORM_CRD_SCHEMA_LOCATION)"'
 
 dev: ## Run the template development server
 	go run ./cmd/easy-oidc dev --templates-dir ./templates

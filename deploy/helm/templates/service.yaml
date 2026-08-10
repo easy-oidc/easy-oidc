@@ -1,0 +1,25 @@
+# Easy OIDC <https://easy-oidc.dev>
+# Copyright The Easy OIDC Authors
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "easy-oidc.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "easy-oidc.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: {{ ternary "https" "http" .Values.server.tls.enabled }}
+      port: {{ .Values.service.port }}
+      targetPort: web
+      protocol: TCP
+      appProtocol: {{ ternary "https" "http" .Values.server.tls.enabled }}
+  selector:
+    {{- include "easy-oidc.selectorLabels" . | nindent 4 }}

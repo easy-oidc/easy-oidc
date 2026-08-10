@@ -5,26 +5,15 @@ linkTitle: 'kubelogin'
 weight: 6
 ---
 
-kubelogin is a kubectl plugin that handles OIDC authentication automatically. Instead of manually managing tokens, kubelogin opens your browser to authenticate and caches the token locally.
+[kubelogin](https://github.com/int128/kubelogin), also invoked as
+`kubectl oidc-login`, is a user-side Kubernetes exec credential plugin. It opens
+an OIDC browser flow, returns an ID token to kubectl, and caches credentials.
 
-## What is kubelogin?
+This page assumes a cluster administrator has already configured API server OIDC
+trust and RBAC. See [Kubernetes integration](/docs/kubernetes/) for that
+cluster-side setup.
 
-[kubelogin](https://github.com/int128/kubelogin) (also known as `kubectl oidc-login`) is a credential plugin for kubectl that:
-- Implements the Kubernetes exec credential plugin API
-- Handles the OIDC authentication flow (Authorization Code + PKCE)
-- Caches tokens locally to avoid repeated logins
-- Automatically refreshes expired tokens
-- Add `--oidc-extra-scope=offline_access` only for clients explicitly configured to allow offline grants.
-
-When you run `kubectl get pods`, kubelogin:
-1. Checks for a cached, valid token
-2. Refreshes an expired token when the client has refresh enabled
-3. If no usable token remains, opens a browser for authentication
-4. Handles the OAuth2/OIDC flow with Easy OIDC
-5. Returns the ID token to kubectl
-6. kubectl includes the token in API requests
-
-## Installation
+## Install kubelogin
 
 ### macOS
 
@@ -34,7 +23,9 @@ brew install int128/kubelogin/kubelogin
 
 ### Linux
 
-Download the latest release from [GitHub](https://github.com/int128/kubelogin/releases):
+Download the archive for your architecture from the
+[kubelogin releases](https://github.com/int128/kubelogin/releases), extract the
+binary, and place it on your `PATH`.
 
 ```bash
 # Example for Linux amd64
@@ -52,7 +43,7 @@ choco install kubelogin
 # Or download from GitHub releases
 ```
 
-### Verify Installation
+### Verify the installation:
 
 ```bash
 kubelogin --version
@@ -60,7 +51,7 @@ kubelogin --version
 
 ## Configure kubeconfig
 
-Add a user to your kubeconfig that uses kubelogin:
+Add an exec user and use it from the desired context:
 
 ```yaml
 apiVersion: v1
@@ -78,22 +69,27 @@ users:
       - --oidc-use-pkce
       interactiveMode: IfAvailable
       provideClusterInfo: false
-```
-
-Then create a context that uses this user:
-
-```yaml
 contexts:
-- context:
+- name: my-cluster-oidc
+  context:
     cluster: my-cluster
     user: oidc-user
-  name: my-cluster-oidc
-current-context: my-cluster-oidc
 ```
 
-## Test Authentication
+The issuer and client ID must match the cluster-side OIDC settings and the Easy
+OIDC client. Repeat the user entry with another client ID if a second cluster
+uses a separate client and group mapping.
 
-Run the setup wizard to test authentication:
+Request `offline_access` only when the Easy OIDC client explicitly allows
+offline grants:
+
+```yaml
+- --oidc-extra-scope=offline_access
+```
+
+## Log in with a browser
+
+Test the flow and inspect the issued claims before using the context:
 
 ```bash
 kubectl oidc-login setup \
@@ -102,189 +98,62 @@ kubectl oidc-login setup \
   --oidc-use-pkce
 ```
 
-This will:
-1. Open your browser
-2. Select or redirect to a configured Easy OIDC sign-in method
-3. After successful login, display your ID token and claims
-
-**Expected output:**
-
-```
-Opening in existing browser session.
-authentication in progress...
-
-## 2. Verify authentication
-
-You got a token with the following claims:
-
-{
-  "iss": "https://auth.example.com",
-  "sub": "alice@example.com",
-  "aud": "kubelogin-prod",
-  "email": "alice@example.com",
-  "email_verified": true,
-  "groups": ["prod-admins", "devs"],
-  "exp": 1234567890,
-  "iat": 1234564290
-}
-
-## 3. Bind a cluster role
-
-kubectl create clusterrolebinding oidc-cluster-admin \
-  --clusterrole=cluster-admin \
-  --user='https://auth.example.com#alice@example.com'
-```
-
-## Using kubectl with OIDC
-
-Once configured, use kubectl normally:
+kubelogin starts a localhost callback listener, opens Easy OIDC in the browser,
+and prints the resulting claims after authentication. Confirm `iss`, `aud`,
+`email`, and `groups` with your cluster administrator. Then use kubectl normally:
 
 ```bash
-kubectl get pods
-kubectl get nodes
-kubectl apply -f deployment.yaml
+kubectl --context my-cluster-oidc get pods
 ```
 
-**On first use**, kubelogin will open a browser for authentication. Subsequent commands use the cached token and refresh it when necessary.
+On first use, kubelogin starts the same browser flow if no usable cached
+credential exists.
 
-## Token Caching
+## Token cache and refresh
 
-Tokens are cached in `~/.kube/cache/oidc-login/` directory. Each issuer and client_id combination gets its own cache file.
+kubelogin caches credentials under `~/.kube/cache/oidc-login/`, separated by
+issuer and client ID. Protect the cache as sensitive data and keep its parent
+directory accessible only to your user (for example, mode `0700`).
 
-**Cache location:**
+Easy OIDC ID tokens expire after 15 minutes by default. Before each command,
+kubelogin returns a valid cached token, refreshes it if a refresh token is
+available, or starts a new browser login. Refresh tokens require
+`refresh_tokens.enabled` in Easy OIDC. Long-lived offline grants additionally
+require the client to permit offline access and kubelogin to request the
+`offline_access` scope. Without a refresh token, a new browser login after
+expiry is expected.
 
-```
-~/.kube/cache/oidc-login/
-  └── <hash-of-issuer-and-client-id>
-      └── token.json
-```
+For non-interactive workloads, use a Kubernetes ServiceAccount or another
+workload credential instead of storing a human's kubelogin cache in CI.
 
-**Permissions**: Ensure `~/.kube/cache` has restrictive permissions (`0700`) to protect tokens.
+## User-side troubleshooting
 
-## Automatic Token Refresh
+### Browser does not open
 
-kubelogin automatically handles token expiry:
-- Before each kubectl command, kubelogin checks if the token is still valid
-- If expired, it uses a cached refresh token when the client has refresh enabled
-- If refresh is unavailable or no longer valid, it opens a browser to authenticate again
-- If valid, it returns the cached token immediately
+Add `--skip-open-browser` to the exec args and open the printed URL in a browser.
+For a remote shell, remember that the callback listener runs on the machine
+where kubelogin runs; browser and network forwarding must be able to reach it.
 
-No manual intervention required.
+### Callback port is busy
 
-## Multiple Clusters
+Add `--listen-address=127.0.0.1:18000` (or another free port), and ask the Easy
+OIDC administrator to allow the corresponding `http://localhost:18000` redirect
+URI for the client.
 
-You can configure multiple clusters with different Easy OIDC client IDs:
+### Login or refresh repeatedly fails
 
-```yaml
-users:
-- name: oidc-prod
-  user:
-    exec:
-      apiVersion: client.authentication.k8s.io/v1
-      command: kubelogin
-      args:
-      - get-token
-      - --oidc-issuer-url=https://auth.example.com
-      - --oidc-client-id=kubelogin-prod
-      - --oidc-use-pkce
+- Verify the local clock is synchronized and the cache directory is writable.
+- Verify discovery is reachable with
+  `curl https://auth.example.com/.well-known/openid-configuration`.
+- Confirm the client ID, callback URI, and optional `offline_access` policy.
+- Run the command with `--v=1` for kubelogin diagnostics. Remove only the cache
+  entry for this issuer/client if you need to force a clean browser login.
+- For a private issuer CA, configure kubelogin's certificate-authority option.
 
-- name: oidc-staging
-  user:
-    exec:
-      apiVersion: client.authentication.k8s.io/v1
-      command: kubelogin
-      args:
-      - get-token
-      - --oidc-issuer-url=https://auth.example.com
-      - --oidc-client-id=kubelogin-staging
-      - --oidc-use-pkce
-
-contexts:
-- context:
-    cluster: prod-cluster
-    user: oidc-prod
-  name: prod
-
-- context:
-    cluster: staging-cluster
-    user: oidc-staging
-  name: staging
-```
-
-Switch contexts:
-
-```bash
-kubectl config use-context prod
-kubectl get pods  # Uses kubelogin-prod client
-
-kubectl config use-context staging
-kubectl get pods  # Uses kubelogin-staging client
-```
-
-## Non-Interactive Environments (CI/CD)
-
-kubelogin requires a browser for interactive authentication. For CI/CD pipelines, use Kubernetes ServiceAccounts instead:
-
-```yaml
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: ci-deploy
-  namespace: default
-```
-
-Then bind the ServiceAccount to a Role or ClusterRole, and use its token in the pipeline.
-
-## Troubleshooting
-
-**"browser did not open"**:
-- Ensure you're on a machine with a browser installed
-- For remote servers (SSH), kubelogin won't work—use ServiceAccounts instead
-- Check that port `8000` is available (kubelogin's default callback listener)
-
-**"failed to get token"**:
-- Verify Easy OIDC is accessible: `curl https://auth.example.com/.well-known/openid-configuration`
-- Check that the `--oidc-client-id` matches a client configured in Easy OIDC
-- Ensure `http://localhost:8000` is allowed by the client's redirect policy
-
-**"token expired" on every command**:
-- Check system clock is synchronized (use NTP)
-- Verify token cache directory exists and is writable: `~/.kube/cache/oidc-login/`
-
-**"certificate signed by unknown authority"**:
-- Easy OIDC uses Let's Encrypt, which should be trusted by default
-- If using a custom CA, add `--certificate-authority=<path>` to kubelogin args
-
-See [Troubleshooting](/docs/troubleshooting/) for more issues.
-
-## Advanced Options
-
-**Change callback port** (if 8000 is in use):
-
-```yaml
-args:
-- get-token
-- --oidc-issuer-url=https://auth.example.com
-- --oidc-client-id=kubelogin-prod
-- --oidc-use-pkce
-- --listen-address=127.0.0.1:18000
-```
-
-Also add `http://localhost:18000` to `static_policy.default_redirect_uris`
-or that client's `redirect_uris`.
-
-**Skip browser opening** (display URL instead):
-
-```yaml
-args:
-- get-token
-- --oidc-issuer-url=https://auth.example.com
-- --oidc-client-id=kubelogin-prod
-- --oidc-use-pkce
-- --skip-open-browser
-```
-
-Useful for SSH sessions where you want to copy/paste the URL to your local browser.
+If kubelogin obtains a token but kubectl reports `Unauthorized` or `Forbidden`,
+handoff to the cluster administrator and use the checks in
+[Kubernetes integration](/docs/kubernetes/). See
+[Troubleshooting](/docs/troubleshooting/) for service and deployment issues.
 
 ## Next Steps
 

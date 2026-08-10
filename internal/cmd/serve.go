@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/hkdf"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -26,6 +27,7 @@ import (
 	"github.com/easy-oidc/easy-oidc/internal/email"
 	"github.com/easy-oidc/easy-oidc/internal/oidc"
 	"github.com/easy-oidc/easy-oidc/internal/secrets"
+	"github.com/easy-oidc/easy-oidc/internal/servertls"
 	"github.com/easy-oidc/easy-oidc/internal/statedb"
 	"github.com/easy-oidc/easy-oidc/internal/templates"
 	"github.com/easy-oidc/easy-oidc/internal/tokens"
@@ -33,7 +35,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// newServeCmd creates the foreground HTTP server command.
+// newServeCmd creates the foreground server command.
 func newServeCmd() *cobra.Command {
 	var debugMode bool
 	var demoMode bool
@@ -86,6 +88,17 @@ func serve(ctx context.Context, output io.Writer, configPath string, debug, demo
 	if err != nil {
 		logger.Error("failed to load configuration", "error", err)
 		return fmt.Errorf("configuration error: %w", err)
+	}
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	protocol := "HTTP"
+	var servingTLSConfig *tls.Config
+	if cfg.ServingCertificate != nil {
+		servingTLSConfig, err = servertls.Load(ctx, cfg.ServingCertificate.CertificateFile, cfg.ServingCertificate.PrivateKeyFile, logger)
+		if err != nil {
+			return err
+		}
+		protocol = "HTTPS"
 	}
 	if demo {
 		logger.Warn("demo mode is for local use only; generated secrets and protocol state will be discarded when the process exits", "mailpit_ui", "http://localhost:8025", "client_id", "kubelogin-local")
@@ -299,20 +312,22 @@ func serve(ctx context.Context, output io.Writer, configPath string, debug, demo
 	mux.HandleFunc("POST /email/start", server.HandleEmailStart)
 	mux.HandleFunc("POST /email/verify", server.HandleEmailVerify)
 	mux.HandleFunc("POST /email/resend", server.HandleEmailResend)
-	httpServer := &http.Server{Addr: cfg.HTTPListenAddr, Handler: mux, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
+	httpServer := &http.Server{Addr: cfg.HTTPListenAddr, Handler: mux, TLSConfig: servingTLSConfig, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 
 	// Run the server and wait for either a server error or a shutdown signal.
-	logger.Info("starting easy-oidc server", "version", buildvars.BuildVersion(), "issuer", cfg.IssuerURL, "listen_addr", cfg.HTTPListenAddr, "connectors", len(cfg.UserLoginConnectors))
+	logger.Info("starting easy-oidc server", "version", buildvars.BuildVersion(), "issuer", cfg.IssuerURL, "protocol", protocol, "listen_addr", cfg.HTTPListenAddr, "connectors", len(cfg.UserLoginConnectors))
 	serverErrors := make(chan error, 1)
 	go func() {
+		if cfg.ServingCertificate != nil {
+			serverErrors <- httpServer.ListenAndServeTLS("", "")
+			return
+		}
 		serverErrors <- httpServer.ListenAndServe()
 	}()
-	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	select {
 	case err = <-serverErrors:
 		if err != http.ErrServerClosed {
-			return fmt.Errorf("serve HTTP: %w", err)
+			return fmt.Errorf("serve %s: %w", protocol, err)
 		}
 		return nil
 	case <-ctx.Done():

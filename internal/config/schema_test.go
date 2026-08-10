@@ -102,6 +102,16 @@ func TestConfigSchemaContracts(t *testing.T) {
 		mutate func(map[string]any)
 	}{
 		{"base configuration", true, func(map[string]any) {}},
+		{"complete serving certificate", true, func(cfg map[string]any) {
+			cfg["serving_certificate"] = map[string]any{"certificate_file": "/cert/tls.crt", "private_key_file": "/cert/tls.key"}
+		}},
+		{"empty serving certificate", false, func(cfg map[string]any) { cfg["serving_certificate"] = map[string]any{} }},
+		{"serving certificate missing key", false, func(cfg map[string]any) {
+			cfg["serving_certificate"] = map[string]any{"certificate_file": "/cert/tls.crt"}
+		}},
+		{"serving certificate missing certificate", false, func(cfg map[string]any) {
+			cfg["serving_certificate"] = map[string]any{"private_key_file": "/cert/tls.key"}
+		}},
 		{"legacy connectors field", false, func(cfg map[string]any) {
 			cfg["connectors"] = cfg["user_login_connectors"]
 		}},

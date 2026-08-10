@@ -9,13 +9,17 @@ Easy OIDC is a minimal OIDC provider designed primarily for Kubernetes. It
 federates authentication to one or more upstream providers, normalizes users to
 email identities, and maps those emails to static groups.
 
+See [Concepts and terminology](/docs/concepts/) for the protocol terminology used in
+this specification.
+
 ## Design goals
 
 - Authorization Code flow with mandatory PKCE S256 for downstream public clients.
 - No downstream client secrets.
 - Multiple Google, GitHub, generic OAuth2/OIDC, and direct-email connectors.
 - Static email-to-group policy with per-client selection.
-- A single binary with embedded templates and SQLite persistence.
+- A single binary with embedded templates and a SQLite or PostgreSQL state
+  database.
 - Secrets loaded once at startup from AWS Secrets Manager, AWS Systems Manager
   Parameter Store, Google Secret Manager, Azure Key Vault, or environment
   variables.
@@ -27,7 +31,9 @@ upstream-group synchronization, SAML, or non-PKCE downstream flows.
 
 The optional [policy database](policy-database.md) supplies database policy
 through bounded, read-only PostgreSQL queries, while static policy retains
-precedence for clients with the same ID.
+precedence for clients with the same ID. Operators or another system write this
+policy data; Easy OIDC only reads it. The policy database and protocol state
+database are separate stores with separate responsibilities.
 
 ## Architecture
 
@@ -36,7 +42,8 @@ precedence for clients with the same ID.
 │kubelogin │───────────────────▶│ TLS proxy     │─────────▶│ easy-oidc │
 └──────────┘                    │ (for example, │          └────┬──────┘
                                 │ Caddy)        │               │
-                                └───────────────┘               ├────▶ SQLite
+                                └───────────────┘               ├────▶ State DB
+                                                                ├────▶ Optional policy DB
                                                                 ├────▶ Secrets provider
                                                                 ├────▶ SMTP and Turnstile
                                                                 │
@@ -48,11 +55,15 @@ precedence for clients with the same ID.
                                      └────────┘ └────────┘ └────────┘ └────────┘
 ```
 
-A TLS reverse proxy normally fronts the HTTP server. SQLite stores browser
-authorization state, single-use authorization codes, OTP challenges, and local
-email-verification records. It does not store browser sessions or cookies.
+A TLS reverse proxy normally fronts the server; native HTTPS can instead use a
+configured serving certificate. The state database stores
+browser authorization state, single-use authorization codes, OTP challenges,
+and local email-verification records. SQLite is the simplest choice for one
+replica; PostgreSQL shares this protocol state across replicas. It does not
+store browser sessions or cookies. The optional PostgreSQL policy database is a
+separate, read-only input containing clients, users, groups, and trust policy.
 Secrets are loaded once during startup through the configured provider; secret
-values are not written into the application configuration or SQLite database.
+provider values are not written into the application configuration or either database.
 
 ## Authentication flow
 
@@ -69,7 +80,7 @@ values are not written into the application configuration or SQLite database.
    verification mode.
 6. The original OAuth state is atomically consumed and a single-use opaque
    authorization code is issued.
-7. `/token` validates the code and PKCE verifier, resolves static groups, and
+7. `/token` validates the code and PKCE verifier, resolves current policy groups, and
    returns a signed token.
 
 ## Identity model
@@ -111,7 +122,9 @@ required once.
 |---|---|
 | `/.well-known/openid-configuration` | Discovery document |
 | `/authorize` | Begin authorization and select a sign-in method |
+| `/par` | Store a pushed authorization request |
 | `/token` | Consume an authorization code and validate PKCE |
+| `/revoke` | Revoke a refresh grant |
 | `/jwks` | Public signing keys |
 | `/userinfo` | Return claims for a valid Easy OIDC token |
 | `/healthz` | Health check |
@@ -230,7 +243,7 @@ An issued ID token has claims equivalent to:
   "preferred_username": "alice",
   "groups": ["cluster-admins", "developers"],
   "iat": 1753650000,
-  "exp": 1753653600,
+  "exp": 1753650900,
   "nonce": "optional-client-nonce"
 }
 ```
@@ -327,6 +340,7 @@ The main direct dependencies and their responsibilities are:
 | `github.com/tailscale/hujson` | JSONC parsing and standardization. |
 | `github.com/spf13/cobra` | Command-line interface. |
 | `github.com/mattn/go-sqlite3` | Persistent OAuth state, codes, OTP challenges, and verification records. |
+| `github.com/jackc/pgx/v5` | Shared PostgreSQL state and read-only policy queries. |
 | AWS SDK for Go v2 | AWS Secrets Manager and Systems Manager Parameter Store. |
 | Google Cloud Secret Manager client | Google Secret Manager access. |
 | Azure SDK for Go | Azure Key Vault access. |
@@ -338,7 +352,8 @@ the default for broad Kubernetes compatibility.
 ## Persistence and lifecycle
 
 By default, SQLite state lives at `./data/easy-oidc-state.db`; configure
-`state_database.path` to move it. PostgreSQL supports shared replicas.
+`state_database.path` to move it. SQLite is simplest for one replica.
+PostgreSQL shares protocol state across replicas.
 Authorization state, codes, OTP challenges, and
 verification records survive process restarts. Signing-key rotation currently
 requires replacing the configured key and restarting Easy OIDC.

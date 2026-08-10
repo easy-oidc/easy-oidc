@@ -14,18 +14,26 @@ database, or when they need to change without restarting Easy OIDC. Static
 clients remain available and always take precedence over clients supplied by
 database policy with the same ID.
 
+Easy OIDC only reads the policy database. Operators or another system create and
+update its clients, users, groups, and trust bindings.
+
 > **Note:** The policy database does not store or verify user passwords or
 > identity provider credentials in PostgreSQL. Users still authenticate through
 > Easy OIDC's configured identity flows. The policy database only supplies
 > client definitions, access decisions, groups, and trust bindings.
 
-The policy database is read-only; it is not Easy OIDC's operational storage.
+The policy database is read-only to Easy OIDC; it is not Easy OIDC's operational
+storage and Easy OIDC never writes policy changes to it.
 Browser and email-verification state, authorization codes, refresh grants, and
 encrypted renewable provider credentials remain in Easy OIDC's protocol state
 database (SQLite by default, or configured PostgreSQL). Signing keys,
 connector secrets, and the PostgreSQL connection string remain in the configured
 secrets provider. The connection string is loaded at startup, so rotating it
 requires restarting Easy OIDC.
+
+The state and policy databases are independently configured, separate stores,
+even when both use the same PostgreSQL server. Do not point policy queries at
+the state schema or use the policy database for protocol state.
 
 ## Quick start
 

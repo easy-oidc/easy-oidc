@@ -1,0 +1,169 @@
+# Easy OIDC <https://easy-oidc.dev>
+# Copyright The Easy OIDC Authors
+# SPDX-License-Identifier: Apache-2.0
+
+replicaCount: 1
+
+# Recreate avoids two SQLite Pods mounting or writing the same volume during an
+# upgrade. PostgreSQL deployments can override this with RollingUpdate.
+deploymentStrategy:
+  type: Recreate
+
+image:
+  repository: ghcr.io/easy-oidc/easy-oidc
+  pullPolicy: IfNotPresent
+  # Defaults to the chart appVersion.
+  tag: ""
+  # When set, takes precedence over tag. Include the sha256: prefix.
+  digest: ""
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+# By default, the chart removes its management fields from this object and
+# serializes the remaining values as config.jsonc. rawOverride replaces the
+# generated content. existingConfigMap keeps configuration outside Helm.
+config:
+  rawOverride: ""
+  existingConfigMap: ""
+  existingConfigMapKey: config.jsonc
+  issuer_url: ""
+  http_listen_addr: ":8080"
+  secrets:
+    provider: file
+    file_directory: /var/run/secrets/easy-oidc
+    signing_key_name: signing-key.pem
+  state_database:
+    driver: sqlite
+    # Chart-only storage settings; omitted from generated config.jsonc.
+    persistence:
+      enabled: true
+      existingClaim: ""
+      storageClass: ""
+      accessModes:
+        - ReadWriteOnce
+      size: 1Gi
+      annotations:
+        helm.sh/resource-policy: keep
+  user_login_connectors: {}
+  static_policy:
+    clients: {}
+
+# Preferred Kubernetes secret delivery. The Secrets Store CSI Driver mounts
+# files fetched from an external provider without copying them into a
+# Kubernetes Secret. Configure config.secrets.provider as file.
+secretFiles:
+  enabled: false
+  mountPath: /var/run/secrets/easy-oidc
+  csi:
+    driver: secrets-store.csi.k8s.io
+    secretProviderClass: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+  automountServiceAccountToken: false
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: easy-oidc.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# Optional native HTTPS for traffic from the Service to Easy OIDC. Provide an
+# existing kubernetes.io/tls Secret, or let cert-manager create one.
+server:
+  tls:
+    enabled: false
+    # Empty defaults to <release fullname>-tls.
+    secretName: ""
+    certManager:
+      enabled: false
+      issuerRef:
+        name: ""
+        kind: Issuer
+        group: cert-manager.io
+      dnsNames: []
+      duration: ""
+      renewBefore: ""
+
+migrations:
+  enabled: false
+  resources: {}
+  # Optional migration-only SecretProviderClass. It replaces the runtime
+  # secretFiles volume in the init container at the same mount path.
+  secretFiles:
+    enabled: false
+    csi:
+      driver: secrets-store.csi.k8s.io
+      secretProviderClass: ""
+  # Additional environment available only to the migration init container.
+  # Put a migration-only database credential here instead of in the shared env.
+  env: []
+  envFrom: []
+
+# Environment-based secret delivery is supported for compatibility. Prefer
+# secretFiles with the file provider so values are not stored in etcd.
+env: []
+envFrom: []
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+podAnnotations: {}
+podLabels: {}
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+
+livenessProbe:
+  tcpSocket:
+    port: web
+  initialDelaySeconds: 10
+  periodSeconds: 10
+readinessProbe:
+  httpGet:
+    path: /healthz
+    port: web
+  initialDelaySeconds: 3
+  periodSeconds: 5
+startupProbe:
+  httpGet:
+    path: /healthz
+    port: web
+  failureThreshold: 30
+  periodSeconds: 2
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []

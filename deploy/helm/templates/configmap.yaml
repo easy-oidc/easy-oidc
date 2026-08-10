@@ -1,0 +1,21 @@
+# Easy OIDC <https://easy-oidc.dev>
+# Copyright The Easy OIDC Authors
+# SPDX-License-Identifier: Apache-2.0
+
+{{- include "easy-oidc.validateConfig" . }}
+{{- if empty (trim .Values.config.existingConfigMap) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "easy-oidc.configMapName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "easy-oidc.labels" . | nindent 4 }}
+data:
+  config.jsonc: |
+    {{- if not (empty (trim .Values.config.rawOverride)) }}
+    {{- .Values.config.rawOverride | nindent 4 }}
+    {{- else }}
+    {{- include "easy-oidc.generatedConfig" . | nindent 4 }}
+    {{- end }}
+{{- end }}
