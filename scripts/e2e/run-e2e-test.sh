@@ -213,7 +213,9 @@ echo "==> Starting PostgreSQL policy database container..."
 $CONTAINER_CMD run -d --name "$POSTGRES_CONTAINER_NAME" -p 55434:5432 \
     -e POSTGRES_PASSWORD=e2e-admin -e POSTGRES_DB=easy_oidc_e2e "$POSTGRES_IMAGE"
 for i in {1..30}; do
-    if $CONTAINER_CMD exec "$POSTGRES_CONTAINER_NAME" pg_isready -U postgres -d easy_oidc_e2e >/dev/null 2>&1; then break; fi
+    # The image uses a temporary socket-only server during first-time initialization.
+    # Probe TCP so setup continues only after the final server has started.
+    if $CONTAINER_CMD exec "$POSTGRES_CONTAINER_NAME" pg_isready -h 127.0.0.1 -U postgres -d easy_oidc_e2e >/dev/null 2>&1; then break; fi
     if [ "$i" -eq 30 ]; then echo "ERROR: PostgreSQL failed to start"; exit 1; fi
     sleep 1
 done
@@ -679,7 +681,7 @@ fi
 echo "==> Restarting PostgreSQL and waiting for replicas to recover without restart..."
 $CONTAINER_CMD start "$POSTGRES_CONTAINER_NAME" >/dev/null
 for i in {1..30}; do
-    if $CONTAINER_CMD exec "$POSTGRES_CONTAINER_NAME" pg_isready -U postgres -d easy_oidc_e2e >/dev/null 2>&1; then break; fi
+    if $CONTAINER_CMD exec "$POSTGRES_CONTAINER_NAME" pg_isready -h 127.0.0.1 -U postgres -d easy_oidc_e2e >/dev/null 2>&1; then break; fi
     if [ "$i" -eq 30 ]; then echo "ERROR: PostgreSQL failed to recover"; exit 1; fi
     sleep 1
 done
