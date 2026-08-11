@@ -165,8 +165,15 @@ func exercise(issuer, keyPath, tokensPath, refreshedPath string) error {
 	if err != nil {
 		return fmt.Errorf("cross-replica replay: %w", err)
 	}
+	if status != http.StatusOK {
+		return fmt.Errorf("cross-replica request: HTTP %d", status)
+	}
+	_, status, err = request(client, http.MethodGet, userinfo, nil, proof, tokens.AccessToken, false)
+	if err != nil {
+		return fmt.Errorf("same-replica replay: %w", err)
+	}
 	if status != http.StatusUnauthorized {
-		return fmt.Errorf("cross-replica replay accepted: HTTP %d", status)
+		return fmt.Errorf("same-replica replay accepted: HTTP %d", status)
 	}
 	_, status, err = request(client, http.MethodGet, userinfo, nil, "", tokens.AccessToken, true)
 	if err != nil {
