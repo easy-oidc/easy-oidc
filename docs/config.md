@@ -149,7 +149,9 @@ validation.
 PostgreSQL shares protocol state across replicas and accepts
 `connection_string_secret`, `max_connections`, `query_timeout`, and a migration-only
 secret under `migrations.connection_string_secret`. The state database also holds the
-shared durable DPoP replay table. See the [state database guide](state-database.md).
+durable single-use PAR, authorization-code, refresh-token, and revocation state. DPoP
+replay hashes use a bounded process-local cache instead. See the
+[state database guide](state-database.md).
 
 ## Native HTTPS
 

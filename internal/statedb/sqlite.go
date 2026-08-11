@@ -136,25 +136,10 @@ func initSQLiteSchema(db *sql.DB) error {
 		created_at DATETIME NOT NULL, expires_at DATETIME NOT NULL
 	);
 	CREATE INDEX IF NOT EXISTS idx_pushed_requests_expiry ON pushed_requests(expires_at);
-	CREATE TABLE IF NOT EXISTS dpop_proofs (
-		replay_hash BLOB PRIMARY KEY CHECK(length(replay_hash)=32), expires_at DATETIME NOT NULL
-	);
-	CREATE INDEX IF NOT EXISTS idx_dpop_proofs_expiry ON dpop_proofs(expires_at);
 	`
 
 	if _, err := db.Exec(schema); err != nil {
 		return err
-	}
-	for _, migration := range []struct{ table, column, definition string }{
-		{"oauth_states", "dpop_jkt", "TEXT"},
-		{"auth_codes", "dpop_jkt", "TEXT"},
-		{"oauth_states", "pushed_authorization", "INTEGER NOT NULL DEFAULT 0"},
-		{"auth_codes", "pushed_authorization", "INTEGER NOT NULL DEFAULT 0"},
-		{"refresh_grants", "dpop_jkt", "TEXT"},
-	} {
-		if _, err := db.Exec("ALTER TABLE " + migration.table + " ADD COLUMN " + migration.column + " " + migration.definition); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
-			return err
-		}
 	}
 	return nil
 }

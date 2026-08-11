@@ -17,7 +17,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-const schemaVersion = 3
+const schemaVersion = 1
 
 // NewPostgreSQL opens a migrated PostgreSQL state database and verifies its compatibility.
 func NewPostgreSQL(ctx context.Context, connectionString string, maxConnections int, queryTimeout time.Duration, logger *slog.Logger) (*Store, error) {

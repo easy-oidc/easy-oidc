@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// Store provides persistent storage for OAuth flows with replay protection.
+// Store provides persistent storage for OAuth flows and single-use credentials.
 type Store struct {
 	db         *database
 	logger     *slog.Logger
@@ -317,14 +317,8 @@ func (s *Store) cleanupExpiredAt(now time.Time) {
 	s.cleanupExpiredAtContext(context.Background(), now)
 }
 
-// cleanupProtocolState runs frequent bounded cleanup for short-lived DPoP and PAR rows.
+// cleanupProtocolState runs frequent bounded cleanup for short-lived PAR rows.
 func (s *Store) cleanupProtocolState(now time.Time) {
-	backlogged, err := s.cleanupDPoP(now.UTC())
-	if err != nil && s.logger != nil {
-		s.logger.Error("failed to clean up DPoP replay state", "error", err)
-	} else if backlogged && s.logger != nil {
-		s.logger.Warn("DPoP replay cleanup backlog remains", "batch_size", 2000)
-	}
 	if err := s.cleanupPARRequests(now.UTC()); err != nil && s.logger != nil {
 		s.logger.Error("failed to clean up PAR requests", "error", err)
 	}

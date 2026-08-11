@@ -71,14 +71,10 @@ func (s *Server) HandleRevoke(w http.ResponseWriter, r *http.Request) {
 			oauthError(w, http.StatusBadRequest, "invalid_dpop_proof", "DPoP proof is invalid")
 			return
 		}
-		err = s.store.ReserveDPoP(dpop.ReplayHash(proof.Thumbprint, proof.JTI, proof.Method, proof.Target), now)
-		if errors.Is(err, statedb.ErrDPoPReplay) {
+		err = s.reserveDPoP(proof, now)
+		if errors.Is(err, dpop.ErrReplay) || errors.Is(err, dpop.ErrReplayCacheFull) {
 			s.logDPoPReplay("revoke", clientID, r)
 			oauthError(w, http.StatusBadRequest, "invalid_dpop_proof", "DPoP proof is invalid")
-			return
-		}
-		if err != nil {
-			oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable", "storage unavailable")
 			return
 		}
 	}

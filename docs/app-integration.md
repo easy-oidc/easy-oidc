@@ -62,7 +62,7 @@ than an `Authorization` header. Most DPoP middleware follows RFC 9449 and expect
 │                                             │◀─ tokens ─│                       │
 └──────────────────────┬──────────────────────┘           └───────────────────────┘
                        │ session metadata,
-                       │ refresh-token hash + replay hashes
+                       │ refresh-token hash
                        ▼
              ┌ API Database ─────────────────┐
              │ - sessions table              │
@@ -166,14 +166,20 @@ Before trusting information from a token:
 2. **API:** Require `cnf.jkt`. Validate proof type, ES256/P-256 public JWK,
    signature, exact method and externally visible query-free `htu`, bounded
    `iat`, nonempty `jti`, and `ath`. Match the proof thumbprint to `cnf.jkt`.
-3. **API:** Atomically reserve a hash of `(jkt, jti, htm, htu)` in replay storage
-   shared by every API replica until the proof expires. Reject duplicates, and
-   return `503` if the storage is unavailable.
+3. **API:** Require a short proof lifetime and reject duplicates seen by the same process
+   with a bounded in-memory cache of `(jkt, jti, htm, htu)` hashes. Detection across
+   replicas is best-effort and strict shared replay storage is optional. Do not make every
+   resource request perform a SQL write or return `503` merely because a replay cache was
+   lost.
 4. **API:** Require an unrevoked, unexpired session keyed by trusted issuer,
    client ID, `sid`, and subject. Never create or reactivate it from a presented
    token.
 5. **API:** Enforce resource-level authorization; no valid token, slot, session,
    scope, or group alone grants resource access.
+
+DPoP does not guarantee that a request will run only once. Design important operations,
+such as creating an order or charging a payment, so that receiving the same request twice
+does not perform the action twice.
 
 The **API** must build `htu` from trusted external configuration, not forwarding
 headers. If the SPA and API have different origins but remain same-site, allow

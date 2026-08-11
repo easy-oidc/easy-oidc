@@ -111,7 +111,9 @@ deploymentStrategy:
 
 The PostgreSQL driver automatically disables the SQLite PVC. Helm keeps a
 chart-managed PVC when you uninstall the release; delete it separately only
-when you intend to destroy the stored protocol state.
+when you intend to destroy the stored protocol state. The chart does not enable
+Service session affinity, as Kubernetes client-IP affinity cannot guarantee that
+proofs using the same DPoP key reach the same replica.
 
 Set `migrations.enabled: true` to run `easy-oidc migrate` in an init container
 before the server. Put migration-only environment variables under

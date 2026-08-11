@@ -170,7 +170,9 @@ deploymentStrategy:
 ```
 
 `config.state_database.driver: postgresql` automatically replaces the SQLite
-PVC with an ephemeral data volume.
+PVC with an ephemeral data volume. The chart does not enable Service session affinity:
+Kubernetes supports only client-IP affinity, which cannot reliably bind requests using
+the same DPoP key to one replica.
 
 ## Native HTTPS and cert-manager
 

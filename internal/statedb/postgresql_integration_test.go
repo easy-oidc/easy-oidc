@@ -71,8 +71,7 @@ func resetPostgreSQLState(dsn string) error {
 		easy_oidc_state.refresh_tokens,
 		easy_oidc_state.grant_actions,
 		easy_oidc_state.identity_selections,
-		easy_oidc_state.pushed_requests,
-		easy_oidc_state.dpop_proofs CASCADE`); err != nil {
+		easy_oidc_state.pushed_requests CASCADE`); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -174,47 +173,6 @@ func TestPostgreSQLCrossReplicaSemantics(t *testing.T) {
 	}
 	if winners.Load() != 5 {
 		t.Fatalf("OTP quota admitted %d sends", winners.Load())
-	}
-}
-
-// TestPostgreSQLDPoPReplayCrossReplica verifies replay uniqueness and durability across pools and restarts.
-func TestPostgreSQLDPoPReplayCrossReplica(t *testing.T) {
-	a, b := postgreSQLStores(t)
-	now := time.Now().UTC()
-	hash := [32]byte{1, 2, 3, 4}
-	errs := make(chan error, 2)
-	start := make(chan struct{})
-	for _, store := range []*Store{a, b} {
-		go func(s *Store) {
-			<-start
-			errs <- s.ReserveDPoP(hash, now)
-		}(store)
-	}
-	close(start)
-	var succeeded, replayed int
-	for range 2 {
-		if err := <-errs; err == nil {
-			succeeded++
-		} else if errors.Is(err, ErrDPoPReplay) {
-			replayed++
-		} else {
-			t.Fatal(err)
-		}
-	}
-	if succeeded != 1 || replayed != 1 {
-		t.Fatalf("DPoP race succeeded=%d replayed=%d", succeeded, replayed)
-	}
-	if err := a.Close(); err != nil {
-		t.Fatal(err)
-	}
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	reopened, err := NewPostgreSQL(context.Background(), os.Getenv("EASYOIDC_STATE_TEST_DB_URL"), 2, 5*time.Second, logger)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = reopened.Close() }()
-	if err = reopened.ReserveDPoP(hash, now.Add(time.Second)); !errors.Is(err, ErrDPoPReplay) {
-		t.Fatalf("replay after reopen = %v, want ErrDPoPReplay", err)
 	}
 }
 
@@ -538,5 +496,29 @@ func TestPostgreSQLMigrationParameters(t *testing.T) {
 	parameters := u.Query()
 	if parameters.Get("connect_timeout") != "10" || parameters.Get("statement_timeout") != "300000" || parameters.Get("x-statement-timeout") != "300000" {
 		t.Fatalf("unbounded migration parameters: %s", u.RawQuery)
+	}
+}
+
+// TestPostgreSQLMigrationBaseline verifies v2.0.0 ships one complete initial migration.
+func TestPostgreSQLMigrationBaseline(t *testing.T) {
+	entries, err := migrations.ReadDir("migrations/postgresql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "000001_initial.up.sql" {
+		t.Fatalf("migration files = %v", entries)
+	}
+	baseline, err := migrations.ReadFile("migrations/postgresql/000001_initial.up.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema := string(baseline)
+	for _, required := range []string{"CREATE TABLE oauth_states", "CREATE TABLE auth_codes", "CREATE TABLE refresh_grants", "CREATE TABLE pushed_requests", "pushed_authorization boolean", "dpop_jkt text"} {
+		if !strings.Contains(schema, required) {
+			t.Errorf("baseline migration is missing %q", required)
+		}
+	}
+	if strings.Contains(schema, "dpop_proofs") {
+		t.Fatal("baseline migration contains obsolete DPoP replay storage")
 	}
 }

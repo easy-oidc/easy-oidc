@@ -8,11 +8,9 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -239,51 +237,6 @@ func refreshTokenServer(t *testing.T) (*Server, *statedb.Store, *AuthCodeManager
 	key := []byte("01234567890123456789012345678901")
 	signer := tokens.NewSigner(newTestSigningKey(t), "kid", cfg.IssuerURL, time.Hour)
 	return NewServer(cfg, nil, manager, signer, nil, logger, store, nil, nil, nil, nil, nil, key, nil), store, manager, key, path
-}
-
-// TestDPoPReservationFailurePreservesAuthorizationCode verifies fail-closed ordering.
-func TestDPoPReservationFailurePreservesAuthorizationCode(t *testing.T) {
-	server, store, manager, _, path := refreshTokenServer(t)
-	client := server.config.StaticPolicy.Clients["client"]
-	client.DPoP = config.DPoPConfig{Mode: "required", SigningAlgorithm: "ES256"}
-	client.RefreshTokens.Enabled = false
-	server.config.StaticPolicy.Clients["client"] = client
-	key := newEndpointProofKey(t, "ES256")
-	verifier := strings.Repeat("f", 43)
-	code, err := manager.GenerateCode(AuthCodePayload{ClientID: "client", RedirectURI: "https://client.example/callback", CodeChallenge: computeChallenge(verifier), Email: "user@example.com", Scopes: "openid", AuthTime: time.Now(), DPoPJKT: key.jkt})
-	if err != nil {
-		t.Fatal(err)
-	}
-	breaker, err := sql.Open("sqlite3", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = breaker.Exec(`DROP TABLE dpop_proofs`); err != nil {
-		t.Fatal(err)
-	}
-	if err = breaker.Close(); err != nil {
-		t.Fatal(err)
-	}
-	values := url.Values{"grant_type": {"authorization_code"}, "code": {code}, "client_id": {"client"}, "redirect_uri": {"https://client.example/callback"}, "code_verifier": {verifier}}
-	request := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(values.Encode()))
-	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	request.Header.Set("DPoP", key.proof(t, endpointProofOptions{Method: http.MethodPost, URL: "https://issuer.example/token", IAT: time.Now(), JTI: "reservation-failure"}))
-	response := httptest.NewRecorder()
-	server.HandleToken(response, request)
-	if response.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
-	}
-	if err = store.Close(); err != nil {
-		t.Fatal(err)
-	}
-	reopened, err := statedb.NewSQLite(path, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = reopened.Close() })
-	if _, err = reopened.PeekAuthCode(code, time.Now()); err != nil {
-		t.Fatalf("replay-store failure consumed authorization code: %v", err)
-	}
 }
 
 // exchangeCodeRequest sends a valid authorization-code token request.

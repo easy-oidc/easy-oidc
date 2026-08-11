@@ -312,7 +312,7 @@ func serve(ctx context.Context, output io.Writer, configPath string, debug, demo
 	mux.HandleFunc("POST /email/start", server.HandleEmailStart)
 	mux.HandleFunc("POST /email/verify", server.HandleEmailVerify)
 	mux.HandleFunc("POST /email/resend", server.HandleEmailResend)
-	httpServer := &http.Server{Addr: cfg.HTTPListenAddr, Handler: mux, TLSConfig: servingTLSConfig, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
+	httpServer := &http.Server{Addr: cfg.HTTPListenAddr, Handler: server.LimitPublicEndpoints(mux), TLSConfig: servingTLSConfig, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 
 	// Run the server and wait for either a server error or a shutdown signal.
 	logger.Info("starting easy-oidc server", "version", buildvars.BuildVersion(), "issuer", cfg.IssuerURL, "protocol", protocol, "listen_addr", cfg.HTTPListenAddr, "connectors", len(cfg.UserLoginConnectors))

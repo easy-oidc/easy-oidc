@@ -15,7 +15,6 @@ import (
 
 	"github.com/easy-oidc/easy-oidc/internal/config"
 	"github.com/easy-oidc/easy-oidc/internal/dpop"
-	"github.com/easy-oidc/easy-oidc/internal/statedb"
 	"github.com/easy-oidc/easy-oidc/internal/tokens"
 	"github.com/lestrrat-go/jwx/v2/jwt"
 )
@@ -77,13 +76,10 @@ func (s *Server) authenticateAccessToken(r *http.Request, endpoint string) (jwt.
 	if dpop.VerifyThumbprint(proof, jkt) != nil {
 		return nil, &accessAuthError{status: 401, scheme: "DPoP", code: "invalid_token", alg: supportedDPoPAlgorithmChallenge}
 	}
-	err = s.store.ReserveDPoP(dpop.ReplayHash(proof.Thumbprint, proof.JTI, proof.Method, proof.Target), time.Now().UTC())
-	if errors.Is(err, statedb.ErrDPoPReplay) {
+	err = s.reserveDPoP(proof, time.Now().UTC())
+	if errors.Is(err, dpop.ErrReplay) || errors.Is(err, dpop.ErrReplayCacheFull) {
 		s.logDPoPReplay("userinfo", token.Audience()[0], r)
 		return nil, &accessAuthError{status: 401, scheme: "DPoP", code: "invalid_dpop_proof", alg: supportedDPoPAlgorithmChallenge}
-	}
-	if err != nil {
-		return nil, &accessAuthError{status: 503, scheme: "DPoP", code: "temporarily_unavailable", alg: supportedDPoPAlgorithmChallenge}
 	}
 	return token, nil
 }

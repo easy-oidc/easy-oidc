@@ -10,7 +10,7 @@ authorization codes, OTPs, and refresh grants. This is the easiest option
 for one Easy OIDC replica.
 
 For multiple replicas, use PostgreSQL so every replica shares temporary browser
-and authorization-code state as well as refresh grants and replay records. The
+and authorization-code state as well as refresh grants. The
 state database is operational protocol storage. It is separate from the
 optional read-only [policy database](policy-database.md), which supplies clients,
 users, groups, and trust policy.
@@ -55,14 +55,12 @@ easy-oidc migrate --config config.jsonc
 Migrations are forward-only. Easy OIDC refuses to start when the schema is
 missing, dirty, older, or newer than the binary expects.
 
-DPoP proofs use a shared table containing a replay hash primary key and its
-expiry. Every Easy OIDC replica must use the same table. A unique insert reserves a
-proof for the full 15-second acceptance window; expired rows are removed in bounded
-batches. Database failure returns HTTP 503 and fails DPoP requests closed. Resume
-normally if the original table returns intact. If replay records were lost, continue
-returning 503 for 15 seconds before accepting proofs against an empty replacement. This
-allows clients to retry with new proofs after every forgotten proof has expired. See the
-[DPoP integration guide](dpop.md) for the complete operational contract.
+DPoP replay hashes are not protocol state and are not written to this database. Each
+process keeps an independent bounded in-memory cache for the 15-second proof acceptance
+window. Replays reaching the same process are rejected; detection across replicas is
+best-effort. The durable database protections remain the single-use PAR and
+authorization-code operations, refresh-token rotation, and idempotent revocation. See
+the [DPoP integration guide](dpop.md) for the complete operational contract.
 
 In the uncommon event of a migration failing:
 

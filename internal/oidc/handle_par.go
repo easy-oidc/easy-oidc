@@ -140,13 +140,13 @@ func (s *Server) HandlePAR(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC()
 	pushed := &statedb.PushedRequest{RequestURI: requestURI, ClientID: clientID, RedirectURI: redirect, ResponseType: "code", Scopes: strings.Join(scopes, " "), State: r.PostForm.Get("state"), Nonce: r.PostForm.Get("nonce"), CodeChallenge: r.PostForm.Get("code_challenge"), CodeChallengeMethod: "S256", Prompt: r.PostForm.Get("prompt"), DPoPJKT: selectedJKT, CreatedAt: now, ExpiresAt: now.Add(60 * time.Second)}
 	if proof != nil {
-		err = s.store.ReserveDPoP(dpop.ReplayHash(proof.Thumbprint, proof.JTI, proof.Method, proof.Target), now)
+		err = s.reserveDPoP(proof, now)
 	}
 	if err == nil {
 		err = s.store.SavePushedRequest(pushed)
 	}
 	if err != nil {
-		if errors.Is(err, statedb.ErrDPoPReplay) {
+		if errors.Is(err, dpop.ErrReplay) || errors.Is(err, dpop.ErrReplayCacheFull) {
 			s.logDPoPReplay("par", clientID, r)
 			writeOAuthJSON(w, 400, "invalid_dpop_proof")
 			return

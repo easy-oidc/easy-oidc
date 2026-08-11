@@ -21,7 +21,9 @@ CREATE TABLE oauth_states (
     refresh_mode text NOT NULL,
     auth_time timestamptz NOT NULL,
     offline_consent boolean NOT NULL DEFAULT false,
-    purpose text NOT NULL DEFAULT 'authorize'
+    purpose text NOT NULL DEFAULT 'authorize',
+    dpop_jkt text,
+    pushed_authorization boolean NOT NULL DEFAULT false
 );
 CREATE INDEX idx_states_expires_at ON oauth_states(expires_at);
 CREATE TABLE auth_codes (
@@ -39,7 +41,9 @@ CREATE TABLE auth_codes (
     auth_time timestamptz NOT NULL,
     connector_id text NOT NULL DEFAULT '',
     upstream_subject text NOT NULL DEFAULT '',
-    offline_consent boolean NOT NULL DEFAULT false
+    offline_consent boolean NOT NULL DEFAULT false,
+    dpop_jkt text,
+    pushed_authorization boolean NOT NULL DEFAULT false
 );
 CREATE INDEX idx_codes_expires_at ON auth_codes(expires_at);
 CREATE TABLE flow_credentials (
@@ -91,5 +95,12 @@ CREATE TABLE identity_selections (
     subject text NOT NULL, emails_json text NOT NULL, expires_at timestamptz NOT NULL
 );
 CREATE INDEX idx_identity_selections_expiry ON identity_selections(expires_at);
+CREATE TABLE pushed_requests (
+    request_uri text PRIMARY KEY, client_id text NOT NULL, redirect_uri text NOT NULL,
+    response_type text NOT NULL, scopes text NOT NULL, oidc_state text NOT NULL,
+    nonce text, code_challenge text NOT NULL, code_challenge_method text NOT NULL,
+    prompt text, dpop_jkt text, created_at timestamptz NOT NULL, expires_at timestamptz NOT NULL
+);
+CREATE INDEX idx_pushed_requests_expiry ON pushed_requests(expires_at);
 
 COMMIT;

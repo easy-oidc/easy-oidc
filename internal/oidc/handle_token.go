@@ -162,12 +162,10 @@ func (s *Server) HandleToken(w http.ResponseWriter, r *http.Request) {
 				oauthError(audit, 400, "invalid_grant", "refresh token is invalid")
 				return
 			}
-			if reserveErr := s.store.ReserveDPoP(dpop.ReplayHash(proof.Thumbprint, proof.JTI, proof.Method, proof.Target), time.Now().UTC()); reserveErr != nil {
-				if errors.Is(reserveErr, statedb.ErrDPoPReplay) {
+			if reserveErr := s.reserveDPoP(proof, time.Now().UTC()); reserveErr != nil {
+				if errors.Is(reserveErr, dpop.ErrReplay) || errors.Is(reserveErr, dpop.ErrReplayCacheFull) {
 					s.logDPoPReplay("token", inspected.ClientID, r)
 					oauthError(audit, 400, "invalid_dpop_proof", "DPoP proof is invalid")
-				} else {
-					oauthError(audit, 503, "temporarily_unavailable", "storage unavailable")
 				}
 				return
 			}
@@ -248,13 +246,14 @@ func (s *Server) exchangeCode(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, http.StatusBadRequest, "invalid_request", "unexpected DPoP proof")
 		return
 	}
-	var replayHash *[32]byte
+	var proof *dpop.Proof
 	if payload.DPoPJKT != "" {
 		if len(proofHeaders) != 1 {
 			oauthError(w, http.StatusBadRequest, "invalid_dpop_proof", "exactly one DPoP proof is required")
 			return
 		}
-		proof, proofErr := dpop.ParseAndVerify(proofHeaders[0], client.DPoP.SigningAlgorithm, http.MethodPost, config.PublicEndpointURL(s.config.IssuerURL, "token"), time.Now())
+		var proofErr error
+		proof, proofErr = dpop.ParseAndVerify(proofHeaders[0], client.DPoP.SigningAlgorithm, http.MethodPost, config.PublicEndpointURL(s.config.IssuerURL, "token"), time.Now())
 		if proofErr != nil {
 			oauthError(w, http.StatusBadRequest, "invalid_dpop_proof", "DPoP proof is invalid")
 			return
@@ -263,16 +262,12 @@ func (s *Server) exchangeCode(w http.ResponseWriter, r *http.Request) {
 			oauthError(w, http.StatusBadRequest, "invalid_grant", "authorization code is invalid")
 			return
 		}
-		hash := dpop.ReplayHash(proof.Thumbprint, proof.JTI, proof.Method, proof.Target)
-		replayHash = &hash
 	}
-	if replayHash != nil {
-		if err = s.store.ReserveDPoP(*replayHash, time.Now().UTC()); err != nil {
-			if errors.Is(err, statedb.ErrDPoPReplay) {
+	if proof != nil {
+		if err = s.reserveDPoP(proof, time.Now().UTC()); err != nil {
+			if errors.Is(err, dpop.ErrReplay) || errors.Is(err, dpop.ErrReplayCacheFull) {
 				s.logDPoPReplay("token", payload.ClientID, r)
 				oauthError(w, 400, "invalid_dpop_proof", "DPoP proof is invalid")
-			} else {
-				oauthError(w, 503, "temporarily_unavailable", "storage unavailable")
 			}
 			return
 		}
@@ -412,10 +407,7 @@ func (s *Server) exchangeCode(w http.ResponseWriter, r *http.Request) {
 		refresh = material.Token
 	}
 	if err != nil {
-		if errors.Is(err, statedb.ErrDPoPReplay) {
-			s.logDPoPReplay("token", payload.ClientID, r)
-			oauthError(w, http.StatusBadRequest, "invalid_dpop_proof", "DPoP proof is invalid")
-		} else if errors.Is(err, statedb.ErrInvalidGrant) {
+		if errors.Is(err, statedb.ErrInvalidGrant) {
 			oauthError(w, http.StatusBadRequest, "invalid_grant", "authorization code is invalid")
 		} else {
 			oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable", "storage unavailable")

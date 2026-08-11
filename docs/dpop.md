@@ -137,30 +137,33 @@ independently validate the access token and proof before handling the request:
    public key. Check `htm`, exact public `htu`, `iat`, and `ath` against the request and
    token.
 4. Require the proof key's thumbprint to equal the token's `cnf.jkt`.
-5. Reject a reused `jti` using replay storage shared by every API replica.
+5. Require a short proof lifetime. A bounded in-memory replay cache can additionally
+   reject reuse seen by the same API replica during that window.
 
 Reject private or symmetric embedded keys and JWT headers that refer to keys on another
 server. Easy OIDC does not use the optional DPoP nonce feature.
 
 ## Replay protection and failures
 
-Every replica of a service that accepts proofs must use the same durable replay table.
-Easy OIDC replicas share their state database; replicas of your API need an equivalent
-shared store. An in-memory cache is not enough because an attacker could send the same
-proof to another replica. Store only a hash of the thumbprint, `jti`, method, and URL
-with its expiry; do not store proofs, tokens, public keys, or raw `jti` values.
+RFC 9449 requires a short proof lifetime; strict global single-use tracking is optional
+and can be impractical across replicas. Easy OIDC retains replay hashes in a bounded
+in-memory cache for its 15-second acceptance window. A replay reaching the same process
+is always rejected without a database write or database availability dependency. The
+cache stores only a hash of the thumbprint, `jti`, method, and URL—not proofs, tokens,
+public keys, or raw `jti` values.
 
-If replay storage is unavailable, return HTTP 503 instead of issuing, refreshing,
-revoking, or accepting a token. Resume normally when the original records return. If
-the records were deleted, operators must keep DPoP endpoints returning 503 for 15
-seconds before using the empty replacement table. The service cannot distinguish a
-legitimately empty table from one whose records were silently deleted, so this recovery
-pause is an operator action. It gives every forgotten proof time to expire.
+Each replica has an independent cache, so cross-replica replay detection is best-effort
+rather than guaranteed. This is intentional and permitted by RFC 9449. Kubernetes
+client-IP affinity does not reliably keep one DPoP key on one replica, so Easy OIDC does
+not require or enable it. A gateway that supports consistent hashing by the complete
+`DPoP` header can route an exact replay to the same backend, but that is an optional,
+provider-specific mitigation. Losing a replay cache does not require an outage or a
+15-second HTTP 503 recovery period.
 
-Easy OIDC limits PAR and revocation separately to 100 requests per second per process,
-with a burst of 200. Add per-user or per-IP limits at your reverse proxy or API gateway.
-Monitor replay attempts, database errors, cleanup backlog, request latency, and server
-clock accuracy.
+Easy OIDC limits PAR, token, and revocation separately to 100 requests per second per
+process, with a burst of 200, before request parsing or database access. Keep per-user or
+per-IP limits at your reverse proxy or API gateway. Monitor replay attempts, rate-limit
+rejections, request latency, and server clock accuracy.
 
 `/par` returns `invalid_request` when a required client sends neither `dpop_jkt` nor a
 proof. Token, revocation, and API calls report `invalid_dpop_proof` when a required proof
