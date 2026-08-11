@@ -7,7 +7,9 @@ Choose where to run a persistent Easy OIDC issuer. The official
 OpenTofu/Terraform modules provision the cloud infrastructure and pass the same
 Easy OIDC application settings to each deployment.
 
-- [AWS deployment guide](/docs/deploy/aws/) - Complete step-by-step tutorial
+- [Local development and testing](/docs/deploy/local/) - Run a quick demo or a reusable localhost issuer
+- [AWS deployment guide](/docs/deploy/aws/) - Deploy a persistent issuer on EC2
+- [Google Cloud deployment guide](/docs/deploy/google/) - Deploy a persistent issuer on Compute Engine
 - [Kubernetes deployment guide](/docs/deploy/kubernetes/) - Install the official OCI image and Helm chart
 
 Additional references:

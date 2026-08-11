@@ -294,7 +294,7 @@ users:
       - get-token
       - --oidc-issuer-url=https://auth.example.com
       - --oidc-client-id=kubelogin-prod
-      - --oidc-use-pkce
+      - --oidc-pkce-method=S256
 ```
 
 Kubernetes uses `email` as the RBAC username and `groups` for group bindings. See

@@ -33,7 +33,7 @@ operational limits.
 ## Try it locally
 
 You can see the complete email-code sign-in flow without a cloud account. You
-need Go, [kubelogin](https://github.com/int128/kubelogin), and two terminals.
+need Go, [kubelogin](https://github.com/int128/kubelogin), and three terminals.
 
 Start [Mailpit](https://mailpit.axllent.org/) in the first terminal. It captures
 the demo email instead of sending it for real:
@@ -54,7 +54,7 @@ Then begin a login:
 kubectl oidc-login setup \
   --oidc-issuer-url=http://localhost:8080 \
   --oidc-client-id=kubelogin-local \
-  --oidc-use-pkce
+  --oidc-pkce-method=S256
 ```
 
 Your browser will ask for an email address. Enter any address, open Mailpit at
@@ -69,7 +69,8 @@ email-code secrets and removes its SQLite database when the process exits.
 Choose a deployment target when you are ready to deploy to a real environment:
 
 - [AWS deployment guide](docs/deploy/aws.md)
-- [Google Cloud module](https://github.com/easy-oidc/terraform-google-easy-oidc)
+- [Google Cloud deployment guide](docs/deploy/google.md)
+- [Local development and testing guide](docs/deploy/local.md)
 - [Kubernetes and Helm deployment guide](docs/deploy/kubernetes.md)
 
 ## Documentation

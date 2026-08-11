@@ -85,6 +85,11 @@ if ! kubectl oidc-login --version &> /dev/null 2>&1; then
     echo "Install with: brew install kubelogin"
     exit 1
 fi
+if kubectl oidc-login get-token --help 2>&1 | grep -Fq -- '--oidc-pkce-method'; then
+    KUBELOGIN_PKCE_ARGS=(--oidc-pkce-method=S256)
+else
+    KUBELOGIN_PKCE_ARGS=(--oidc-use-pkce)
+fi
 
 CONTAINER_CMD="${CONTAINER_CMD:-podman}"
 if ! command -v "$CONTAINER_CMD" &> /dev/null; then
@@ -193,7 +198,7 @@ kubelogin_get_token() {
     kubectl oidc-login get-token \
         --oidc-issuer-url="$EASY_OIDC_ISSUER" \
         --oidc-client-id="$client_id" \
-        --oidc-use-pkce \
+        "${KUBELOGIN_PKCE_ARGS[@]}" \
         --listen-address="$EASY_OIDC_LISTEN_ADDRESS" \
         --token-cache-dir="$cache_dir" \
         "${mode_args[@]}" > "$output_file"
@@ -540,8 +545,8 @@ if [ "$DB_EXCHANGE_STATUS" != 200 ]; then
     echo "ERROR: Easy OIDC rejected the trusted service login using database policy (HTTP $DB_EXCHANGE_STATUS)"
     exit 1
 fi
-if ! grep -Eiq '^cache-control:[[:space:]]*no-store\r?$' "$DB_EXCHANGE_HEADERS" ||
-   ! grep -Eiq '^pragma:[[:space:]]*no-cache\r?$' "$DB_EXCHANGE_HEADERS"; then
+if ! grep -Eiq '^cache-control:[[:space:]]*no-store[[:space:]]*$' "$DB_EXCHANGE_HEADERS" ||
+   ! grep -Eiq '^pragma:[[:space:]]*no-cache[[:space:]]*$' "$DB_EXCHANGE_HEADERS"; then
     echo "ERROR: trusted service login using database policy is missing no-cache headers"
     exit 1
 fi

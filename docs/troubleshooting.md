@@ -50,7 +50,7 @@ verifying its signature:
 kubectl oidc-login get-token \
   --oidc-issuer-url=https://auth.example.com \
   --oidc-client-id=kubelogin-prod \
-  --oidc-use-pkce \
+  --oidc-pkce-method=S256 \
   | python3 -c 'import base64,json,sys; t=json.load(sys.stdin)["status"]["token"]; p=t.split(".")[1]; print(json.dumps(json.loads(base64.urlsafe_b64decode(p + "=" * (-len(p) % 4))), indent=2))'
 ```
 
@@ -181,7 +181,7 @@ sudo journalctl -u caddy -f
 kubectl oidc-login get-token \
   --oidc-issuer-url=https://auth.example.com \
   --oidc-client-id=kubelogin-prod \
-  --oidc-use-pkce \
+  --oidc-pkce-method=S256 \
   --v=1
 ```
 

@@ -105,7 +105,7 @@ To verify your OAuth app is configured correctly:
 kubectl oidc-login setup \
   --oidc-issuer-url=https://auth.example.com \
   --oidc-client-id=kubelogin-prod \
-  --oidc-use-pkce
+  --oidc-pkce-method=S256
 ```
 
 You should be redirected to Google's login page.

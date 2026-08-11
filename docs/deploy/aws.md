@@ -247,7 +247,7 @@ test the browser flow:
 kubectl oidc-login setup \
   --oidc-issuer-url=https://auth.example.com \
   --oidc-client-id=kubelogin-prod \
-  --oidc-use-pkce
+  --oidc-pkce-method=S256
 ```
 
 Sign in with the allowed Google account. kubelogin should report the email and
@@ -270,7 +270,7 @@ remaining application settings under `easy_oidc_config`. The module derives its
 IAM read permissions from the runtime parameters or secrets referenced there.
 Migration credentials remain separate by default. To let the instance migrate
 the state database before starting Easy OIDC, set
-`run_state_database_migrations = true`; this grants it access to the configured
+`run_db_migrations = true`; this grants it access to the configured
 migration secret. See the [state database guide](/docs/state-database/) for the
 least-privilege tradeoff.
 

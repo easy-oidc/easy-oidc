@@ -66,7 +66,7 @@ users:
       - get-token
       - --oidc-issuer-url=https://auth.example.com
       - --oidc-client-id=kubelogin-prod
-      - --oidc-use-pkce
+      - --oidc-pkce-method=S256
       interactiveMode: IfAvailable
       provideClusterInfo: false
 contexts:
@@ -95,7 +95,7 @@ Test the flow and inspect the issued claims before using the context:
 kubectl oidc-login setup \
   --oidc-issuer-url=https://auth.example.com \
   --oidc-client-id=kubelogin-prod \
-  --oidc-use-pkce
+  --oidc-pkce-method=S256
 ```
 
 kubelogin starts a localhost callback listener, opens Easy OIDC in the browser,

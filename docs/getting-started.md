@@ -5,14 +5,18 @@ linkTitle: 'Getting Started'
 weight: 2
 ---
 
-Start with the local demo to see how Easy OIDC works, or choose a cloud guide to
-deploy a persistent issuer. An issuer is the HTTPS address that Kubernetes and
-other applications trust for login.
+Start with the local demo to see how Easy OIDC works. It takes only a few
+minutes, needs no cloud account or domain, and walks through a complete sign-in.
+When you are ready for a reusable issuer, continue with the local, AWS, or
+Google Cloud guide below.
+
+An issuer is the address that Kubernetes and other applications trust for login.
+The demo can use HTTP on localhost; deployed issuers use HTTPS.
 
 ## Try it locally
 
 You can see the complete email-code sign-in flow without a cloud account. You
-need Go, [kubelogin](https://github.com/int128/kubelogin), and two terminals.
+need Go, [kubelogin](https://github.com/int128/kubelogin), and three terminals.
 
 Start [Mailpit](https://mailpit.axllent.org/) in the first terminal. It captures
 the demo email instead of sending it for real:
@@ -33,7 +37,7 @@ Then begin a login:
 kubectl oidc-login setup \
   --oidc-issuer-url=http://localhost:8080 \
   --oidc-client-id=kubelogin-local \
-  --oidc-use-pkce
+  --oidc-pkce-method=S256
 ```
 
 Your browser will ask for an email address. Enter any address, open Mailpit at
@@ -43,16 +47,14 @@ browser. kubelogin will print the identity returned by Easy OIDC.
 Demo mode is for local evaluation only. It generates temporary signing and
 email-code secrets and removes its SQLite database when the process exits.
 
-## Choose where to deploy
+## Choose where to setup/deploy
 
-- **[AWS](/docs/deploy/aws/)** — Complete guide using the official
-  OpenTofu/Terraform module.
-- **Google Cloud** — The official
-  [`terraform-google-easy-oidc`](https://github.com/easy-oidc/terraform-google-easy-oidc)
-  module is available. A step-by-step guide will be added after the AWS guide is
-  reviewed.
-- **Local development or testing** — Use the demo above for now. A guide for a
-  persistent local configuration will follow the cloud guides.
+- **[Local development or testing](/docs/deploy/local/)** — Keep local keys and
+  state across restarts while continuing to use Mailpit.
+- **[AWS](/docs/deploy/aws/)** — Deploy a persistent HTTPS issuer with the
+  official OpenTofu/Terraform module.
+- **[Google Cloud](/docs/deploy/google/)** — Deploy the same application
+  configuration on Compute Engine with Google Secret Manager.
 
 ## What every deployment needs
 

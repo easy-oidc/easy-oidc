@@ -7,186 +7,231 @@ weight: 7
 
 # App Integration Guide For Developers
 
-This page describes a recommended way for developers to use Easy OIDC with their apps, using an SPA backed by a Go HTTP API as a reference example.
+This page describes a recommended way for developers to use Easy OIDC with their
+apps, using an SPA backed by a Go HTTP API as a reference example. It also
+explains when a direct SPA or backend for frontend (BFF) is a better fit. See
+[Concepts](/docs/concepts/) for terminology and [DPoP integration](/docs/dpop/)
+for proof construction.
 
-The goal is for browser apps, CLIs, and other clients to call the same API using
-a consistent OIDC token model, while the application can still list active
-sessions and revoke them immediately. See
-[Concepts and terminology](/docs/concepts/) for definitions of the tokens and
-protocol protections used below.
+## Choosing an architecture
 
-A **BFF** (backend for frontend) is an application backend that keeps OAuth tokens and
-keys away from browser JavaScript and gives the browser a session cookie instead.
+For most first-party web applications, the choice depends on which component
+needs to call the API:
 
-## Choose a browser architecture
+1. **SPA and API with token cookies (recommended):** If the SPA and its API are same-site, and
+   that API is the resource server, use `HttpOnly` token cookies with a
+   browser-held DPoP key. This is the recommended design.
+2. **Direct SPA with DPoP:** If browser JavaScript must call Easy OIDC or
+   independent APIs itself, use `Authorization: DPoP`.
+3. **Backend For Frontend (BFF):** If the backend must call downstream APIs, or
+   the browser cannot keep a persistent Web Crypto key, let the BFF own the
+   tokens and key.
 
-For a browser application, choose one of two designs:
+The first design depends on all of the protections below. If the application
+cannot provide them, use a BFF rather than an incomplete version of the design.
 
-1. **Direct SPA with DPoP:** the browser owns the OAuth tokens and a non-extractable
-  signing key, then calls the API directly.
-2. **Backend for frontend (BFF):** the browser receives only an opaque, `HttpOnly`
-  session cookie. The BFF owns the OAuth tokens and DPoP key.
+## Option 1: SPA and API with token cookies (recommended)
 
-Do not put ordinary Bearer tokens in browser JavaScript. A copied Bearer token can be
-used from another machine until it expires or is revoked. DPoP binds a token to a key,
-so copying the token alone is not enough.
+In this design, JavaScript owns a non-extractable DPoP key but cannot read the
+OAuth tokens. The tokens travel in `HttpOnly` cookies, and the API handles the
+calls to Easy OIDC for login, refresh, and revocation. The access token remains
+the credential. The API also keeps a session record containing metadata and the
+current refresh-token hash (and not raw tokens), so that it can coordinate refreshes
+and revoke access immediately.
 
-DPoP does not make an SPA immune to cross-site scripting. Malicious same-origin code can
-still ask the browser to sign requests while it is running. Continue to use a strict CSP,
-escape untrusted content, minimize third-party scripts, and keep access tokens short-lived.
+In this option, the browser sends the access token in an `HttpOnly` cookie rather
+than an `Authorization` header. Most DPoP middleware follows RFC 9449 and expects
+`Authorization: DPoP`, so the API must explicitly support this cookie-based form.
 
-## Option 1: Direct SPA with DPoP
-
-Use this design when the SPA must call the API directly rather than via a BFF.
-
-```text
-┌───────────────┐  code + PKCE + DPoP   ┌───────────┐
-│ SPA + DPoP key│──────────────────────▶│ Easy OIDC │
-└───────┬───────┘                       └───────────┘
-        │ DPoP access token
-┌───────▼───────┐
-│ API           │
-└───────────────┘
+```diagram
+┌ Browser ────────────────────────────────────┐
+│ ┌ SPA ──────────────┐  ┌ IndexedDB ───────┐ │
+│ │ Application code  │  │ DPoP CryptoKey   │ │
+│ │ Signs requests    │  │ Public JWK, hash │ │
+│ │                   │  │ and expiry       │ │
+│ └───────────────────┘  └──────────────────┘ │
+│ ┌ HttpOnly cookie jar ────────────────────┐ │
+│ │ Access and refresh tokens               │ │
+│ └─────────────────────────────────────────┘ │
+└──────────────┬───────────────▲──────────────┘
+               │ proofs +      │ cookies +
+               │ cookies       │ hash/expiry
+               ▼               │
+┌ API ────────────────────────────────────────┐           ┌ Easy OIDC ────────────┐
+│ Resource server and OAuth flow              │── OAuth ─▶│ Authorization server  │
+│                                             │◀─ tokens ─│                       │
+└──────────────────────┬──────────────────────┘           └───────────────────────┘
+                       │ session metadata,
+                       │ refresh-token hash + replay hashes
+                       ▼
+             ┌ API Database ─────────────────┐
+             │ - sessions table              │
+             └───────────────────────────────┘
 ```
 
-Configure a dedicated client with `dpop.mode: required` and `require_par: true`. Also set
-`refresh_tokens.enabled: true` when the SPA needs refresh tokens, `sid`-based application
-sessions, or grant revocation.
+In **Easy OIDC**, configure a dedicated public client with required ES256/P-256
+DPoP, PAR, PKCE, and rotating refresh tokens. Pin its issuer, client ID, callback,
+and provider endpoints. Prefer a same-origin SPA and API. The relevant part of the Easy OIDC configuration looks like this; replace the
+client ID and callback URL, and add the service, state, secrets, and login
+connector settings described in [Configuration](/docs/config/):
 
-1. Create a non-extractable P-256 Web Crypto key for the login. Give each saved account
-   or login session its own key; do not share one key across accounts.
-2. Start Authorization Code + PKCE through `/par`, binding the request to that key.
-3. Preserve `state`, the expected ID-token `nonce`, PKCE verifier, key, and key thumbprint
-   as one pending login. On callback, verify and consume `state`.
-4. Exchange the code with a fresh proof. Validate the ID token's signature, issuer,
-   audience, expiry, and `nonce`, then compare `token_type` case-insensitively with
-   `DPoP`.
-5. Send the access token and a new proof to the API on every request.
-6. Refresh and revoke with new proofs from the same key.
-
-If the SPA and Easy OIDC use different origins, put a reverse proxy, API gateway, or CDN
-configuration that you control in front of Easy OIDC. Configure it to answer browser
-`OPTIONS` requests and allow only the SPA's exact origin. Permit `Content-Type` and
-`DPoP` for `/par`, `/token`, and `/revoke`; permit `Authorization` and `DPoP` for
-`/userinfo`; and let browser code read `WWW-Authenticate`. Easy OIDC does not provide
-these CORS headers itself. The proxy must not change the public scheme, host, or path
-advertised by Easy OIDC because each proof names the exact URL it was created for. If
-the API is also on another origin, configure its CORS policy to allow `Authorization`
-and `DPoP` from the SPA's exact origin.
-
-Web Crypto prevents JavaScript from exporting a non-extractable private key, but the
-SPA can still read its access and refresh tokens. Keep access tokens in memory where
-possible. Keeping a refresh token in browser storage allows login to survive a reload,
-but also makes that token available to malicious same-origin JavaScript. If persistence
-is necessary, use a short refresh-token lifetime, bind the token with DPoP, and do not
-treat `localStorage` as secure storage. If the browser loses the key or clears its
-storage, the user must log in again.
-
-See [DPoP integration](/docs/dpop/) for proof construction and endpoint details.
-
-## Option 2: BFF with DPoP
-
-Use this design when you can operate a same-site backend. It provides the strongest
-browser token isolation because JavaScript in the browser cannot access the OAuth
-tokens.
-
-```text
-┌─────────┐  opaque HttpOnly cookie  ┌──────────────────┐
-│ SPA     │─────────────────────────▶│ BFF + DPoP key   │
-└─────────┘                          └────────┬─────────┘
-                                              │ DPoP tokens
-                                  ┌───────────┴───────────┐
-                                  ▼                       ▼
-                            ┌───────────┐           ┌───────────┐
-                            │ Easy OIDC │           │    API    │
-                            └───────────┘           └───────────┘
+```jsonc
+{
+  "$schema": "https://easy-oidc.dev/schema/v2/config.schema.json",
+  "static_policy": {
+    "clients": {
+      "example-web": {
+        "redirect_uris": ["https://api.example.com/auth/callback"],
+        "require_user_groups_from_policy": false,
+        "dpop": {
+          "mode": "required",
+          "signing_algorithm": "ES256"
+        },
+        "require_par": true,
+        "refresh_tokens": {
+          "enabled": true,
+          "allow_offline_access": false
+        }
+      }
+    }
+  }
+}
 ```
 
-The BFF performs Authorization Code + PKCE and owns the DPoP key, access token, and
-refresh token. Configure refresh tokens when the application needs persistent sessions
-or grant revocation. Before `/par`, create the key and a short-lived, single-use pending
-login containing `state`, expected ID-token `nonce`, PKCE verifier, key, and thumbprint,
-bound to the initiating browser.
+If Easy OIDC should restrict access by group, configure a
+`user_group_mapping` and change `require_user_groups_from_policy` to `true`.
 
-If Easy OIDC is cross-site, use a separate opaque `Secure`, `HttpOnly`, `SameSite=Lax`
-transaction cookie for the top-level callback. On callback, consume the pending login,
-exchange the code with a fresh proof, and validate the ID token including `nonce`. Only
-then issue or rotate the random application session cookie:
+The reference design uses numbered slots so one browser can stay signed in as
+more than one user. A slot is only a small local identifier that ties together
+one DPoP key, token cookies, server session, and cached data; it does not prove
+the user's identity. An app that supports one login can use a single fixed slot.
 
-```http
-Set-Cookie: __Host-app-session=<random-id>; Path=/; Secure; HttpOnly; SameSite=Strict
-```
+### Login
 
-Store tokens and the DPoP key in server-side session storage, encrypted where practical.
-If BFF replicas can serve the same session, they need shared access to that session's key
-or deterministic routing to its owner. Never place the raw OAuth tokens in cookies.
+1. **Browser:** Create a non-extractable P-256 Web Crypto key for the new login
+   and save the `CryptoKey` in pending IndexedDB state for its slot.
+2. **API:** Generate random `state`, an ID-token `nonce`, and an S256 PKCE
+   verifier. Store them with the slot and key thumbprint in short-lived,
+   single-use server state.
+3. **API:** Bind the initiating browser with a separate `Secure`, `HttpOnly`,
+   `SameSite=Lax` transaction cookie. Allow only local redirect destinations.
+4. **Browser and API:** The SPA sends `dpop_jkt` and one fresh proof targeted at
+   Easy OIDC's public `/par` URL. The API constructs the fixed PAR request and
+   forwards the proof.
+5. **API and Browser:** The API callback validates the transaction cookie and
+   `state`, records the code once, and redirects to the SPA. The SPA then posts a
+   fresh `/token` proof; the API consumes the flow and exchanges the code with
+   the stored verifier.
+6. **API:** Validate `token_type: DPoP`; both JWT signatures, issuer, audience,
+   expiry, and purpose; ID-token `nonce`; subject continuity; required `sid`;
+   and access-token `cnf.jkt` against the pending key.
+7. **API:** Commit the session, then set the exact tokens in separate
+   slot-numbered `Secure`, `HttpOnly` cookies with no `Domain`. Access uses
+   `Path=/`; refresh is restricted to the authentication path; both are normally
+   `SameSite=Strict`.
+8. **API and Browser:** The API returns only the access-token hash and expiry.
+   The browser then replaces the pending slot with active state containing only
+   the key, public JWK, hash, and expiry.
 
-The SPA calls the BFF with its session cookie. The BFF applies CSRF protection, then
-either handles the operation itself or calls a downstream API with the DPoP access token
-and a fresh proof. The BFF also creates fresh proofs for token refresh and revocation.
+Apart from the fixed flow values above, the API must choose the provider URL,
+client ID, redirect URI, and OAuth parameters itself rather than accepting them
+from the browser. Authentication responses must use `Cache-Control: no-store`
+and must never expose a raw token, code, or PKCE verifier.
 
-Cookie-authenticated state changes must verify `Origin` and require a custom header or
-CSRF token in addition to an appropriate `SameSite` policy.
+### Authenticated API requests
 
-## Sessions and multiple accounts
+- **Browser:** Use the slot's access-token hash as `ath` and create a fresh proof
+  for every request and retry. The browser sends the matching access cookie
+  automatically.
+- **Browser and API:** If the slot's key is missing or does not match, the browser
+  asks the API to expire the slot's cookies, clears its local state, and requires
+  a new login. Do not attach a replacement key to an existing grant.
+- **API:** Require the access cookie and exactly one proof on every protected
+  browser request. Reject conflicting cookie and `Authorization` credentials.
+- **API:** Reject ambiguous duplicate cookies.
+- **API and Infrastructure:** Do not log or trace cookies, proofs, codes, or
+  tokens.
 
-Easy OIDC access tokens issued with a refresh grant contain its stable session ID
-(`sid`), which the grant retains across rotation. When `sid` is present, keep an
-application session record containing it, the issuer, subject, client ID, creation and
-expiry times, and revocation state. Do not reactivate a revoked `sid` merely because an
-old access token is presented again.
+For every cookie-authenticated request that changes data, the **API** must verify
+the exact `Origin` and require a custom CSRF header. Do not change data through
+`GET` or `HEAD`. `SameSite` and DPoP do not replace CSRF protection.
 
-For multiple simultaneous accounts, give each saved login a local slot. For example, an
-SPA might store work account `user+work@example.com` as slot `1` and personal account
-`user+personal@example.com` as slot `2`; each slot has its own DPoP key, tokens, and cached data.
-A BFF can use the slot in the session-cookie name, while a direct SPA can use it in its
-local account record. The slot only selects local state—it does not prove who the user
-is. Include it in cache keys so one account cannot reuse another account's cached data.
+### API validation
 
-## API validation
+Before trusting information from a token:
 
-This section applies to both designs whenever an API receives a DPoP access token. With
-Option 1, the SPA sends the token to the API. With Option 2, the BFF sends it to the API;
-the browser-to-BFF request uses the session cookie instead.
+1. **API:** Verify the access JWT signature with an algorithm allowlist, then
+   issuer, audience, expiry, purpose, scopes, and other authorization claims.
+   Cache JWKS and rate-limit refreshes for unknown key IDs.
+2. **API:** Require `cnf.jkt`. Validate proof type, ES256/P-256 public JWK,
+   signature, exact method and externally visible query-free `htu`, bounded
+   `iat`, nonempty `jti`, and `ath`. Match the proof thumbprint to `cnf.jkt`.
+3. **API:** Atomically reserve a hash of `(jkt, jti, htm, htu)` in replay storage
+   shared by every API replica until the proof expires. Reject duplicates, and
+   return `503` if the storage is unavailable.
+4. **API:** Require an unrevoked, unexpired session keyed by trusted issuer,
+   client ID, `sid`, and subject. Never create or reactivate it from a presented
+   token.
+5. **API:** Enforce resource-level authorization; no valid token, slot, session,
+   scope, or group alone grants resource access.
 
-Validate the JWT before reading application session state:
+The **API** must build `htu` from trusted external configuration, not forwarding
+headers. If the SPA and API have different origins but remain same-site, allow
+credentials only from the exact SPA origin. If they are cross-site, use direct
+SPA DPoP or put a same-site BFF in front of the API.
 
-1. Verify its signature using Easy OIDC's JWKS. Cache keys and rate-limit refreshes so
-   forged tokens cannot cause an upstream request flood.
-2. Validate issuer, intended audience, expiry, token purpose, and required scopes or
-   groups.
-3. Inspect `cnf.jkt`. If present, require `Authorization: DPoP`, validate the proof and
-   `ath`, match its key thumbprint, and reserve its `jti` in replay storage shared by all
-   API replicas. Never accept that token as Bearer.
-4. If `cnf.jkt` is absent, accept only Bearer and only for a client intentionally
-   configured for Bearer access.
-5. If `sid` is present, apply a bounded per-`sid` rate limit, then reject expired or
-   revoked application sessions.
+### Refresh and logout
 
-Resource servers that do not share the application session check may continue accepting
-an otherwise valid access token until it expires.
+- **Browser:** Create refresh and revocation proofs with the same slot key and the
+  real Easy OIDC endpoint URL; these proofs do not include `ath`.
+- **API:** Serialize refresh-token rotation per `sid` in durable server state and
+  store only a refresh-token hash.
+- **Browser:** Use the browser's
+  [Web Locks API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Locks_API)
+  to coordinate refreshes between tabs; the API remains responsible for durable
+  serialization.
+- **API:** During refresh, verify the current access JWT and every binding claim
+  except expiry before using its `sid`, subject, or `cnf.jkt` to locate the
+  session. Never authorize a resource with an expired token.
+- **API:** Validate every replacement token and require continuity of issuer,
+  client, `sid`, subject, and `cnf.jkt` before rotating cookies or browser
+  metadata.
+- **Browser and API:** Prevent stale requests or late responses from overwriting
+  a newer token, key, or cleared slot. If it is unclear whether rotation
+  succeeded, require a new login rather than falling back to weaker
+  authentication.
+- **API:** On logout, revoke the local `sid` first, then ask Easy OIDC to revoke the
+  grant. Always clear the token cookies, even if remote revocation fails.
+- **Browser:** Always clear the slot's key on logout. Do not refresh or reactivate
+  a revoked `sid`.
 
-## Logout and revocation
+## Option 2: Direct SPA with DPoP
 
-Logging out should:
+Use direct SPA DPoP when JavaScript must call resource servers itself. Send
+`Authorization: DPoP <access-token>` with a fresh proof. Keep access tokens in
+memory where possible and avoid persistent refresh tokens. If persistence is
+necessary, bind the refresh token with DPoP and use a short lifetime, because
+browser storage is not secret storage.
 
-1. mark the application session's `sid` revoked;
-2. revoke the refresh grant with Easy OIDC using the correct DPoP proof; and
-3. delete browser, BFF, or local credentials even if remote revocation fails.
+If Easy OIDC is cross-origin, a controlled proxy must provide exact-origin CORS
+for `/par`, `/token`, and `/revoke` without changing their public URLs.
 
-The application session check makes logout immediate for that API. Easy OIDC's
-`GET /grants` also lets a user list and revoke active refresh grants without creating a
-new token-bearing session. Already-issued stateless access tokens remain valid at APIs
-that do not consult application revocation state.
+## Option 3: Backend For Frontend (BFF)
 
-## CLI and other direct clients
+Use a BFF when the backend must call downstream APIs or the browser cannot keep a
+durable key. The BFF protects the tokens and DPoP key, while the browser receives
+a random `Secure`, `HttpOnly`, `SameSite` session cookie. The BFF creates proofs
+for Easy OIDC and downstream APIs. Apply the same validation, rotation,
+revocation, and cookie-CSRF protections. Multiple BFF replicas must share token
+and key state or route each session to the same replica.
 
-Register CLIs and automation under separate client IDs. Prefer DPoP when the client can
-protect a persistent signing key; use Authorization Code + PKCE with a loopback callback
-for interactive CLIs. Store tokens and keys in the operating-system credential store,
-or in files with restrictive permissions when no credential store exists.
+## CLIs and XSS
 
-Bearer can remain available for clients that cannot implement DPoP, but keep those
-clients separate and accept the greater consequence of token theft. Browser and BFF
-endpoints must reject requests that present conflicting cookie and `Authorization`
-credentials.
+Register CLIs and automation under separate client IDs. Prefer DPoP with
+Authorization Code + PKCE and a loopback callback; store credentials in the OS
+credential store. Keep Bearer-only clients separate and accept their greater
+token-theft risk.
+
+DPoP limits credential theft; it does not stop malicious same-origin code from
+using a key while present. Maintain a strict CSP, escape untrusted content,
+minimize third-party scripts, and use Trusted Types where practical.
