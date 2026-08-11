@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 set -eo pipefail
+umask 077
 
 # Userdata script for Debian stable, which sets up easy-oidc and Caddy on a fresh instance.
 # Variables which you can set prior to invoking this script:
@@ -190,14 +191,14 @@ chown -R caddy:caddy /var/lib/caddy
 echo "Creating configuration files..."
 
 # Write easy-oidc config (already a complete JSON document from Terraform)
-echo "${EASY_OIDC_CONFIG}" > /etc/easy-oidc/config.jsonc
-chown easy-oidc:easy-oidc /etc/easy-oidc/config.jsonc
+install -o easy-oidc -g easy-oidc -m 0600 /dev/null /etc/easy-oidc/config.jsonc
+printf '%s\n' "${EASY_OIDC_CONFIG}" > /etc/easy-oidc/config.jsonc
 
 # Write Caddyfile (expand variables)
+install -o root -g caddy -m 0640 /dev/null /etc/caddy/Caddyfile
 cat > /etc/caddy/Caddyfile <<EOF
 $(eval "echo \"${CADDYFILE}\"")
 EOF
-chown caddy:caddy /etc/caddy/Caddyfile
 
 # === Install systemd services ===
 echo "Installing systemd services..."
@@ -260,7 +261,9 @@ LimitNPROC=512
 PrivateTmp=true
 ProtectSystem=full
 ReadWritePaths=/var/lib/caddy
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
 
 [Install]
 WantedBy=multi-user.target

@@ -984,6 +984,15 @@
           "if": { "properties": { "provider": { "const": "oidc" } } },
           "then": {
             "required": ["issuer_url", "signing_algs", "max_token_age"]
+          },
+          "else": {
+            "not": {
+              "anyOf": [
+                { "required": ["issuer_url"] },
+                { "required": ["signing_algs"] },
+                { "required": ["max_token_age"] }
+              ]
+            }
           }
         }
       ]

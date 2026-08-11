@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -17,6 +19,11 @@ import (
 
 // NewSQLite opens an initialized SQLite state database.
 func NewSQLite(dbPath string, logger *slog.Logger) (*Store, error) {
+	if dbPath != ":memory:" {
+		if err := prepareSQLitePath(dbPath); err != nil {
+			return nil, err
+		}
+	}
 	dsn := dbPath
 	if dbPath != ":memory:" {
 		dsn = "file:" + url.PathEscape(dbPath)
@@ -52,6 +59,39 @@ func NewSQLite(dbPath string, logger *slog.Logger) (*Store, error) {
 	s.cancel, s.cleanupCtx, s.done = cancel, ctx, make(chan struct{})
 	go s.cleanupExpired(ctx)
 	return s, nil
+}
+
+// prepareSQLitePath creates private state storage and rejects existing paths with unsafe permissions.
+func prepareSQLitePath(dbPath string) error {
+	directory := filepath.Dir(dbPath)
+	if err := os.MkdirAll(directory, 0700); err != nil {
+		return fmt.Errorf("create state database directory: %w", err)
+	}
+	info, err := os.Stat(directory)
+	if err != nil {
+		return fmt.Errorf("inspect state database directory: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("state database directory %q is not a directory", directory)
+	}
+	file, err := os.OpenFile(dbPath, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600)
+	if err == nil {
+		if closeErr := file.Close(); closeErr != nil {
+			return fmt.Errorf("close new state database: %w", closeErr)
+		}
+		return nil
+	}
+	if !os.IsExist(err) {
+		return fmt.Errorf("create state database: %w", err)
+	}
+	info, err = os.Lstat(dbPath)
+	if err != nil {
+		return fmt.Errorf("inspect state database: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
+		return fmt.Errorf("state database %q must be a regular file with permissions 0600 or stricter", dbPath)
+	}
+	return nil
 }
 
 // initSQLiteSchema creates the required SQLite tables.

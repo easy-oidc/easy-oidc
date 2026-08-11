@@ -209,12 +209,15 @@ func (s *Server) HandleConsent(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	state, err := s.authCodeMgr.DecodeState(r.FormValue("state"))
+	if !parseBrowserForm(w, r, "state", "decision") {
+		return
+	}
+	state, err := s.authCodeMgr.DecodeState(r.PostForm.Get("state"))
 	if err != nil || state.RefreshMode != "offline" {
 		http.Error(w, "invalid state", 400)
 		return
 	}
-	if r.FormValue("decision") != "accept" {
+	if r.PostForm.Get("decision") != "accept" {
 		redirectAuthorizationError(w, r, state.RedirectURI, state.OIDCState, "access_denied")
 		return
 	}

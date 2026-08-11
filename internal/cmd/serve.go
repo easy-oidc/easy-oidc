@@ -269,9 +269,15 @@ func serve(ctx context.Context, output io.Writer, configPath string, debug, demo
 		store, err = statedb.NewPostgreSQL(ctx, connectionString, cfg.StateDatabase.MaxConnections, cfg.StateDatabase.QueryTimeout.Duration(), logger)
 	} else {
 		directory := filepath.Dir(cfg.StateDatabase.Path)
-		if err = os.MkdirAll(directory, 0755); err != nil {
-			logger.Error("failed to create state database directory", "error", err, "path", directory)
-			return err
+		if err = os.MkdirAll(directory, 0700); err != nil {
+			return fmt.Errorf("create state database directory: %w", err)
+		}
+		info, statErr := os.Stat(directory)
+		if statErr != nil {
+			return fmt.Errorf("inspect state database directory: %w", statErr)
+		}
+		if !info.IsDir() || info.Mode().Perm()&0077 != 0 {
+			return fmt.Errorf("state database directory %q must be a directory with permissions 0700 or stricter", directory)
 		}
 		store, err = statedb.NewSQLite(cfg.StateDatabase.Path, logger)
 	}
@@ -312,7 +318,7 @@ func serve(ctx context.Context, output io.Writer, configPath string, debug, demo
 	mux.HandleFunc("POST /email/start", server.HandleEmailStart)
 	mux.HandleFunc("POST /email/verify", server.HandleEmailVerify)
 	mux.HandleFunc("POST /email/resend", server.HandleEmailResend)
-	httpServer := &http.Server{Addr: cfg.HTTPListenAddr, Handler: server.LimitPublicEndpoints(mux), TLSConfig: servingTLSConfig, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
+	httpServer := &http.Server{Addr: cfg.HTTPListenAddr, Handler: server.SecurityHeaders(server.LimitPublicEndpoints(mux)), TLSConfig: servingTLSConfig, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 
 	// Run the server and wait for either a server error or a shutdown signal.
 	logger.Info("starting easy-oidc server", "version", buildvars.BuildVersion(), "issuer", cfg.IssuerURL, "protocol", protocol, "listen_addr", cfg.HTTPListenAddr, "connectors", len(cfg.UserLoginConnectors))

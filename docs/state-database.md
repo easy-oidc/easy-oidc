@@ -83,12 +83,13 @@ For least privilege, give migration and runtime operations different roles:
 revoked. Reapply runtime table grants after migrations when needed.
 
 The AWS and Google Cloud Terraform modules leave migration-only credentials off
-the VM by default. Set the module's `run_state_database_migrations` input to
-`true` to grant the VM access to the configured migration secret and run
-`easy-oidc migrate` before every service start. A failed migration prevents the
-service from starting. Keep the default and migrate from your deployment
-pipeline when the application VM should not hold the more privileged migration
-credential.
+the VM by default. Set the module input `run_db_migrations` to `true` to grant
+the VM access to the configured migration secret. The module passes this input
+to `deploy/userdata.sh` as `RUN_DB_MIGRATIONS`, which runs `easy-oidc migrate`
+before every service start. This is a module input, not a field in the Easy OIDC
+configuration. A failed migration prevents the service from starting. Keep the
+default and migrate from your deployment pipeline when the application VM
+should not hold the more privileged migration credential.
 
 ## Production checklist
 

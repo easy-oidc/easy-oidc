@@ -276,6 +276,9 @@ func request(client *http.Client, method, target string, form url.Values, proof,
 
 // tokenThumbprint decodes the untrusted cnf.jkt claim solely for an E2E assertion.
 func tokenThumbprint(token string) (string, error) {
+	if len(token) > 16<<10 {
+		return "", fmt.Errorf("token exceeds 16 KiB")
+	}
 	var claims struct {
 		jwt.RegisteredClaims
 		Confirmation struct {

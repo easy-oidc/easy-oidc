@@ -43,12 +43,15 @@ func (s *Server) HandleEmailStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	state, err := s.authCodeMgr.DecodeState(r.FormValue("state"))
+	if !parseBrowserForm(w, r, "state", "connector", "cf-turnstile-response", "email") {
+		return
+	}
+	state, err := s.authCodeMgr.DecodeState(r.PostForm.Get("state"))
 	if err != nil || state.ConnectorID != "" {
 		http.Error(w, "invalid state", 400)
 		return
 	}
-	connectorID := r.FormValue("connector")
+	connectorID := r.PostForm.Get("connector")
 	connector, ok := s.config.UserLoginConnectors[connectorID]
 	if !ok || connector.Type != "email" {
 		http.Error(w, "invalid connector", 400)
@@ -56,11 +59,11 @@ func (s *Server) HandleEmailStart(w http.ResponseWriter, r *http.Request) {
 	}
 	state.ConnectorID = connectorID
 	host, _, _ := net.SplitHostPort(r.RemoteAddr)
-	if err = s.challenge.Verify(r.Context(), r.FormValue("cf-turnstile-response"), host); err != nil {
+	if err = s.challenge.Verify(r.Context(), r.PostForm.Get("cf-turnstile-response"), host); err != nil {
 		http.Error(w, "request rejected", 400)
 		return
 	}
-	email, err := normalizeEmail(r.FormValue("email"))
+	email, err := normalizeEmail(r.PostForm.Get("email"))
 	if err != nil {
 		http.Error(w, "invalid email", 400)
 		return
@@ -100,8 +103,11 @@ func (s *Server) HandleEmailVerify(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "email verification unavailable", http.StatusNotFound)
 		return
 	}
-	challengeID := r.FormValue("challenge")
-	flow, err := s.store.ConsumeOTP(challengeID, r.FormValue("code"), s.otpSecret, time.Now())
+	if !parseBrowserForm(w, r, "challenge", "code") {
+		return
+	}
+	challengeID := r.PostForm.Get("challenge")
+	flow, err := s.store.ConsumeOTP(challengeID, r.PostForm.Get("code"), s.otpSecret, time.Now())
 	if err != nil {
 		http.Error(w, "invalid code", 400)
 		return
@@ -135,7 +141,10 @@ func (s *Server) HandleEmailResend(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "email verification unavailable", http.StatusNotFound)
 		return
 	}
-	id := r.FormValue("challenge")
+	if !parseBrowserForm(w, r, "challenge") {
+		return
+	}
+	id := r.PostForm.Get("challenge")
 	code, err := otpCode()
 	var flow statedb.OTPFlow
 	var expiresAt time.Time

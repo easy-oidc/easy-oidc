@@ -22,8 +22,9 @@ func TestHandleDiscoveryAdvertisesConfiguredSigningAlgorithm(t *testing.T) {
 	server.HandleDiscovery(response, httptest.NewRequest(http.MethodGet, "/.well-known/openid-configuration", nil))
 
 	var discovery struct {
-		SigningAlgorithms     []string `json:"id_token_signing_alg_values_supported"`
-		DPoPSigningAlgorithms []string `json:"dpop_signing_alg_values_supported"`
+		SigningAlgorithms        []string `json:"id_token_signing_alg_values_supported"`
+		DPoPSigningAlgorithms    []string `json:"dpop_signing_alg_values_supported"`
+		TokenAuthenticationModes []string `json:"token_endpoint_auth_methods_supported"`
 	}
 	if err := json.NewDecoder(response.Body).Decode(&discovery); err != nil {
 		t.Fatal(err)
@@ -33,5 +34,8 @@ func TestHandleDiscoveryAdvertisesConfiguredSigningAlgorithm(t *testing.T) {
 	}
 	if got := discovery.DPoPSigningAlgorithms; len(got) != 2 || got[0] != "ES256" || got[1] != "ES512" {
 		t.Fatalf("DPoP signing algorithms = %v, want [ES256 ES512]", got)
+	}
+	if got := discovery.TokenAuthenticationModes; len(got) != 1 || got[0] != "none" {
+		t.Fatalf("token authentication modes = %v, want [none]", got)
 	}
 }

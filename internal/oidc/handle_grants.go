@@ -58,15 +58,14 @@ func (s *Server) HandleGrantRevoke(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid request", 400)
+	if !parseBrowserForm(w, r, "email", "action_token", "sid") {
 		return
 	}
-	email, err := normalizeEmail(r.FormValue("email"))
+	email, err := normalizeEmail(r.PostForm.Get("email"))
 	if err != nil {
 		err = statedb.ErrInvalidGrant
 	} else {
-		err = s.store.ConsumeGrantActionAndRevoke(r.FormValue("action_token"), email, r.FormValue("sid"), "revoke", time.Now().UTC())
+		err = s.store.ConsumeGrantActionAndRevoke(r.PostForm.Get("action_token"), email, r.PostForm.Get("sid"), "revoke", time.Now().UTC())
 	}
 	status, message := http.StatusOK, "The grant was revoked. Existing access tokens may remain valid until they expire."
 	if err != nil {

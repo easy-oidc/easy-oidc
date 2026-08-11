@@ -84,9 +84,9 @@ External OIDC and CI identities use three configuration layers:
 ```
 
 Issuer `provider` is `github`, `buildkite`, or `oidc`. The GitHub and Buildkite
-presets supply their official issuer settings. Generic `oidc` issuers require
-`issuer_url`, `signing_algs`, and `max_token_age`; HTTPS is required except on
-localhost.
+presets supply their official issuer settings and do not accept overrides for
+`issuer_url`, `signing_algs`, or `max_token_age`. Generic `oidc` issuers require
+all three settings; HTTPS is required except on localhost.
 
 Claim rules are JSON Schema fragments, and every configured claim must be present.
 The `claims` from a binding are overlayed on top of `claims` from a policy, where

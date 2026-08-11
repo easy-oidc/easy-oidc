@@ -36,12 +36,11 @@ func (s *Server) renderIdentitySelection(w http.ResponseWriter, stateToken, conn
 
 // HandleIdentitySelect consumes a selection and its original OAuth state exactly once.
 func (s *Server) HandleIdentitySelect(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid selection", http.StatusBadRequest)
+	if !parseBrowserForm(w, r, "token", "index") {
 		return
 	}
-	stateToken, connectorID, subject, emails, err := s.store.ConsumeIdentitySelection(r.FormValue("token"), time.Now())
-	index, indexErr := strconv.Atoi(r.FormValue("index"))
+	stateToken, connectorID, subject, emails, err := s.store.ConsumeIdentitySelection(r.PostForm.Get("token"), time.Now())
+	index, indexErr := strconv.Atoi(r.PostForm.Get("index"))
 	if err != nil || indexErr != nil || index < 0 || index >= len(emails) {
 		http.Error(w, "invalid selection", http.StatusBadRequest)
 		return

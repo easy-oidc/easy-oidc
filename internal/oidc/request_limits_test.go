@@ -7,11 +7,49 @@ package oidc
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"golang.org/x/time/rate"
 )
+
+// TestSecurityHeadersPreventFraming verifies the central middleware protects every response.
+func TestSecurityHeadersPreventFraming(t *testing.T) {
+	server := &Server{}
+	handler := server.SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/authorize", nil))
+	if got := response.Header().Get("Content-Security-Policy"); got != "frame-ancestors 'none'" {
+		t.Fatalf("Content-Security-Policy = %q", got)
+	}
+	if got := response.Header().Get("X-Frame-Options"); got != "DENY" {
+		t.Fatalf("X-Frame-Options = %q", got)
+	}
+}
+
+// TestParseBrowserFormRejectsUnsafeRequests verifies form type, size, and field uniqueness checks.
+func TestParseBrowserFormRejectsUnsafeRequests(t *testing.T) {
+	tests := []struct {
+		name, contentType, body string
+	}{
+		{name: "wrong content type", contentType: "text/plain", body: "state=one"},
+		{name: "duplicate field", contentType: "application/x-www-form-urlencoded", body: "state=one&state=two"},
+		{name: "oversized", contentType: "application/x-www-form-urlencoded", body: "state=" + strings.Repeat("a", maxBrowserFormBytes)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "/consent", strings.NewReader(test.body))
+			request.Header.Set("Content-Type", test.contentType)
+			response := httptest.NewRecorder()
+			if parseBrowserForm(response, request, "state") || response.Code != http.StatusBadRequest {
+				t.Fatalf("accepted unsafe form with status %d", response.Code)
+			}
+		})
+	}
+}
 
 // TestPublicEndpointRateLimitsRunBeforeHandlers verifies floods do no handler work.
 func TestPublicEndpointRateLimitsRunBeforeHandlers(t *testing.T) {

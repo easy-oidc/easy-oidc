@@ -28,6 +28,7 @@ func (s *Server) HandleDiscovery(w http.ResponseWriter, r *http.Request) {
 		"id_token_signing_alg_values_supported": []string{s.config.SigningAlgorithm},
 		"scopes_supported":                      []string{"openid", "email", "profile", "groups", "offline_access"},
 		"grant_types_supported":                 []string{"authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:token-exchange"},
+		"token_endpoint_auth_methods_supported": []string{"none"},
 		"claims_supported":                      []string{"sub", "email", "email_verified", "preferred_username", "groups"},
 		"code_challenge_methods_supported":      []string{"S256"},
 	}

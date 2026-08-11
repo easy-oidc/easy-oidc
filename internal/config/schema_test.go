@@ -121,6 +121,18 @@ func TestConfigSchemaContracts(t *testing.T) {
 		{"legacy OIDC trust field", false, func(cfg map[string]any) {
 			cfg["oidc_trust"] = map[string]any{}
 		}},
+		{"GitHub preset issuer override", false, func(cfg map[string]any) {
+			cfg["service_token_issuers"] = map[string]any{"github": map[string]any{"provider": "github", "issuer_url": "https://evil.example.com"}}
+		}},
+		{"GitHub preset signing algorithms override", false, func(cfg map[string]any) {
+			cfg["service_token_issuers"] = map[string]any{"github": map[string]any{"provider": "github", "signing_algs": []any{"RS256"}}}
+		}},
+		{"Buildkite preset token age override", false, func(cfg map[string]any) {
+			cfg["service_token_issuers"] = map[string]any{"buildkite": map[string]any{"provider": "buildkite", "max_token_age": "5m"}}
+		}},
+		{"complete custom OIDC issuer", true, func(cfg map[string]any) {
+			cfg["service_token_issuers"] = map[string]any{"custom": map[string]any{"provider": "oidc", "issuer_url": "https://issuer.example.com", "signing_algs": []any{"RS256"}, "max_token_age": "5m"}}
+		}},
 		{"mixed connectors require encryption", false, addGitHub},
 		{"GitHub with encryption", true, func(cfg map[string]any) {
 			addGitHub(cfg)
