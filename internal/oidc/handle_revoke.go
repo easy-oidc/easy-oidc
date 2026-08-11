@@ -29,11 +29,6 @@ func (s *Server) HandleRevoke(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, http.StatusBadRequest, "invalid_request", "form content type is required")
 		return
 	}
-	if !s.revokeRequests.allow(time.Now()) {
-		w.Header().Set("Retry-After", "1")
-		oauthError(w, http.StatusTooManyRequests, "temporarily_unavailable", "request rate exceeded")
-		return
-	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxTokenFormBytes)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {

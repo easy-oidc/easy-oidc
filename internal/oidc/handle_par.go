@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/easy-oidc/easy-oidc/internal/authpolicy"
@@ -21,37 +20,7 @@ import (
 	"github.com/easy-oidc/easy-oidc/internal/statedb"
 )
 
-const (
-	maxPARBody            = 16 << 10
-	admissionRequestsPerS = 100
-	admissionRequestBurst = 200
-)
-
-// requestLimiter bounds aggregate endpoint work per server process.
-type requestLimiter struct {
-	mu      sync.Mutex
-	tokens  float64
-	updated time.Time
-}
-
-// allow admits a request from a fixed-rate token bucket.
-func (l *requestLimiter) allow(now time.Time) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.updated.IsZero() {
-		l.tokens = admissionRequestBurst
-		l.updated = now
-	}
-	if elapsed := now.Sub(l.updated); elapsed > 0 {
-		l.tokens = min(admissionRequestBurst, l.tokens+elapsed.Seconds()*admissionRequestsPerS)
-		l.updated = now
-	}
-	if l.tokens < 1 {
-		return false
-	}
-	l.tokens--
-	return true
-}
+const maxPARBody = 16 << 10
 
 // HandlePAR validates and stores an RFC 9126 pushed authorization request.
 func (s *Server) HandlePAR(w http.ResponseWriter, r *http.Request) {
@@ -60,11 +29,6 @@ func (s *Server) HandlePAR(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	if !s.parRequests.allow(time.Now()) {
-		w.Header().Set("Retry-After", "1")
-		writeOAuthJSON(w, http.StatusTooManyRequests, "temporarily_unavailable")
-		return
-	}
 	if r.URL.RawQuery != "" {
 		writeOAuthJSON(w, 400, "invalid_request")
 		return

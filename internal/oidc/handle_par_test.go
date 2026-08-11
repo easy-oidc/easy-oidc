@@ -122,19 +122,6 @@ func TestHandlePARStoresOneTimeRequest(t *testing.T) {
 	}
 }
 
-// TestHandlePARBoundsAdmission verifies overload is rejected before request processing.
-func TestHandlePARBoundsAdmission(t *testing.T) {
-	server, _ := authorizeServer(t, nil)
-	server.parRequests = requestLimiter{updated: time.Now().Add(time.Second)}
-	request := httptest.NewRequest(http.MethodPost, "/par", strings.NewReader("client_id=client"))
-	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	response := httptest.NewRecorder()
-	server.HandlePAR(response, request)
-	if response.Code != http.StatusTooManyRequests || response.Header().Get("Retry-After") != "1" || !strings.Contains(response.Body.String(), "temporarily_unavailable") {
-		t.Fatalf("overload response = %d %q, headers=%v", response.Code, response.Body.String(), response.Header())
-	}
-}
-
 // TestHandlePARRejectsDuplicateParameters verifies strict form parsing.
 func TestHandlePARRejectsDuplicateParameters(t *testing.T) {
 	server, _ := authorizeServer(t, nil)

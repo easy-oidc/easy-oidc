@@ -80,19 +80,6 @@ func revokeServer(t *testing.T) (*Server, *statedb.Store, *tokens.Signer) {
 	return &Server{config: cfg, store: store, signer: signer, logger: logger, policyResolver: authpolicy.NewResolver(cfg, nil)}, store, signer
 }
 
-// TestHandleRevokeBoundsAdmission verifies overload is rejected before form parsing.
-func TestHandleRevokeBoundsAdmission(t *testing.T) {
-	server, _, _ := revokeServer(t)
-	server.revokeRequests = requestLimiter{updated: time.Now().Add(time.Second)}
-	request := httptest.NewRequest(http.MethodPost, "/revoke", strings.NewReader("not-valid-form=%zz"))
-	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	response := httptest.NewRecorder()
-	server.HandleRevoke(response, request)
-	if response.Code != http.StatusTooManyRequests || response.Header().Get("Retry-After") != "1" || !strings.Contains(response.Body.String(), `"error":"temporarily_unavailable"`) {
-		t.Fatalf("response = %d, headers %v, body %q", response.Code, response.Header(), response.Body.String())
-	}
-}
-
 // createRevocableGrant inserts one active refresh family for handler tests.
 func createRevocableGrant(t *testing.T, store *statedb.Store, sid, clientID string) statedb.RefreshMaterial {
 	t.Helper()
