@@ -13,7 +13,6 @@ permissions:
 concurrency:
   group: tf-module-sync
   cancel-in-progress: false
-  queue: max
 
 jobs:
   sync:
