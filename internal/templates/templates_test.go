@@ -139,6 +139,24 @@ func TestDefaultEmailIncludesExpiry(t *testing.T) {
 	}
 }
 
+// TestDefaultHTMLEmailUsesPageStyling verifies the default email retains the visual language of the default pages.
+func TestDefaultHTMLEmailUsesPageStyling(t *testing.T) {
+	m, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	data := OTPEmailData{Code: "12345678", ExpiresAt: time.Date(2026, time.July, 27, 12, 34, 0, 0, time.UTC), ExpiresIn: 5 * time.Minute}
+	if err = m.RenderEmail(&out, "html", data); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"background-color: #f5f5f5", "background-color: #ffffff", "border-radius: 12px", "font-family: -apple-system", "12345678"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("default HTML email omitted %q: %s", want, out.String())
+		}
+	}
+}
+
 // TestLoadRejectsInvalidEmailOverlay verifies invalid email overlays fail loading.
 func TestLoadRejectsInvalidEmailOverlay(t *testing.T) {
 	dir := t.TempDir()

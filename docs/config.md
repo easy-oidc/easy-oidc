@@ -353,7 +353,7 @@ filesystem: provide only the files you want to replace.
 | `pages/layout.html` | Common HTML page layout. |
 | `pages/selector.html` | `.Title`, `.State`, `.SiteKey`, `.Connectors` (`.ID`, `.DisplayName`, `.URL`, `.Email`). |
 | `pages/identity.html` | `.Title`, `.Token`, `.Emails` (`.Address`, `.Verified`, `.Primary`). |
-| `pages/otp.html` | `.Title`, `.ChallengeID`, `.Message`. |
+| `pages/otp.html` | `.Title`, `.ChallengeID`, `.Message`, `.Email`, `.ExpiresIn`. |
 | `pages/error.html` | `.Title`, `.Message`. |
 | `email/layout.html` | Common HTML email layout. |
 | `email/otp.html` | `.Code`, `.ExpiresAt`, `.ExpiresIn`. |

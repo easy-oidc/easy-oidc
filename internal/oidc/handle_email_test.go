@@ -50,7 +50,7 @@ func TestBeginOTPDoesNotExposeSMTPFailure(t *testing.T) {
 		_ = store.Close()
 		statuses = append(statuses, response.Code)
 		responses = append(responses, response.Body.String())
-		if !strings.Contains(responses[i], "A code was sent") {
+		if !strings.Contains(responses[i], "user@example.com") || !strings.Contains(responses[i], "5 minutes") {
 			t.Fatalf("response %d exposed delivery outcome: %s", i, responses[i])
 		}
 	}
@@ -81,7 +81,7 @@ func TestHandleEmailStartUsesConnectorFromSelector(t *testing.T) {
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	response := httptest.NewRecorder()
 	server.HandleEmailStart(response, request)
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "A code was sent") {
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "user@example.com") || !strings.Contains(response.Body.String(), "5 minutes") {
 		t.Fatalf("unexpected email start response: %d %s", response.Code, response.Body.String())
 	}
 }

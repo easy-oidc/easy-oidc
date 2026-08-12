@@ -1,1 +1,39 @@
-{{define "layout"}}<!doctype html><html><body>{{template "content" .}}</body></html>{{end}}
+{{define "layout"}}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Easy OIDC verification code</title>
+  </head>
+  <body
+    style="margin: 0; padding: 0; background-color: #f5f5f5; color: #1a1a1a; font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;"
+  >
+    <table
+      role="presentation"
+      width="100%"
+      cellspacing="0"
+      cellpadding="0"
+      border="0"
+      style="width: 100%; background-color: #f5f5f5;"
+    >
+      <tr>
+        <td align="center" style="padding: 20px;">
+          <table
+            role="presentation"
+            width="100%"
+            cellspacing="0"
+            cellpadding="0"
+            border="0"
+            style="width: 100%; max-width: 600px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);"
+          >
+            <tr>
+              <td style="padding: 48px 64px;">{{template "content" .}}</td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
+{{end}}

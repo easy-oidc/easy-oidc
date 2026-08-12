@@ -1,15 +1,19 @@
 {{define "content"}}
 <h1>Enter your 8-digit code</h1>
-{{if .Message}}
+{{if .Email}}
+<p>We've emailed a verification code to <strong>{{.Email}}</strong>. It expires in {{printf "%.0f" .ExpiresIn.Minutes}} minutes. Enter it below.</p>
+{{else if .Message}}
 <p>{{.Message}}</p>
 {{end}}
-<form method="post" action="/email/verify">
-  <input type="hidden" name="challenge" value="{{.ChallengeID}}" />
-  <input name="code" inputmode="numeric" pattern="[0-9]{8}" required />
-  <button>Verify</button>
-</form>
-<form method="post" action="/email/resend">
-  <input type="hidden" name="challenge" value="{{.ChallengeID}}" />
-  <button>Resend code</button>
-</form>
+<div class="otp-actions">
+  <form method="post" action="/email/verify">
+    <input type="hidden" name="challenge" value="{{.ChallengeID}}" />
+    <input name="code" inputmode="numeric" pattern="[0-9]{8}" required />
+    <button>Verify</button>
+  </form>
+  <form method="post" action="/email/resend">
+    <input type="hidden" name="challenge" value="{{.ChallengeID}}" />
+    <button class="otp-resend">Resend code</button>
+  </form>
+</div>
 {{end}}

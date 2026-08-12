@@ -94,7 +94,7 @@ func (s *Server) beginOTP(w http.ResponseWriter, r *http.Request, state OAuthSta
 		s.logger.Error("send OTP", "error", err)
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = s.templates.RenderPage(w, "otp", templates.OTPData{Title: "Verify email", ChallengeID: challenge, Message: "A code was sent."})
+	_ = s.templates.RenderPage(w, "otp", templates.OTPData{Title: "Verify email", ChallengeID: challenge, Message: "A code was sent.", Email: email, ExpiresIn: otpTTL})
 }
 
 // HandleEmailVerify consumes an OTP and completes authorization.
@@ -159,5 +159,5 @@ func (s *Server) HandleEmailResend(w http.ResponseWriter, r *http.Request) {
 		s.logger.Warn("resend OTP", "error", err)
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = s.templates.RenderPage(w, "otp", templates.OTPData{Title: "Verify email", ChallengeID: id, Message: "A new code was sent."})
+	_ = s.templates.RenderPage(w, "otp", templates.OTPData{Title: "Verify email", ChallengeID: id, Message: "A new code was sent.", Email: flow.Email, ExpiresIn: s.config.Email.OTPTTL.Duration()})
 }

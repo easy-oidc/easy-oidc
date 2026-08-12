@@ -24,7 +24,7 @@ func TestConnectorSelectorPreservesOpaqueAuthorizationRequest(t *testing.T) {
 	})
 	response := httptest.NewRecorder()
 	server.HandleAuthorize(response, authorizationRequest())
-	if response.Code != http.StatusOK || !regexp.MustCompile(`Choose a sign-in method`).Match(response.Body.Bytes()) {
+	if response.Code != http.StatusOK || !regexp.MustCompile(`<h1>Sign in</h1>`).Match(response.Body.Bytes()) {
 		t.Fatalf("unexpected selector response: %d %s", response.Code, response.Body.String())
 	}
 	match := regexp.MustCompile(`href="([^"]*select/google[^"]*)"`).FindStringSubmatch(response.Body.String())

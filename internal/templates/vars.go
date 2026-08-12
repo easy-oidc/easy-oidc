@@ -21,7 +21,10 @@ type SelectorData struct {
 }
 
 // OTPData supplies data to the OTP entry template.
-type OTPData struct{ Title, ChallengeID, Message string }
+type OTPData struct {
+	Title, ChallengeID, Message, Email string
+	ExpiresIn                          time.Duration
+}
 
 // ConsentData supplies data to the offline-access consent template.
 type ConsentData struct{ Title, State, ClientID string }
