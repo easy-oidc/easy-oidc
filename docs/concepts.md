@@ -1,7 +1,7 @@
 ---
 draft: false
 title: 'Concepts and terminology'
-linkTitle: 'Concepts and terminology'
+linkTitle: 'Concepts'
 weight: 2
 ---
 

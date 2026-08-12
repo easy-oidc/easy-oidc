@@ -17,9 +17,10 @@ func NewRootCmd() *cobra.Command {
 	var verboseVersion bool
 	command := &cobra.Command{
 		Use:   "truster",
-		Short: "Minimal OIDC server for Kubernetes",
-		Long: `truster is a lightweight OIDC server designed for Kubernetes clusters.
-It delegates user authentication to configured login connectors and applies authorization policy.`,
+		Short: "Self-hosted OIDC for applications and Kubernetes",
+		Long: `Truster is a small, self-hosted OIDC provider for authenticating users and services to your applications or Kubernetes clusters.
+
+People can sign in with an existing Google, GitHub, or compatible OAuth2/OIDC account, or with a one-time code sent by email. Services can exchange trusted external OIDC tokens for scoped Truster identities and groups.`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			if verboseVersion && !showVersion {
