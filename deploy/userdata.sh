@@ -12,7 +12,7 @@ umask 077
 # EASY_OIDC_SHA512="abc123..."
 # CADDY_VERSION="latest"
 # CADDY_SHA512="def456..."
-# OIDC_HOSTNAME="auth.example.com"
+# OIDC_ADDR="auth.example.com" # May include a port, such as auth.example.com:8443.
 # EASY_OIDC_CONFIG='{"static_policy":{"clients":{}}}'
 # RUN_DB_MIGRATIONS=false
 # SSH=false
@@ -23,7 +23,7 @@ umask 077
 
 # Caddyfile content
 read -r -d '' CADDYFILE <<'CADDYEOF' || true
-${OIDC_HOSTNAME} {
+${OIDC_ADDR} {
     reverse_proxy localhost:8080
     log {
         output file /var/log/caddy/access.log
@@ -281,8 +281,8 @@ systemctl start caddy
 echo "=== Installation complete ==="
 echo ""
 echo "Configuration:"
-echo "  Hostname:     ${OIDC_HOSTNAME}"
-echo "  Issuer URL:   https://${OIDC_HOSTNAME}"
+echo "  Address:      ${OIDC_ADDR}"
+echo "  Issuer URL:   https://${OIDC_ADDR}"
 echo ""
 echo "Status:"
 systemctl status easy-oidc --no-pager || true

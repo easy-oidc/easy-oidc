@@ -1,0 +1,1 @@
+../common/outputs_common.tf

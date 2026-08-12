@@ -228,3 +228,9 @@ jobs:
               release_id: release.id,
               draft: false,
             })
+
+  tf-modules:
+    name: Publish changed TF modules
+    needs: release
+    uses: ./.github/workflows/release-tf.yml
+    secrets: inherit
