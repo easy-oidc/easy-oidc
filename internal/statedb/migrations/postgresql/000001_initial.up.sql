@@ -1,11 +1,11 @@
--- Easy OIDC <https://easy-oidc.dev>
--- Copyright The Easy OIDC Authors
+-- Truster <https://truster.dev>
+-- Copyright The Truster Authors
 -- SPDX-License-Identifier: Apache-2.0
 
 BEGIN; -- Initial state database schema.
 
-CREATE SCHEMA IF NOT EXISTS easy_oidc_state;
-SET search_path TO easy_oidc_state, public;
+CREATE SCHEMA IF NOT EXISTS truster_state;
+SET search_path TO truster_state, public;
 
 CREATE TABLE oauth_states (
     state_token text PRIMARY KEY,

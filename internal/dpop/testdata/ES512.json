@@ -1,5 +1,5 @@
 {
-  "schema": "easy-oidc-dpop-conformance-v1",
+  "schema": "truster-dpop-conformance-v1",
   "notice": "NON-PRODUCTION CONFORMANCE FIXTURE; public data only; not a production credential.",
   "algorithm": "ES512",
   "public_jwk": {

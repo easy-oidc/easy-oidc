@@ -6,7 +6,7 @@ weight: 1
 ---
 
 This page provides a beginner-friendly introduction to OAuth2 and OpenID
-Connect (OIDC), the technologies that power Easy OIDC. See
+Connect (OIDC), the technologies that power Truster. See
 [Concepts and terminology](/docs/concepts/) for a concise reference to the
 terms used throughout the documentation.
 
@@ -19,7 +19,7 @@ identity provider without giving your password to the application.
 ### Key concepts
 
 **Authorization server:** The service that manages user authentication, such
-as Google, GitHub, or Easy OIDC.
+as Google, GitHub, or Truster.
 
 **Client:** The application requesting access, such as kubectl or your own
 application.
@@ -44,28 +44,28 @@ OIDC provides:
 - **Standard claims:** Predictable fields such as `sub`, `email`, and
   `email_verified`.
 
-## How Easy OIDC uses OIDC
+## How Truster uses OIDC
 
-When you authenticate to a Kubernetes cluster using Easy OIDC:
+When you authenticate to a Kubernetes cluster using Truster:
 
 1. **kubectl**, through kubelogin, starts an OIDC login.
-2. **Easy OIDC** selects the only configured provider or displays its sign-in
+2. **Truster** selects the only configured provider or displays its sign-in
    selector.
 3. You authenticate with an upstream provider or an email code.
-4. **Easy OIDC** establishes an email identity, applies the configured email
+4. **Truster** establishes an email identity, applies the configured email
    verification policy, and looks up your groups.
-5. **Easy OIDC** issues an ID token—a signed JWT—containing your email and
+5. **Truster** issues an ID token—a signed JWT—containing your email and
    groups.
 6. **kubectl** sends this token with each Kubernetes API request.
 7. The **Kubernetes API server** validates the token and enforces RBAC using
    its subject and groups.
 
-Easy OIDC handles authentication and identity claims. Kubernetes remains
+Truster handles authentication and identity claims. Kubernetes remains
 responsible for authorization: its RBAC rules decide what that identity may do.
 
 ## PKCE: extra security for public clients
 
-Easy OIDC requires **PKCE** (Proof Key for Code Exchange, pronounced “pixie”).
+Truster requires **PKCE** (Proof Key for Code Exchange, pronounced “pixie”).
 This protects clients such as kubelogin and browser applications that cannot
 safely keep a client secret.
 
@@ -90,9 +90,9 @@ certificates or static tokens.
 **OIDC approach:** Users authenticate through an existing identity provider and
 receive short-lived tokens.
 
-- Easy OIDC ID tokens expire after 15 minutes by default.
+- Truster ID tokens expire after 15 minutes by default.
 - Upstream access can be removed through the relevant identity provider and
-  Easy OIDC policy.
+  Truster policy.
 - kubelogin can start a new login when fresh credentials are needed.
 - Kubernetes audit records identify the token subject and groups used for each
   request.
@@ -101,5 +101,5 @@ receive short-lived tokens.
 
 - [Review concepts and terminology](/docs/concepts/)
 - [Set up an upstream provider](/docs/upstream/)
-- [Deploy Easy OIDC](/docs/deploy/)
+- [Deploy Truster](/docs/deploy/)
 - [Configure Kubernetes to use OIDC](/docs/kubernetes/)

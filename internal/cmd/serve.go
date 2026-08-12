@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package cmd
@@ -20,19 +20,19 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/easy-oidc/easy-oidc/internal/authpolicy"
-	"github.com/easy-oidc/easy-oidc/internal/buildvars"
-	"github.com/easy-oidc/easy-oidc/internal/challenge"
-	"github.com/easy-oidc/easy-oidc/internal/config"
-	"github.com/easy-oidc/easy-oidc/internal/email"
-	"github.com/easy-oidc/easy-oidc/internal/oidc"
-	"github.com/easy-oidc/easy-oidc/internal/secrets"
-	"github.com/easy-oidc/easy-oidc/internal/servertls"
-	"github.com/easy-oidc/easy-oidc/internal/statedb"
-	"github.com/easy-oidc/easy-oidc/internal/templates"
-	"github.com/easy-oidc/easy-oidc/internal/tokens"
-	"github.com/easy-oidc/easy-oidc/internal/upstream"
 	"github.com/spf13/cobra"
+	"github.com/truster-dev/truster/internal/authpolicy"
+	"github.com/truster-dev/truster/internal/buildvars"
+	"github.com/truster-dev/truster/internal/challenge"
+	"github.com/truster-dev/truster/internal/config"
+	"github.com/truster-dev/truster/internal/email"
+	"github.com/truster-dev/truster/internal/oidc"
+	"github.com/truster-dev/truster/internal/secrets"
+	"github.com/truster-dev/truster/internal/servertls"
+	"github.com/truster-dev/truster/internal/statedb"
+	"github.com/truster-dev/truster/internal/templates"
+	"github.com/truster-dev/truster/internal/tokens"
+	"github.com/truster-dev/truster/internal/upstream"
 )
 
 // newServeCmd creates the foreground server command.
@@ -40,13 +40,13 @@ func newServeCmd() *cobra.Command {
 	var debugMode bool
 	var demoMode bool
 
-	configPath := os.Getenv("EASYOIDC_CONFIG_PATH")
+	configPath := os.Getenv("TRUSTER_CONFIG_PATH")
 	if configPath == "" {
 		configPath = "./config.jsonc"
 	}
 	cmd := &cobra.Command{
 		Use:   "serve",
-		Short: "Run the Easy OIDC server",
+		Short: "Run the Truster server",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if demoMode && cmd.Flags().Changed("config") {
@@ -62,7 +62,7 @@ func newServeCmd() *cobra.Command {
 	return cmd
 }
 
-// serve assembles and serves Easy OIDC until cancellation or an interrupt.
+// serve assembles and serves Truster until cancellation or an interrupt.
 func serve(ctx context.Context, output io.Writer, configPath string, debug, demo bool) error {
 	// Set up structured logging.
 	logLevel := slog.LevelInfo
@@ -189,7 +189,7 @@ func serve(ctx context.Context, output io.Writer, configPath string, debug, demo
 		if decodeErr != nil || len(encryptionKey) != 32 {
 			return fmt.Errorf("encryption key must be a 64-character hex-encoded 32-byte key (generate with: openssl rand -hex 32)")
 		}
-		selectionKey, err = hkdf.Key(sha256.New, encryptionKey, nil, "easy-oidc/identity-selection/v1", 32)
+		selectionKey, err = hkdf.Key(sha256.New, encryptionKey, nil, "truster/identity-selection/v1", 32)
 		if err != nil {
 			return fmt.Errorf("derive identity selection key: %w", err)
 		}
@@ -321,7 +321,7 @@ func serve(ctx context.Context, output io.Writer, configPath string, debug, demo
 	httpServer := &http.Server{Addr: cfg.HTTPListenAddr, Handler: server.SecurityHeaders(server.LimitPublicEndpoints(mux)), TLSConfig: servingTLSConfig, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 
 	// Run the server and wait for either a server error or a shutdown signal.
-	logger.Info("starting easy-oidc server", "version", buildvars.BuildVersion(), "issuer", cfg.IssuerURL, "protocol", protocol, "listen_addr", cfg.HTTPListenAddr, "connectors", len(cfg.UserLoginConnectors))
+	logger.Info("starting truster server", "version", buildvars.BuildVersion(), "issuer", cfg.IssuerURL, "protocol", protocol, "listen_addr", cfg.HTTPListenAddr, "connectors", len(cfg.UserLoginConnectors))
 	serverErrors := make(chan error, 1)
 	go func() {
 		if cfg.ServingCertificate != nil {

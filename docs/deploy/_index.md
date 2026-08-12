@@ -3,9 +3,9 @@ title: Deploy
 weight: 4
 ---
 
-Choose where to run a persistent Easy OIDC issuer. The official
+Choose where to run a persistent Truster issuer. The official
 OpenTofu/Terraform modules provision the cloud infrastructure and pass the same
-Easy OIDC application settings to each deployment.
+Truster application settings to each deployment.
 
 - [Local development and testing](/docs/deploy/local/) - Run a quick demo or a reusable localhost issuer
 - [AWS deployment guide](/docs/deploy/aws/) - Deploy a persistent issuer on EC2
@@ -14,5 +14,5 @@ Easy OIDC application settings to each deployment.
 
 Additional references:
 - [Application configuration](/docs/config/)
-- [AWS module and complete input reference](https://github.com/easy-oidc/terraform-aws-easy-oidc#variables)
-- [Google Cloud module and complete input reference](https://github.com/easy-oidc/terraform-google-easy-oidc#variables)
+- [AWS module and complete input reference](https://github.com/truster-dev/terraform-aws-truster#variables)
+- [Google Cloud module and complete input reference](https://github.com/truster-dev/terraform-google-truster#variables)

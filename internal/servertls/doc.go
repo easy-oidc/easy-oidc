@@ -1,6 +1,6 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Package servertls configures TLS for the Easy OIDC HTTP server.
+// Package servertls configures TLS for the Truster HTTP server.
 package servertls

@@ -4,11 +4,11 @@ title: 'Deploy to AWS using OpenTofu/Terraform'
 linkTitle: 'AWS'
 ---
 
-This guide deploys a persistent Easy OIDC issuer on AWS with Google sign-in and
+This guide deploys a persistent Truster issuer on AWS with Google sign-in and
 one kubelogin client. It uses the official OpenTofu/Terraform module and creates
 a small dual-stack VPC for the example.
 
-The module runs Easy OIDC and Caddy on one EC2 instance. Caddy obtains the HTTPS
+The module runs Truster and Caddy on one EC2 instance. Caddy obtains the HTTPS
 certificate, SQLite stores login state, and the instance reads only the encrypted
 parameters named in your configuration.
 
@@ -30,7 +30,7 @@ consistently in every step.
 |---|---|
 | AWS region | `us-east-1` |
 | Route 53 hosted zone | `example.com` |
-| Easy OIDC hostname | `auth.example.com` |
+| Truster hostname | `auth.example.com` |
 | Sign-in method ID | `google` |
 | Google callback URL | `https://auth.example.com/callback/google` |
 | kubelogin client ID | `kubelogin-prod` |
@@ -60,7 +60,7 @@ EOF
 
 aws ssm put-parameter \
   --region us-east-1 \
-  --name /easy-oidc/google-credentials \
+  --name /truster/google-credentials \
   --type SecureString \
   --value file://google-credentials.json
 
@@ -74,7 +74,7 @@ openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 > signing-key.pem
 
 aws ssm put-parameter \
   --region us-east-1 \
-  --name /easy-oidc/signing-key \
+  --name /truster/signing-key \
   --type SecureString \
   --value "$(cat signing-key.pem)"
 
@@ -86,7 +86,7 @@ parameter. Replacing a signing key invalidates tokens signed by the previous key
 
 To use AWS Secrets Manager instead, set the module's `secrets_provider` to
 `aws-secrets-manager` and use Secrets Manager names or ARNs in the application
-configuration. See the [module input reference](https://github.com/easy-oidc/terraform-aws-easy-oidc#variables).
+configuration. See the [module input reference](https://github.com/truster-dev/terraform-aws-truster#variables).
 
 ## 3. Create the OpenTofu configuration
 
@@ -140,21 +140,21 @@ resource "aws_route_table" "main" {
   }
 }
 
-module "easy_oidc" {
-  source = "easy-oidc/easy-oidc/aws"
+module "truster" {
+  source = "truster/truster/aws"
 
   vpc_id    = aws_vpc.main.id
   oidc_addr = local.oidc_hostname
 
-  easy_oidc_config = {
+  truster_config = {
     secrets = {
-      signing_key_name = "/easy-oidc/signing-key"
+      signing_key_name = "/truster/signing-key"
     }
     user_login_connectors = {
       google = {
         type               = "google"
         display_name       = "Google"
-        credentials_secret = "/easy-oidc/google-credentials"
+        credentials_secret = "/truster/google-credentials"
       }
     }
     static_policy = {
@@ -174,7 +174,7 @@ module "easy_oidc" {
 }
 
 resource "aws_route_table_association" "main" {
-  subnet_id      = module.easy_oidc.subnet_id
+  subnet_id      = module.truster.subnet_id
   route_table_id = aws_route_table.main.id
 }
 
@@ -183,12 +183,12 @@ data "aws_route53_zone" "main" {
 }
 
 resource "aws_route53_record" "oidc_a" {
-  count   = module.easy_oidc.enable_ipv4 ? 1 : 0
+  count   = module.truster.enable_ipv4 ? 1 : 0
   zone_id = data.aws_route53_zone.main.zone_id
   name    = local.oidc_hostname
   type    = "A"
   ttl     = 300
-  records = [module.easy_oidc.public_ipv4]
+  records = [module.truster.public_ipv4]
 }
 
 resource "aws_route53_record" "oidc_aaaa" {
@@ -196,7 +196,7 @@ resource "aws_route53_record" "oidc_aaaa" {
   name    = local.oidc_hostname
   type    = "AAAA"
   ttl     = 300
-  records = [module.easy_oidc.public_ipv6]
+  records = [module.truster.public_ipv6]
 }
 ```
 
@@ -205,7 +205,7 @@ internet gateway, route table, and DNS records around it. For production, you ca
 instead pass an existing subnet and apply your normal networking controls.
 
 Before production use, pin a reviewed module version and set
-`easy_oidc_version` rather than tracking the latest releases implicitly.
+`truster_version` rather than tracking the latest releases implicitly.
 
 ## 4. Deploy
 
@@ -266,15 +266,15 @@ exec-based credentials to each user's kubeconfig.
 The module injects the deployment-owned `issuer_url`, `http_listen_addr`,
 `secrets.provider`, and `secrets.aws_region` settings. It also supplies a
 writable SQLite state path when no state database is configured. Put the
-remaining application settings under `easy_oidc_config`. The module derives its
+remaining application settings under `truster_config`. The module derives its
 IAM read permissions from the runtime parameters or secrets referenced there.
 Migration credentials remain separate by default. To let the instance migrate
-the state database before starting Easy OIDC, set
+the state database before starting Truster, set
 `run_db_migrations = true`; this grants it access to the configured
 migration secret. See the [state database guide](/docs/state-database/) for the
 least-privilege tradeoff.
 
-Use the [module input reference](https://github.com/easy-oidc/terraform-aws-easy-oidc#variables)
+Use the [module input reference](https://github.com/truster-dev/terraform-aws-truster#variables)
 for networking, KMS, SSH, tagging, secrets backends, and version controls. Use
 the [application configuration reference](/docs/config/) for sign-in methods,
 clients, users, groups, email verification, and templates.
@@ -284,8 +284,8 @@ clients, users, groups, email verification, and templates.
 To deploy without IPv4:
 
 ```hcl
-module "easy_oidc" {
-  source = "easy-oidc/easy-oidc/aws"
+module "truster" {
+  source = "truster/truster/aws"
   
   # ... other variables ...
   enable_ipv4 = false
@@ -299,16 +299,16 @@ This disables IPv4 addresses on the instance and security group rules. Only crea
 To enable SSH access for debugging:
 
 ```hcl
-resource "aws_key_pair" "easy_oidc" {
-  key_name   = "easy-oidc-ssh"
+resource "aws_key_pair" "truster" {
+  key_name   = "truster-ssh"
   public_key = file("~/.ssh/id_rsa.pub")
 }
 
-module "easy_oidc" {
-  source = "easy-oidc/easy-oidc/aws"
+module "truster" {
+  source = "truster/truster/aws"
   
   # ... other variables ...
-  ssh_key_name           = aws_key_pair.easy_oidc.key_name
+  ssh_key_name           = aws_key_pair.truster.key_name
   ssh_allowed_cidrs_ipv4 = ["1.2.3.4/32"]  # Your IP
 }
 ```
@@ -320,14 +320,14 @@ module "easy_oidc" {
 - DNS records update automatically
 - Users must re-login (existing tokens remain valid until expiry)
 
-**Updating Easy OIDC version**:
+**Updating Truster version**:
 
 ```hcl
-module "easy_oidc" {
-  source = "easy-oidc/easy-oidc/aws"
+module "truster" {
+  source = "truster/truster/aws"
   
   # ... other variables ...
-  easy_oidc_version = "v2.0.0"  # Specify version
+  truster_version = "v2.0.0"  # Specify version
 }
 ```
 
@@ -342,7 +342,7 @@ Then run `tofu apply` to trigger instance replacement.
 
 **OAuth callback errors**:
 - Verify each OAuth app redirect URI matches `https://auth.example.com/callback/<connector-id>`
-- Check Easy OIDC logs: `journalctl -u easy-oidc -f`
+- Check Truster logs: `journalctl -u truster -f`
 
 **Parameter Store errors**:
 - Verify the instance role has `ssm:GetParameter` permission

@@ -5,31 +5,31 @@ linkTitle: 'Policy Database'
 weight: 8
 ---
 
-A policy database lets Easy OIDC use PostgreSQL to decide which clients and
+A policy database lets Truster use PostgreSQL to decide which clients and
 users may sign in, which groups users receive, and which external OIDC
 identities may exchange tokens.
 
 This is useful when clients and access rules already belong to an application
-database, or when they need to change without restarting Easy OIDC. Static
+database, or when they need to change without restarting Truster. Static
 clients remain available and always take precedence over clients supplied by
 database policy with the same ID.
 
-Easy OIDC only reads the policy database. Operators or another system create and
+Truster only reads the policy database. Operators or another system create and
 update its clients, users, groups, and trust bindings.
 
 > **Note:** The policy database does not store or verify user passwords or
 > identity provider credentials in PostgreSQL. Users still authenticate through
-> Easy OIDC's configured identity flows. The policy database only supplies
+> Truster's configured identity flows. The policy database only supplies
 > client definitions, access decisions, groups, and trust bindings.
 
-The policy database is read-only to Easy OIDC; it is not Easy OIDC's operational
-storage and Easy OIDC never writes policy changes to it.
+The policy database is read-only to Truster; it is not Truster's operational
+storage and Truster never writes policy changes to it.
 Browser and email-verification state, authorization codes, refresh grants, and
-encrypted renewable provider credentials remain in Easy OIDC's protocol state
+encrypted renewable provider credentials remain in Truster's protocol state
 database (SQLite by default, or configured PostgreSQL). Signing keys,
 connector secrets, and the PostgreSQL connection string remain in the configured
 secrets provider. The connection string is loaded at startup, so rotating it
-requires restarting Easy OIDC.
+requires restarting Truster.
 
 The state and policy databases are independently configured, separate stores,
 even when both use the same PostgreSQL server. Do not point policy queries at
@@ -39,38 +39,38 @@ the state schema or use the policy database for protocol state.
 
 ### 1. Create the tables
 
-Easy OIDC includes a ready-to-use PostgreSQL schema. Apply it to the database:
+Truster includes a ready-to-use PostgreSQL schema. Apply it to the database:
 
 ```console
 psql "$DATABASE_URL" -f examples/policy-db/postgresql.sql
 ```
 
-The script creates three tables under the `easy_oidc_policy` schema:
+The script creates three tables under the `truster_policy` schema:
 
-- `clients` contains client IDs accepted by Easy OIDC.
+- `clients` contains client IDs accepted by Truster.
 - `users` associates an email subject and groups with a client.
 - `trust_bindings` maps external OIDC identities to subjects and groups.
 
-See [`examples/policy-db/postgresql.sql`](https://github.com/easy-oidc/easy-oidc/blob/main/examples/policy-db/postgresql.sql)
+See [`examples/policy-db/postgresql.sql`](https://github.com/truster-dev/truster/blob/main/examples/policy-db/postgresql.sql)
 for the complete definitions.
 
 ### 2. Create a read-only login
 
-Easy OIDC only needs to read these tables. Create a dedicated login after
+Truster only needs to read these tables. Create a dedicated login after
 replacing the database name and password:
 
 ```sql
-CREATE ROLE easy_oidc_policy LOGIN PASSWORD 'managed-outside-SQL';
-GRANT CONNECT ON DATABASE application TO easy_oidc_policy;
-GRANT USAGE ON SCHEMA easy_oidc_policy TO easy_oidc_policy;
-GRANT SELECT ON ALL TABLES IN SCHEMA easy_oidc_policy TO easy_oidc_policy;
-ALTER ROLE easy_oidc_policy SET default_transaction_read_only = on;
+CREATE ROLE truster_policy LOGIN PASSWORD 'managed-outside-SQL';
+GRANT CONNECT ON DATABASE application TO truster_policy;
+GRANT USAGE ON SCHEMA truster_policy TO truster_policy;
+GRANT SELECT ON ALL TABLES IN SCHEMA truster_policy TO truster_policy;
+ALTER ROLE truster_policy SET default_transaction_read_only = on;
 ```
 
-Keep this role read-only even though Easy OIDC also configures its database
+Keep this role read-only even though Truster also configures its database
 sessions as read-only.
 
-### 3. Configure Easy OIDC
+### 3. Configure Truster
 
 Store the PostgreSQL connection string in your configured secrets provider. The
 value of `connection_string_secret` is the name of that secret.
@@ -81,14 +81,14 @@ need to contain any SQL:
 ```jsonc
 "policy_database": {
   "driver": "postgresql",
-  "connection_string_secret": "EASYOIDC_POLICY_DB_URL",
+  "connection_string_secret": "TRUSTER_POLICY_DB_URL",
   "redirect_uris": ["http://localhost:8000/callback"],
 }
 ```
 
 All clients supplied by database policy use the configured `redirect_uris` and
 `client_defaults`.
-See [`config-policy-db.jsonc`](https://github.com/easy-oidc/easy-oidc/blob/main/examples/config/config-policy-db.jsonc)
+See [`config-policy-db.jsonc`](https://github.com/truster-dev/truster/blob/main/examples/config/config-policy-db.jsonc)
 for a complete example.
 
 ### 4. Add a client and user
@@ -97,8 +97,8 @@ Email subjects must be lowercase. This example allows `demo@example.com` to use
 the `kubelogin` client and assigns the `developers` group:
 
 ```sql
-INSERT INTO easy_oidc_policy.clients (client_id) VALUES ('kubelogin');
-INSERT INTO easy_oidc_policy.users (client_id, subject, groups)
+INSERT INTO truster_policy.clients (client_id) VALUES ('kubelogin');
+INSERT INTO truster_policy.users (client_id, subject, groups)
 VALUES ('kubelogin', 'demo@example.com', ARRAY['developers']);
 ```
 
@@ -108,7 +108,7 @@ You can use the built-in schema without configuring any queries. To use tables
 from an existing application database, override one or more entries under
 `policy_database.queries`. Any omitted query continues to use its built-in value.
 
-Configured SQL is trusted configuration. Easy OIDC binds the values described
+Configured SQL is trusted configuration. Truster binds the values described
 below as positional parameters; it never interpolates them into the SQL.
 
 ### `client_exists`
@@ -140,7 +140,7 @@ Checks whether a user may use a client and returns the user's current groups.
 Return `allowed = false` and an empty group array for an unknown or disabled
 client, or for an unknown or disabled user. If groups are required for the
 client, an allowed result with an empty group array is denied. Returned groups
-must be non-empty strings; Easy OIDC deduplicates and sorts them before issuing
+must be non-empty strings; Truster deduplicates and sorts them before issuing
 a token.
 
 ### `trust_bindings`
@@ -176,13 +176,13 @@ apply. A token is accepted only when exactly one compiled binding matches it;
 zero or multiple matches are denied.
 
 Custom queries should return bindings only while the client is active. This is
-important because Easy OIDC rechecks the trust rows after its client-existence
+important because Truster rechecks the trust rows after its client-existence
 check. The built-in schema enforces this through the foreign key from
 `trust_bindings` to `clients` with cascading deletion.
 
 ## Clients from static or database policy
 
-Easy OIDC resolves each client from either static configuration or the policy
+Truster resolves each client from either static configuration or the policy
 database. If both sources contain the same client ID, static policy wins.
 
 - A static client does not cause any policy database queries.
@@ -199,7 +199,7 @@ database. If both sources contain the same client ID, static policy wins.
 
 ## Policy database security
 
-Use a dedicated login and pool for Easy OIDC, even when another feature uses the
+Use a dedicated login and pool for Truster, even when another feature uses the
 same PostgreSQL server. The dedicated login limits the impact of a mistake in a
 query or configuration.
 
@@ -215,7 +215,7 @@ For remote connections, use strict TLS:
 - Every parsed primary and fallback target is checked. Plaintext connections are
   only accepted for `localhost` or a loopback IP during development.
 
-At startup, Easy OIDC loads the connection secret, checks connectivity, verifies
+At startup, Truster loads the connection secret, checks connectivity, verifies
 that the session default is read-only, and prepares all three statements within
 a 10-second initialization deadline. Preparation validates SQL parsing and
 parameter inference, but does not execute the statements or verify result
@@ -232,7 +232,7 @@ policy defaults do not apply. Refresh tokens are disabled by default. A
 database-authorized user with no groups is therefore denied unless group
 requirements are explicitly disabled.
 
-Easy OIDC limits query time, connection use, and result sizes. The settings,
+Truster limits query time, connection use, and result sizes. The settings,
 defaults, and accepted ranges are:
 
 - `query_timeout`: `500ms` (`10ms` through `30s`) for each query.
@@ -250,11 +250,11 @@ defaults, and accepted ranges are:
 
 Each policy database query is cancelled if it does not finish within
 `query_timeout`. A timeout is treated as a policy database failure, not a
-denial: Easy OIDC fails closed without using stale user or trust data, while
+denial: Truster fails closed without using stale user or trust data, while
 preserving retryable authorization codes and refresh grants as described below.
 
 The example schema does not enforce every runtime size limit. Invalid rows may
-therefore be inserted, but Easy OIDC fails closed when it reads them.
+therefore be inserted, but Truster fails closed when it reads them.
 
 Client existence results are cached because they are checked frequently. The
 `client_lookup_cache` has separate lifetimes for positive and negative results
@@ -284,7 +284,7 @@ their defaults.
 
 ## When changes take effect
 
-Easy OIDC rechecks database policy before issuing or refreshing credentials:
+Truster rechecks database policy before issuing or refreshing credentials:
 
 - Interactive login checks the client before redirecting to a provider, checks
   the client and user before creating a code, and checks them again when the code
@@ -295,7 +295,7 @@ Easy OIDC rechecks database policy before issuing or refreshing credentials:
 
 As a result, an existing authorization code or refresh token does not preserve
 old client, user-group, or trust policy. The positive client cache reduces
-policy database load while a flow is being prepared, but Easy OIDC bypasses it
+policy database load while a flow is being prepared, but Truster bypasses it
 before issuing or refreshing credentials.
 
 These checks affect future authorization and token issuance. They do not revoke
@@ -312,7 +312,7 @@ replication, or an enforced lag limit when rapid revocation matters.
 
 ## Denials and policy database failures
 
-Easy OIDC distinguishes a normal denial from a failure to obtain a trustworthy
+Truster distinguishes a normal denial from a failure to obtain a trustworthy
 answer.
 
 A **denial** means the query ran successfully and returned a valid negative
@@ -323,7 +323,7 @@ answer. Examples include:
 - Required groups are empty.
 - No trust binding matches, or more than one binding matches.
 
-A **policy database failure** means Easy OIDC could not safely decide. Examples
+A **policy database failure** means Truster could not safely decide. Examples
 include:
 
 - A timeout, cancelled query, or connection error.
@@ -332,7 +332,7 @@ include:
 - Invalid trust policy JSON.
 - A configured result limit was exceeded.
 
-Policy database failures fail closed: Easy OIDC does not issue a token and does
+Policy database failures fail closed: Truster does not issue a token and does
 not use stale user or trust data. A denial or temporary policy database failure
 during authorization-code redemption leaves the code unconsumed, so it can be
 retried before expiry if policy or availability changes. During refresh, a
@@ -341,7 +341,7 @@ family. A temporary policy database failure preserves the grant for retry.
 
 ## Monitoring
 
-Easy OIDC emits structured `policy database query` log events. They include:
+Truster emits structured `policy database query` log events. They include:
 
 - Query name and duration
 - Observed row count and resolver outcome (`allowed`, `denied`, or
@@ -361,6 +361,6 @@ fields as potentially sensitive.
 
 Useful conditions to alert on include repeated policy database failures, query
 latency approaching `query_timeout`, result-limit failures, and replica lag. Use
-PostgreSQL-side telemetry for replica lag and pool or server saturation; Easy
-OIDC does not expose dedicated metrics for them. Cache hit rates can also help
+PostgreSQL-side telemetry for replica lag and pool or server saturation; Truster
+does not expose dedicated metrics for them. Cache hit rates can also help
 explain load on the policy database.

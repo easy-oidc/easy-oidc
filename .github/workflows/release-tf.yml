@@ -1,5 +1,5 @@
-# Easy OIDC <https://easy-oidc.dev>
-# Copyright The Easy OIDC Authors
+# Truster <https://truster.dev>
+# Copyright The Truster Authors
 # SPDX-License-Identifier: Apache-2.0
 
 name: Release TF Modules
@@ -72,8 +72,8 @@ jobs:
         with:
           app-id: ${{ vars.TF_SYNC_APP_ID }}
           private-key: ${{ secrets.TF_SYNC_APP_KEY }}
-          owner: easy-oidc
-          repositories: terraform-aws-easy-oidc,terraform-google-easy-oidc
+          owner: truster-dev
+          repositories: terraform-aws-truster,terraform-google-truster
           permission-contents: write
 
       - name: Prepare and preflight distribution repositories
@@ -86,10 +86,10 @@ jobs:
           mkdir -p "$sync_root"
 
           for provider in aws google; do
-            repo="terraform-$provider-easy-oidc"
+            repo="terraform-$provider-truster"
             destination="$sync_root/$repo"
             git clone --branch main --single-branch \
-              "https://x-access-token:${GH_TOKEN}@github.com/easy-oidc/${repo}.git" "$destination"
+              "https://x-access-token:${GH_TOKEN}@github.com/truster-dev/${repo}.git" "$destination"
             rsync -a --delete --exclude .git/ "$RUNNER_TEMP/generated/$provider/" "$destination/"
             git -C "$destination" add --all
 
@@ -110,14 +110,14 @@ jobs:
 
           for provider in aws google; do
             test -f "$sync_root/$provider.publish" || continue
-            repo="terraform-$provider-easy-oidc"
+            repo="terraform-$provider-truster"
             destination="$sync_root/$repo"
             git -C "$destination" config user.name "github-actions[bot]"
             git -C "$destination" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git -C "$destination" commit \
-              -m "Sync easy-oidc/easy-oidc $RELEASE_TAG (${GITHUB_SHA::8})"
+              -m "Sync truster/truster $RELEASE_TAG (${GITHUB_SHA::8})"
             git -C "$destination" tag --annotate "$RELEASE_TAG" \
-              --message "Sync from easy-oidc/easy-oidc $RELEASE_TAG (${GITHUB_SHA::8})"
+              --message "Sync from truster/truster $RELEASE_TAG (${GITHUB_SHA::8})"
           done
 
       - name: Publish changed modules
@@ -128,7 +128,7 @@ jobs:
           sync_root="$RUNNER_TEMP/tf-sync"
           for provider in aws google; do
             test -f "$sync_root/$provider.publish" || continue
-            repo="terraform-$provider-easy-oidc"
+            repo="terraform-$provider-truster"
             destination="$sync_root/$repo"
             git -C "$destination" push --atomic origin \
               HEAD:refs/heads/main "refs/tags/$RELEASE_TAG"

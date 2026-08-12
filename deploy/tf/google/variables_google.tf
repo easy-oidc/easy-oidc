@@ -1,5 +1,5 @@
-# Easy OIDC <https://easy-oidc.dev>
-# Copyright The Easy OIDC Authors
+# Truster <https://truster.dev>
+# Copyright The Truster Authors
 # SPDX-License-Identifier: Apache-2.0
 
 variable "labels" {
@@ -27,7 +27,7 @@ variable "zone" {
 }
 
 variable "network" {
-  description = "VPC network name, self-link, or ID where easy-oidc will be deployed"
+  description = "VPC network name, self-link, or ID where truster will be deployed"
   type        = string
 }
 
@@ -68,7 +68,7 @@ variable "service_account_email" {
 }
 
 variable "grant_secret_accessor" {
-  description = "Grant the instance service account access to each secret referenced by easy_oidc_config. Disable if permissions are managed externally."
+  description = "Grant the instance service account access to each secret referenced by truster_config. Disable if permissions are managed externally."
   type        = bool
   default     = true
 }

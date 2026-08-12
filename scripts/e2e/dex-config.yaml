@@ -1,5 +1,5 @@
-# Easy OIDC <https://easy-oidc.dev>
-# Copyright The Easy OIDC Authors
+# Truster <https://truster.dev>
+# Copyright The Truster Authors
 # SPDX-License-Identifier: Apache-2.0
 
 issuer: http://127.0.0.1:5556/dex
@@ -18,12 +18,12 @@ oauth2:
   passwordConnector: local
 
 staticClients:
-# Easy OIDC uses this client to delegate interactive user login to Dex.
-- id: easy-oidc-interactive-e2e
-  secret: easy-oidc-interactive-e2e-secret
+# Truster uses this client to delegate interactive user login to Dex.
+- id: truster-interactive-e2e
+  secret: truster-interactive-e2e-secret
   redirectURIs:
   - 'http://127.0.0.1:18080/callback/generic'
-  name: 'Easy OIDC Interactive E2E'
+  name: 'Truster Interactive E2E'
 # The static flow uses a distinct client so both policy sources are exercised.
 - id: static-ci-token-exchange-e2e
   secret: static-ci-token-exchange-e2e-secret
@@ -42,6 +42,6 @@ enablePasswordDB: true
 
 staticPasswords:
 - email: "test@example.com"
-  hash: "$2a$10$2cEClpIvheg2vsGwgU0asON7mHsxVRQoPOYmwn9HcPI8mkhy4F14e"
+  hash: "$2a$10$sV/GfT4tjbAbWr0VITPPNeC7MPq8mQK95AE12PMbLDXn99dvqkNkS"
   username: "test"
   userID: "08a8684b-db88-4b73-90a9-3cd1661f5466"

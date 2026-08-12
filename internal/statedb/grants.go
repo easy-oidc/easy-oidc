@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package statedb
@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/easy-oidc/easy-oidc/internal/upstream"
+	"github.com/truster-dev/truster/internal/upstream"
 )
 
 const grantActionBatchSize = 5000

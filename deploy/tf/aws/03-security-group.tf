@@ -1,11 +1,11 @@
-# Easy OIDC <https://easy-oidc.dev>
-# Copyright The Easy OIDC Authors
+# Truster <https://truster.dev>
+# Copyright The Truster Authors
 # SPDX-License-Identifier: Apache-2.0
 
 # Security group
 resource "aws_security_group" "main" {
   name_prefix = "${var.name_prefix}-"
-  description = "Allow HTTP & HTTPS traffic to easy-oidc"
+  description = "Allow HTTP & HTTPS traffic to truster"
   vpc_id      = var.vpc_id
 
   tags = merge(

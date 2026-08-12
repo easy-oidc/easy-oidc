@@ -19,16 +19,16 @@ mock_provider "http" {
 }
 
 variables {
-  project_id        = "my-project"
-  region            = "us-central1"
-  zone              = "us-central1-a"
-  network           = "default"
-  subnetwork        = "default"
-  oidc_addr         = "auth.example.com"
-  easy_oidc_version = "v2.0.0"
-  caddy_version     = "v2.10.0"
+  project_id      = "my-project"
+  region          = "us-central1"
+  zone            = "us-central1-a"
+  network         = "default"
+  subnetwork      = "default"
+  oidc_addr       = "auth.example.com"
+  truster_version = "v2.0.0"
+  caddy_version   = "v2.10.0"
 
-  easy_oidc_config = {
+  truster_config = {
     secrets = {
       signing_key_name    = "projects/my-project/secrets/signing/versions/latest"
       encryption_key_name = "projects/my-project/secrets/encryption/versions/latest"
@@ -124,7 +124,7 @@ run "refresh_with_non_email_connector_requires_encryption" {
   command = plan
 
   variables {
-    easy_oidc_config = {
+    truster_config = {
       secrets = { signing_key_name = "projects/my-project/secrets/signing/versions/latest" }
       user_login_connectors = {
         google = {
@@ -144,14 +144,14 @@ run "refresh_with_non_email_connector_requires_encryption" {
     }
   }
 
-  expect_failures = [var.easy_oidc_config]
+  expect_failures = [var.truster_config]
 }
 
 run "email_delivery_requires_smtp" {
   command = plan
 
   variables {
-    easy_oidc_config = {
+    truster_config = {
       secrets = { signing_key_name = "projects/my-project/secrets/signing/versions/latest" }
       user_login_connectors = {
         email = { type = "email", display_name = "Email" }
@@ -161,14 +161,14 @@ run "email_delivery_requires_smtp" {
     }
   }
 
-  expect_failures = [var.easy_oidc_config]
+  expect_failures = [var.truster_config]
 }
 
 run "static_client_requires_redirects" {
   command = plan
 
   variables {
-    easy_oidc_config = {
+    truster_config = {
       secrets = { signing_key_name = "projects/my-project/secrets/signing/versions/latest" }
       user_login_connectors = {
         google = { type = "google", display_name = "Google", credentials_secret = "projects/my-project/secrets/google/versions/latest" }
@@ -177,14 +177,14 @@ run "static_client_requires_redirects" {
     }
   }
 
-  expect_failures = [var.easy_oidc_config]
+  expect_failures = [var.truster_config]
 }
 
 run "generic_refresh_cannot_override_owned_parameters" {
   command = plan
 
   variables {
-    easy_oidc_config = {
+    truster_config = {
       secrets = { signing_key_name = "projects/my-project/secrets/signing/versions/latest" }
       user_login_connectors = {
         upstream = {
@@ -203,14 +203,14 @@ run "generic_refresh_cannot_override_owned_parameters" {
     }
   }
 
-  expect_failures = [var.easy_oidc_config]
+  expect_failures = [var.truster_config]
 }
 
 run "refresh_idle_ttl_cannot_exceed_absolute_ttl" {
   command = plan
 
   variables {
-    easy_oidc_config = {
+    truster_config = {
       secrets = {
         signing_key_name    = "projects/my-project/secrets/signing/versions/latest"
         encryption_key_name = "projects/my-project/secrets/encryption/versions/latest"
@@ -233,14 +233,14 @@ run "refresh_idle_ttl_cannot_exceed_absolute_ttl" {
     }
   }
 
-  expect_failures = [var.easy_oidc_config]
+  expect_failures = [var.truster_config]
 }
 
 run "preset_service_issuer_fields_cannot_be_overridden" {
   command = plan
 
   variables {
-    easy_oidc_config = {
+    truster_config = {
       secrets = { signing_key_name = "projects/my-project/secrets/signing/versions/latest" }
       user_login_connectors = {
         google = { type = "google", display_name = "Google", credentials_secret = "projects/my-project/secrets/google/versions/latest" }
@@ -252,14 +252,14 @@ run "preset_service_issuer_fields_cannot_be_overridden" {
     }
   }
 
-  expect_failures = [var.easy_oidc_config]
+  expect_failures = [var.truster_config]
 }
 
 run "policy_database_empty_refresh_uses_disabled_default" {
   command = plan
 
   variables {
-    easy_oidc_config = {
+    truster_config = {
       secrets = { signing_key_name = "projects/my-project/secrets/signing/versions/latest" }
       user_login_connectors = {
         google = { type = "google", display_name = "Google", credentials_secret = "projects/my-project/secrets/google/versions/latest" }
@@ -278,7 +278,7 @@ run "explicit_empty_default_redirects_are_invalid" {
   command = plan
 
   variables {
-    easy_oidc_config = {
+    truster_config = {
       secrets = { signing_key_name = "projects/my-project/secrets/signing/versions/latest" }
       user_login_connectors = {
         google = { type = "google", display_name = "Google", credentials_secret = "projects/my-project/secrets/google/versions/latest" }
@@ -292,14 +292,14 @@ run "explicit_empty_default_redirects_are_invalid" {
     }
   }
 
-  expect_failures = [var.easy_oidc_config]
+  expect_failures = [var.truster_config]
 }
 
 run "zero_refresh_duration_is_invalid" {
   command = plan
 
   variables {
-    easy_oidc_config = {
+    truster_config = {
       secrets = {
         signing_key_name    = "projects/my-project/secrets/signing/versions/latest"
         encryption_key_name = "projects/my-project/secrets/encryption/versions/latest"
@@ -321,14 +321,14 @@ run "zero_refresh_duration_is_invalid" {
     }
   }
 
-  expect_failures = [var.easy_oidc_config]
+  expect_failures = [var.truster_config]
 }
 
 run "equivalent_email_otp_duration_is_valid" {
   command = plan
 
   variables {
-    easy_oidc_config = {
+    truster_config = {
       secrets = { signing_key_name = "projects/my-project/secrets/signing/versions/latest" }
       user_login_connectors = {
         email = { type = "email", display_name = "Email" }
@@ -351,7 +351,7 @@ run "secret_references_require_full_version_names" {
   command = plan
 
   variables {
-    easy_oidc_config = {
+    truster_config = {
       secrets = {
         signing_key_name    = "signing"
         encryption_key_name = "projects/my-project/secrets/encryption/versions/latest"

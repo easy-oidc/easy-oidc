@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package config
@@ -273,10 +273,10 @@ func CompileCanonicalTrustSchema(data []byte) (*jsonschema.Schema, error) {
 	c := jsonschema.NewCompiler()
 	c.DefaultDraft(jsonschema.Draft2020)
 	c.UseLoader(denySchemaLoader{})
-	if err := c.AddResource("urn:easy-oidc:binding", doc); err != nil {
+	if err := c.AddResource("urn:truster:binding", doc); err != nil {
 		return nil, err
 	}
-	return c.Compile("urn:easy-oidc:binding")
+	return c.Compile("urn:truster:binding")
 }
 
 // CompileTrustSchema canonicalizes and compiles an effective trust schema using static policy safety semantics.

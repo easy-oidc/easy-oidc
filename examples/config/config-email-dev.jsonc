@@ -1,9 +1,9 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 {
-  "$schema": "https://easy-oidc.dev/schema/v2/config.schema.json",
+  "$schema": "https://truster.dev/schema/v2/config.schema.json",
 
   // Local email authentication with Mailpit. See DEV.md for setup instructions.
   "issuer_url": "http://localhost:8080",
@@ -12,10 +12,10 @@
 
   "secrets": {
     "provider": "env",
-    "signing_key_name": "EASYOIDC_SIGNING_KEY",
+    "signing_key_name": "TRUSTER_SIGNING_KEY",
   },
 
-  "state_database": { "driver": "sqlite", "path": "temp/easy-oidc-state.db" },
+  "state_database": { "driver": "sqlite", "path": "temp/truster-state.db" },
 
   "user_login_connectors": {
     "email": {
@@ -26,13 +26,13 @@
 
   "email": {
     "verification_mode": "disabled",
-    "otp_secret_name": "EASYOIDC_OTP_SECRET",
+    "otp_secret_name": "TRUSTER_OTP_SECRET",
     "otp_ttl": "5m",
     "smtp": {
       "host": "localhost",
       "port": 1025,
       "tls_mode": "plaintext",
-      "from_name": "Easy OIDC",
+      "from_name": "Truster",
       "from_address": "auth@localhost",
     },
   },

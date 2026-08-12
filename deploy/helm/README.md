@@ -1,8 +1,8 @@
-# Easy OIDC Helm chart
+# Truster Helm chart
 
-This application chart deploys Easy OIDC on Kubernetes 1.24 or newer. It creates
+This application chart deploys Truster on Kubernetes 1.24 or newer. It creates
 a Deployment, Service, ServiceAccount, and (by default) a PVC. It deliberately
-creates no RBAC resources because Easy OIDC does not access the Kubernetes API.
+creates no RBAC resources because Truster does not access the Kubernetes API.
 
 ## Install
 
@@ -12,7 +12,7 @@ and the provider for your external secret manager, then create a
 `google-credentials.json`. Do not configure `secretObjects`; syncing CSI content
 to a Kubernetes Secret would also copy it into etcd.
 
-Configure Easy OIDC as Helm values. The chart writes these values to the
+Configure Truster as Helm values. The chart writes these values to the
 `config.jsonc` mounted by the Pod:
 
 ```yaml
@@ -32,13 +32,13 @@ config:
 secretFiles:
   enabled: true
   csi:
-    secretProviderClass: easy-oidc
+    secretProviderClass: truster
 ```
 
 Pass that file when installing:
 
 ```bash
-helm install easy-oidc ./deploy/helm --namespace easy-oidc --create-namespace \
+helm install truster ./deploy/helm --namespace truster --create-namespace \
   --values values.yaml
 ```
 
@@ -47,33 +47,33 @@ configuration is unsuitable. Alternatively, keep the entire configuration
 lifecycle outside Helm:
 
 ```bash
-kubectl -n easy-oidc create configmap easy-oidc-config \
+kubectl -n truster create configmap truster-config \
   --from-file=config.jsonc=./config.jsonc
-helm install easy-oidc ./deploy/helm --namespace easy-oidc \
-  --set config.existingConfigMap=easy-oidc-config
+helm install truster ./deploy/helm --namespace truster \
+  --set config.existingConfigMap=truster-config
 ```
 
-Easy OIDC configuration is specific to each deployment: the issuer must match
+Truster configuration is specific to each deployment: the issuer must match
 the public URL and policy must allow at least one client. The chart therefore
 requires these values rather than shipping placeholder identity or trust
 policy. `config.existingConfigMapKey` changes the external source key; the file
-is always mounted as `/etc/easy-oidc/config.jsonc`.
+is always mounted as `/etc/truster/config.jsonc`.
 
 With `rawOverride` or `existingConfigMap`, keep
 `config.state_database.driver` set to the driver in the opaque configuration so
 the chart chooses the correct volume and rollout behavior. Persistent SQLite
-must store its database beneath `/var/lib/easy-oidc`.
+must store its database beneath `/var/lib/truster`.
 
 ## Configuration
 
 | Value | Description | Default |
 |---|---|---|
-| `image.repository` | Easy OIDC image | `ghcr.io/easy-oidc/easy-oidc` |
+| `image.repository` | Truster image | `ghcr.io/truster-dev/truster` |
 | `image.tag` | Image tag; empty uses chart `appVersion` | `""` |
 | `image.digest` | Image digest, including `sha256:`; takes precedence over tag | `""` |
 | `replicaCount` | Deployment replicas | `1` |
 | `deploymentStrategy` | Deployment update strategy; PostgreSQL may use `RollingUpdate` | `Recreate` |
-| `config.issuer_url` | Public Easy OIDC issuer URL | `""` |
+| `config.issuer_url` | Public Truster issuer URL | `""` |
 | `config.user_login_connectors` | Interactive login connectors | `{}` |
 | `config.static_policy` | Static clients and authorization policy | empty clients |
 | `config.rawOverride` | Complete JSONC replacing generated configuration | `""` |
@@ -85,16 +85,16 @@ must store its database beneath `/var/lib/easy-oidc`.
 | `config.state_database.persistence.storageClass` | PVC storage class; empty uses cluster default | `""` |
 | `config.state_database.persistence.size` | Requested storage | `1Gi` |
 | `secretFiles.enabled` | Mount external secrets through CSI | `false` |
-| `secretFiles.mountPath` | File secrets directory | `/var/run/secrets/easy-oidc` |
+| `secretFiles.mountPath` | File secrets directory | `/var/run/secrets/truster` |
 | `secretFiles.csi.secretProviderClass` | Existing provider-specific `SecretProviderClass` | `""` |
 | `service.type` / `service.port` | Service type and port | `ClusterIP` / `8080` |
 | `ingress.enabled` | Create an Ingress | `false` |
-| `server.tls.enabled` | Serve native HTTPS from Easy OIDC | `false` |
+| `server.tls.enabled` | Serve native HTTPS from Truster | `false` |
 | `server.tls.secretName` | Existing TLS Secret; empty uses `<fullname>-tls` | `""` |
 | `server.tls.certManager.enabled` | Create a cert-manager `Certificate` | `false` |
 | `server.tls.certManager.issuerRef` | cert-manager issuer name, kind, and group | empty `Issuer` reference |
 | `server.tls.certManager.dnsNames` | Subject alternative names for the serving certificate | `[]` |
-| `migrations.enabled` | Run `easy-oidc migrate` before the server | `false` |
+| `migrations.enabled` | Run `truster migrate` before the server | `false` |
 | `migrations.secretFiles.enabled` | Use a migration-only CSI volume | `false` |
 | `migrations.secretFiles.csi.secretProviderClass` | Migration-only `SecretProviderClass` | `""` |
 | `migrations.env` / `migrations.envFrom` | Additional secrets available only while migrating | `[]` / `[]` |
@@ -114,7 +114,7 @@ to `config.secrets.file_directory`. The chart defaults that
 directory to `secretFiles.mountPath` and mounts the files read-only in both the
 migration init container and the server container.
 
-Easy OIDC reads secret files once during startup. Restart the workload after a
+Truster reads secret files once during startup. Restart the workload after a
 rotation; do not assume that an in-place CSI file update reloads keys or
 credentials.
 
@@ -125,11 +125,11 @@ that cannot use CSI:
 config:
   secrets:
     provider: env
-    signing_key_name: EASYOIDC_SIGNING_KEY
+    signing_key_name: TRUSTER_SIGNING_KEY
 
 envFrom:
   - secretRef:
-      name: easy-oidc-secrets
+      name: truster-secrets
 ```
 
 This fallback stores secret material in Kubernetes etcd and exposes it as
@@ -156,14 +156,14 @@ the PVC explicitly only when its state is no longer needed. To protect the
 SQLite database, chart validation requires one replica and the `Recreate`
 strategy while persistence is enabled.
 
-When the Easy OIDC configuration uses PostgreSQL, disable the unused PVC and
+When the Truster configuration uses PostgreSQL, disable the unused PVC and
 allow rolling updates in the Helm values:
 
 ```yaml
 config:
   state_database:
     driver: postgresql
-    connection_string_secret: EASYOIDC_STATE_DB_URL
+    connection_string_secret: TRUSTER_STATE_DB_URL
 
 deploymentStrategy:
   type: RollingUpdate
@@ -176,7 +176,7 @@ the same DPoP key to one replica.
 
 ## Native HTTPS and cert-manager
 
-Easy OIDC normally serves HTTP inside the Pod so an Ingress or another trusted
+Truster normally serves HTTP inside the Pod so an Ingress or another trusted
 proxy can terminate TLS. To encrypt traffic to the Pod as well, provide a
 standard `kubernetes.io/tls` Secret containing `tls.crt` and `tls.key`:
 
@@ -184,11 +184,11 @@ standard `kubernetes.io/tls` Secret containing `tls.crt` and `tls.key`:
 server:
   tls:
     enabled: true
-    secretName: easy-oidc-serving-tls
+    secretName: truster-serving-tls
 ```
 
-The chart mounts the whole Secret at `/var/run/easy-oidc/tls`, configures native
-HTTPS, and switches its Service and HTTP probes to HTTPS. Easy OIDC reloads a
+The chart mounts the whole Secret at `/var/run/truster/tls`, configures native
+HTTPS, and switches its Service and HTTP probes to HTTPS. Truster reloads a
 valid replacement certificate without restarting and keeps the last valid pair
 if a projected update is temporarily incomplete.
 
@@ -205,8 +205,8 @@ server:
         name: internal-ca
         kind: ClusterIssuer
       dnsNames:
-        - easy-oidc.example-namespace.svc
-        - easy-oidc.example-namespace.svc.cluster.local
+        - truster.example-namespace.svc
+        - truster.example-namespace.svc.cluster.local
 ```
 
 Set `duration` and `renewBefore` under `server.tls.certManager` only when
@@ -215,7 +215,7 @@ private key in a Kubernetes Secret, so enable etcd encryption at rest and limit
 Secret RBAC.
 
 `ingress.tls` configures the certificate presented by the Ingress to clients;
-it does not configure HTTPS from the Ingress to Easy OIDC. Backend TLS is
+it does not configure HTTPS from the Ingress to Truster. Backend TLS is
 controller-specific. For ingress-nginx, add
 `nginx.ingress.kubernetes.io/backend-protocol: HTTPS` to `ingress.annotations`.
 Other controllers may require backend scheme, trust, or SNI configuration.
@@ -226,15 +226,15 @@ true, include these paths yourself:
 
 ```jsonc
 "serving_certificate": {
-  "certificate_file": "/var/run/easy-oidc/tls/tls.crt",
-  "private_key_file": "/var/run/easy-oidc/tls/tls.key"
+  "certificate_file": "/var/run/truster/tls/tls.crt",
+  "private_key_file": "/var/run/truster/tls/tls.key"
 }
 ```
 
 ## Migrations and upgrades
 
 Set `migrations.enabled: true` to run
-`/easy-oidc migrate --config /etc/easy-oidc/config.jsonc` in an init container
+`/truster migrate --config /etc/truster/config.jsonc` in an init container
 using the same image, config, security context, and data volume as the server.
 Shared `env` and `envFrom` values are available to both containers; use
 `migrations.env` or `migrations.envFrom` for a more privileged database credential
@@ -245,7 +245,7 @@ secret volume. Workload identity still applies to the whole Pod, so run
 migrations from a separate release process when migration and runtime cloud
 identities must differ.
 
-Back up the database before upgrades. Review Easy OIDC release notes for
+Back up the database before upgrades. Review Truster release notes for
 migration and rollback compatibility, upgrade one replica at a time, and
 disable the init container if migrations are managed by a separate release
 process. Generated and raw override changes trigger a rollout via a checksum

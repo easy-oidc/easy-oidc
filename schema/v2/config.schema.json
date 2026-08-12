@@ -1,9 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://easy-oidc.dev/schema/v2/config.schema.json",
-  "$comment": "Easy OIDC <https://easy-oidc.dev>; Copyright The Easy OIDC Authors; SPDX-License-Identifier: Apache-2.0",
-  "title": "Easy OIDC v2 configuration",
-  "description": "Configuration for an Easy OIDC v2 server.",
+  "$id": "https://truster.dev/schema/v2/config.schema.json",
+  "$comment": "Truster <https://truster.dev>; Copyright The Truster Authors; SPDX-License-Identifier: Apache-2.0",
+  "title": "Truster v2 configuration",
+  "description": "Configuration for an Truster v2 server.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -24,7 +24,7 @@
     "http_listen_addr": {
       "type": "string",
       "minLength": 1,
-      "description": "Address and port on which Easy OIDC serves requests."
+      "description": "Address and port on which Truster serves requests."
     },
     "serving_certificate": {
       "type": "object",
@@ -97,7 +97,7 @@
     },
     "state_database": {
       "$ref": "#/$defs/stateDatabase",
-      "default": { "driver": "sqlite", "path": "data/easy-oidc-state.db" },
+      "default": { "driver": "sqlite", "path": "data/truster-state.db" },
       "description": "Authoritative protocol-state database. Defaults to SQLite under data in the working directory."
     },
     "policy_database": {
@@ -856,7 +856,7 @@
           "additionalProperties": false,
           "properties": {
             "driver": { "const": "sqlite", "default": "sqlite" },
-            "path": { "type": "string", "minLength": 1, "pattern": "\\S", "default": "data/easy-oidc-state.db" }
+            "path": { "type": "string", "minLength": 1, "pattern": "\\S", "default": "data/truster-state.db" }
           }
         },
         {
@@ -927,22 +927,22 @@
         "queries": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Optional query overrides. Omitted queries use the built-in easy_oidc_policy PostgreSQL schema.",
+          "description": "Optional query overrides. Omitted queries use the built-in truster_policy PostgreSQL schema.",
           "properties": {
             "client_exists": {
               "type": "string",
               "minLength": 1,
-              "default": "SELECT EXISTS (SELECT 1 FROM easy_oidc_policy.clients WHERE client_id = $1) AS exists"
+              "default": "SELECT EXISTS (SELECT 1 FROM truster_policy.clients WHERE client_id = $1) AS exists"
             },
             "user_access": {
               "type": "string",
               "minLength": 1,
-              "default": "SELECT users.subject IS NOT NULL AS allowed, COALESCE(users.groups, ARRAY[]::text[]) AS groups FROM (VALUES ($1::text, $2::text)) AS input(client_id, subject) LEFT JOIN easy_oidc_policy.users USING (client_id, subject)"
+              "default": "SELECT users.subject IS NOT NULL AS allowed, COALESCE(users.groups, ARRAY[]::text[]) AS groups FROM (VALUES ($1::text, $2::text)) AS input(client_id, subject) LEFT JOIN truster_policy.users USING (client_id, subject)"
             },
             "trust_bindings": {
               "type": "string",
               "minLength": 1,
-              "default": "SELECT client_id, issuer_id, binding_id, subject, required_claims, policy_claims, binding_claims, groups FROM easy_oidc_policy.trust_bindings WHERE client_id = $1 AND issuer_id = $2 ORDER BY binding_id"
+              "default": "SELECT client_id, issuer_id, binding_id, subject, required_claims, policy_claims, binding_claims, groups FROM truster_policy.trust_bindings WHERE client_id = $1 AND issuer_id = $2 ORDER BY binding_id"
             }
           }
         },

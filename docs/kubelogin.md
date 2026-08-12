@@ -76,11 +76,11 @@ contexts:
     user: oidc-user
 ```
 
-The issuer and client ID must match the cluster-side OIDC settings and the Easy
-OIDC client. Repeat the user entry with another client ID if a second cluster
+The issuer and client ID must match the cluster-side OIDC settings and the
+Truster client. Repeat the user entry with another client ID if a second cluster
 uses a separate client and group mapping.
 
-Request `offline_access` only when the Easy OIDC client explicitly allows
+Request `offline_access` only when the Truster client explicitly allows
 offline grants:
 
 ```yaml
@@ -98,7 +98,7 @@ kubectl oidc-login setup \
   --oidc-pkce-method=S256
 ```
 
-kubelogin starts a localhost callback listener, opens Easy OIDC in the browser,
+kubelogin starts a localhost callback listener, opens Truster in the browser,
 and prints the resulting claims after authentication. Confirm `iss`, `aud`,
 `email`, and `groups` with your cluster administrator. Then use kubectl normally:
 
@@ -115,10 +115,10 @@ kubelogin caches credentials under `~/.kube/cache/oidc-login/`, separated by
 issuer and client ID. Protect the cache as sensitive data and keep its parent
 directory accessible only to your user (for example, mode `0700`).
 
-Easy OIDC ID tokens expire after 15 minutes by default. Before each command,
+Truster ID tokens expire after 15 minutes by default. Before each command,
 kubelogin returns a valid cached token, refreshes it if a refresh token is
 available, or starts a new browser login. Refresh tokens require
-`refresh_tokens.enabled` in Easy OIDC. Long-lived offline grants additionally
+`refresh_tokens.enabled` in Truster. Long-lived offline grants additionally
 require the client to permit offline access and kubelogin to request the
 `offline_access` scope. Without a refresh token, a new browser login after
 expiry is expected.
@@ -136,8 +136,8 @@ where kubelogin runs; browser and network forwarding must be able to reach it.
 
 ### Callback port is busy
 
-Add `--listen-address=127.0.0.1:18000` (or another free port), and ask the Easy
-OIDC administrator to allow the corresponding `http://localhost:18000` redirect
+Add `--listen-address=127.0.0.1:18000` (or another free port), and ask the Truster
+administrator to allow the corresponding `http://localhost:18000` redirect
 URI for the client.
 
 ### Login or refresh repeatedly fails

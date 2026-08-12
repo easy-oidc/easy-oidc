@@ -1,19 +1,19 @@
 #!/bin/bash
-# Easy OIDC <https://easy-oidc.dev>
-# Copyright The Easy OIDC Authors
+# Truster <https://truster.dev>
+# Copyright The Truster Authors
 # SPDX-License-Identifier: Apache-2.0
 
 set -eo pipefail
 umask 077
 
-# Userdata script for Debian stable, which sets up easy-oidc and Caddy on a fresh instance.
+# Userdata script for Debian stable, which sets up truster and Caddy on a fresh instance.
 # Variables which you can set prior to invoking this script:
-# EASY_OIDC_VERSION="latest"
-# EASY_OIDC_SHA512="abc123..."
+# TRUSTER_VERSION="latest"
+# TRUSTER_SHA512="abc123..."
 # CADDY_VERSION="latest"
 # CADDY_SHA512="def456..."
 # OIDC_ADDR="auth.example.com" # May include a port, such as auth.example.com:8443.
-# EASY_OIDC_CONFIG='{"static_policy":{"clients":{}}}'
+# TRUSTER_CONFIG='{"static_policy":{"clients":{}}}'
 # RUN_DB_MIGRATIONS=false
 # SSH=false
 # FIREWALL=true
@@ -117,40 +117,40 @@ case "${MACHINE_ARCH}" in
 esac
 echo "ARCH: ${ARCH}"
 
-# === Install easy-oidc ===
+# === Install truster ===
 # Resolve "latest" or empty to actual version
-if [ -z "${EASY_OIDC_VERSION}" ] || [ "${EASY_OIDC_VERSION}" = "latest" ]; then
-    echo "Fetching latest easy-oidc release..."
-    EASY_OIDC_VERSION=$(curl -sSL https://api.github.com/repos/easy-oidc/easy-oidc/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-    echo "Latest version: ${EASY_OIDC_VERSION}"
+if [ -z "${TRUSTER_VERSION}" ] || [ "${TRUSTER_VERSION}" = "latest" ]; then
+    echo "Fetching latest truster release..."
+    TRUSTER_VERSION=$(curl -sSL https://api.github.com/repos/truster-dev/truster/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    echo "Latest version: ${TRUSTER_VERSION}"
 fi
 
-echo "Installing easy-oidc ${EASY_OIDC_VERSION}..."
+echo "Installing truster ${TRUSTER_VERSION}..."
 
-curl -L "https://github.com/easy-oidc/easy-oidc/releases/download/${EASY_OIDC_VERSION}/easy-oidc_${EASY_OIDC_VERSION#v}_linux_${ARCH}.tar.gz" -o /tmp/easy-oidc.tar.gz
+curl -L "https://github.com/truster-dev/truster/releases/download/${TRUSTER_VERSION}/truster_${TRUSTER_VERSION#v}_linux_${ARCH}.tar.gz" -o /tmp/truster.tar.gz
 
-if [ -n "${EASY_OIDC_SHA512}" ]; then
-    echo "Verifying easy-oidc checksum..."
-    echo "${EASY_OIDC_SHA512}  /tmp/easy-oidc.tar.gz" | sha512sum -c -
+if [ -n "${TRUSTER_SHA512}" ]; then
+    echo "Verifying truster checksum..."
+    echo "${TRUSTER_SHA512}  /tmp/truster.tar.gz" | sha512sum -c -
     if [ $? -ne 0 ]; then
-        echo "ERROR: easy-oidc checksum verification failed"
+        echo "ERROR: truster checksum verification failed"
         exit 1
     fi
 fi
 
-tar -xzf /tmp/easy-oidc.tar.gz -C /tmp
-mv /tmp/easy-oidc /usr/local/bin/easy-oidc
-chmod +x /usr/local/bin/easy-oidc
-rm /tmp/easy-oidc.tar.gz
+tar -xzf /tmp/truster.tar.gz -C /tmp
+mv /tmp/truster /usr/local/bin/truster
+chmod +x /usr/local/bin/truster
+rm /tmp/truster.tar.gz
 
-if ! id -u easy-oidc >/dev/null 2>&1; then
-    useradd -r -s /usr/sbin/nologin -d /var/lib/easy-oidc -m easy-oidc
+if ! id -u truster >/dev/null 2>&1; then
+    useradd -r -s /usr/sbin/nologin -d /var/lib/truster -m truster
 fi
 
-mkdir -p /etc/easy-oidc
-mkdir -p /opt/easy-oidc
-chown easy-oidc:easy-oidc /var/lib/easy-oidc
-chmod 700 /var/lib/easy-oidc
+mkdir -p /etc/truster
+mkdir -p /opt/truster
+chown truster:truster /var/lib/truster
+chmod 700 /var/lib/truster
 
 # === Install Caddy ===
 # Resolve "latest" or empty to actual version
@@ -190,9 +190,9 @@ chown -R caddy:caddy /var/lib/caddy
 # === Create configuration files ===
 echo "Creating configuration files..."
 
-# Write easy-oidc config (already a complete JSON document from Terraform)
-install -o easy-oidc -g easy-oidc -m 0600 /dev/null /etc/easy-oidc/config.jsonc
-printf '%s\n' "${EASY_OIDC_CONFIG}" > /etc/easy-oidc/config.jsonc
+# Write truster config (already a complete JSON document from Terraform)
+install -o truster -g truster -m 0600 /dev/null /etc/truster/config.jsonc
+printf '%s\n' "${TRUSTER_CONFIG}" > /etc/truster/config.jsonc
 
 # Write Caddyfile (expand variables)
 install -o root -g caddy -m 0640 /dev/null /etc/caddy/Caddyfile
@@ -205,21 +205,21 @@ echo "Installing systemd services..."
 
 MIGRATION_EXEC_START_PRE=""
 if [ "${RUN_DB_MIGRATIONS}" = "true" ]; then
-    MIGRATION_EXEC_START_PRE="ExecStartPre=/usr/local/bin/easy-oidc migrate --config /etc/easy-oidc/config.jsonc"
+    MIGRATION_EXEC_START_PRE="ExecStartPre=/usr/local/bin/truster migrate --config /etc/truster/config.jsonc"
 fi
 
-cat > /etc/systemd/system/easy-oidc.service <<EOF
+cat > /etc/systemd/system/truster.service <<EOF
 [Unit]
-Description=Easy OIDC Server
+Description=Truster Server
 After=network.target
 
 [Service]
 Type=simple
-User=easy-oidc
-Group=easy-oidc
-WorkingDirectory=/opt/easy-oidc
+User=truster
+Group=truster
+WorkingDirectory=/opt/truster
 ${MIGRATION_EXEC_START_PRE}
-ExecStart=/usr/local/bin/easy-oidc serve --config /etc/easy-oidc/config.jsonc
+ExecStart=/usr/local/bin/truster serve --config /etc/truster/config.jsonc
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
@@ -230,7 +230,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/easy-oidc
+ReadWritePaths=/var/lib/truster
 PrivateDevices=true
 ProtectKernelTunables=true
 ProtectControlGroups=true
@@ -272,9 +272,9 @@ EOF
 # === Start services ===
 echo "Starting services..."
 systemctl daemon-reload
-systemctl enable easy-oidc
+systemctl enable truster
 systemctl enable caddy
-systemctl start easy-oidc
+systemctl start truster
 systemctl start caddy
 
 # === Log Installation Info ===
@@ -285,12 +285,12 @@ echo "  Address:      ${OIDC_ADDR}"
 echo "  Issuer URL:   https://${OIDC_ADDR}"
 echo ""
 echo "Status:"
-systemctl status easy-oidc --no-pager || true
+systemctl status truster --no-pager || true
 echo ""
 systemctl status caddy --no-pager || true
 echo ""
 echo "Logs:"
-echo "  easy-oidc: journalctl -u easy-oidc -f"
+echo "  truster: journalctl -u truster -f"
 echo "  caddy:     journalctl -u caddy -f"
 echo ""
 

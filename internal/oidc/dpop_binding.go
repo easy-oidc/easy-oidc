@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package oidc
@@ -7,7 +7,7 @@ package oidc
 import (
 	"net/http"
 
-	"github.com/easy-oidc/easy-oidc/internal/config"
+	"github.com/truster-dev/truster/internal/config"
 )
 
 const supportedDPoPAlgorithmChallenge = "ES256 ES512"

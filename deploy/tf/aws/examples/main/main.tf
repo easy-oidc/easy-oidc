@@ -1,5 +1,5 @@
-# Easy OIDC <https://easy-oidc.dev>
-# Copyright The Easy OIDC Authors
+# Truster <https://truster.dev>
+# Copyright The Truster Authors
 # SPDX-License-Identifier: Apache-2.0
 
 terraform {
@@ -18,16 +18,16 @@ locals {
   vpc_cidr      = "10.0.0.0/16"
   route53_zone  = "example.com"
   oidc_hostname = "auth.example.com"
-  easy_oidc_config = {
+  truster_config = {
     secrets = {
-      signing_key_name    = "/easy-oidc/signing-key"
-      encryption_key_name = "/easy-oidc/encryption-key"
+      signing_key_name    = "/truster/signing-key"
+      encryption_key_name = "/truster/encryption-key"
     }
     user_login_connectors = {
       google = {
         type               = "google"
         display_name       = "Google"
-        credentials_secret = "/easy-oidc/google-credentials"
+        credentials_secret = "/truster/google-credentials"
       }
     }
     static_policy = {
@@ -61,13 +61,13 @@ resource "aws_vpc" "main" {
   enable_dns_hostnames             = true
   enable_dns_support               = true
   tags = {
-    Name = "easy-oidc-vpc"
+    Name = "truster-vpc"
   }
 }
 resource "aws_internet_gateway" "main" {
   vpc_id = aws_vpc.main.id
   tags = {
-    Name = "easy-oidc-igw"
+    Name = "truster-igw"
   }
 }
 resource "aws_route_table" "main" {
@@ -81,33 +81,33 @@ resource "aws_route_table" "main" {
     gateway_id      = aws_internet_gateway.main.id
   }
   tags = {
-    Name = "easy-oidc-rt"
+    Name = "truster-rt"
   }
 }
 resource "aws_route_table_association" "main" {
-  subnet_id      = module.easy_oidc.subnet_id
+  subnet_id      = module.truster.subnet_id
   route_table_id = aws_route_table.main.id
 }
 
 # SSH key pair for instance access (enabled if ssh_public_key_path is set)
-resource "aws_key_pair" "easy_oidc" {
+resource "aws_key_pair" "truster" {
   count = local.ssh_public_key_path != null ? 1 : 0
 
-  key_name   = "easy-oidc-ssh"
+  key_name   = "truster-ssh"
   public_key = local.ssh_public_key_path != null ? file(local.ssh_public_key_path) : ""
 }
 
-# Deploy easy-oidc
-module "easy_oidc" {
-  # source = "easy-oidc/easy-oidc/aws"
+# Deploy truster
+module "truster" {
+  # source = "truster/truster/aws"
   source = "../../"
 
-  vpc_id           = aws_vpc.main.id
-  oidc_addr        = local.oidc_hostname
-  easy_oidc_config = local.easy_oidc_config
+  vpc_id         = aws_vpc.main.id
+  oidc_addr      = local.oidc_hostname
+  truster_config = local.truster_config
 
   # SSH access (enabled if ssh_public_key_path is set)
-  ssh_key_name           = local.ssh_public_key_path != null ? aws_key_pair.easy_oidc[0].key_name : null
+  ssh_key_name           = local.ssh_public_key_path != null ? aws_key_pair.truster[0].key_name : null
   ssh_allowed_cidrs_ipv4 = local.ssh_public_key_path != null ? local.ssh_allowed_cidrs_ipv4 : null
   ssh_allowed_cidrs_ipv6 = local.ssh_public_key_path != null ? local.ssh_allowed_cidrs_ipv6 : null
 }
@@ -118,12 +118,12 @@ data "aws_route53_zone" "main" {
 }
 
 resource "aws_route53_record" "oidc_dns_a" {
-  count   = module.easy_oidc.enable_ipv4 ? 1 : 0
+  count   = module.truster.enable_ipv4 ? 1 : 0
   zone_id = data.aws_route53_zone.main.zone_id
   name    = local.oidc_hostname
   type    = "A"
   ttl     = 300
-  records = [module.easy_oidc.public_ipv4]
+  records = [module.truster.public_ipv4]
 }
 
 resource "aws_route53_record" "oidc_dns_aaaa" {
@@ -131,5 +131,5 @@ resource "aws_route53_record" "oidc_dns_aaaa" {
   name    = local.oidc_hostname
   type    = "AAAA"
   ttl     = 300
-  records = [module.easy_oidc.public_ipv6]
+  records = [module.truster.public_ipv6]
 }

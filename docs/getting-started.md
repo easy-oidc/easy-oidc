@@ -5,7 +5,7 @@ linkTitle: 'Getting Started'
 weight: 2
 ---
 
-Start with the local demo to see how Easy OIDC works. It takes only a few
+Start with the local demo to see how Truster works. It takes only a few
 minutes, needs no cloud account or domain, and walks through a complete sign-in.
 When you are ready for a reusable issuer, continue with the local, AWS, or
 Google Cloud guide below.
@@ -25,10 +25,10 @@ the demo email instead of sending it for real:
 go run github.com/axllent/mailpit@latest
 ```
 
-Start Easy OIDC in the second terminal:
+Start Truster in the second terminal:
 
 ```console
-go run ./cmd/easy-oidc serve --demo
+go run ./cmd/truster serve --demo
 ```
 
 Then begin a login:
@@ -42,7 +42,7 @@ kubectl oidc-login setup \
 
 Your browser will ask for an email address. Enter any address, open Mailpit at
 <http://localhost:8025>, and copy the code from the new message back into the
-browser. kubelogin will print the identity returned by Easy OIDC.
+browser. kubelogin will print the identity returned by Truster.
 
 Demo mode is for local evaluation only. It generates temporary signing and
 email-code secrets and removes its SQLite database when the process exits.
@@ -60,13 +60,13 @@ email-code secrets and removes its SQLite database when the process exits.
 
 Whichever target you choose, you will configure the same parts:
 
-- **An issuer URL:** the address where Easy OIDC will run. Production issuers
+- **An issuer URL:** the address where Truster will run. Production issuers
   use HTTPS.
 - **A sign-in method:** Google, GitHub, another OAuth2/OIDC provider, or email
   codes.
 - **A signing key:** used to create tokens that Kubernetes can verify.
 - **A client:** for example, kubelogin, with its allowed callback address.
-- **Access policy:** the users and groups that Easy OIDC puts in each token.
+- **Access policy:** the users and groups that Truster puts in each token.
 - **Kubernetes trust and RBAC:** Kubernetes verifies the token and decides what
   its user and groups may do.
 

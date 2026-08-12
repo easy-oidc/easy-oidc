@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package dev
@@ -31,7 +31,7 @@ func TestTemplateServerUsesMockDataWithoutTurnstile(t *testing.T) {
 	if response.Code != http.StatusOK || !strings.Contains(body, "Google") || !strings.Contains(body, `action="/email/start"`) {
 		t.Fatalf("unexpected selector preview: %d %s", response.Code, body)
 	}
-	if strings.Contains(body, "cf-turnstile") || !strings.Contains(body, "/__easy_oidc_dev/revision") {
+	if strings.Contains(body, "cf-turnstile") || !strings.Contains(body, "/__truster_dev/revision") {
 		t.Fatalf("selector preview included Turnstile or omitted live reload: %s", body)
 	}
 	response = httptest.NewRecorder()

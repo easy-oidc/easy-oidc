@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package oidc
@@ -14,10 +14,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/easy-oidc/easy-oidc/internal/authpolicy"
-	"github.com/easy-oidc/easy-oidc/internal/config"
-	"github.com/easy-oidc/easy-oidc/internal/dpop"
-	"github.com/easy-oidc/easy-oidc/internal/statedb"
+	"github.com/truster-dev/truster/internal/authpolicy"
+	"github.com/truster-dev/truster/internal/config"
+	"github.com/truster-dev/truster/internal/dpop"
+	"github.com/truster-dev/truster/internal/statedb"
 )
 
 const maxPARBody = 16 << 10

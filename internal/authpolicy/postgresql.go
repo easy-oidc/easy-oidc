@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package authpolicy
@@ -20,12 +20,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/easy-oidc/easy-oidc/internal/config"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	jsonschema "github.com/santhosh-tekuri/jsonschema/v6"
+	"github.com/truster-dev/truster/internal/config"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -371,7 +371,7 @@ func validatePool(ctx context.Context, pool *pgxpool.Pool, cfg config.PolicyData
 	if err = conn.QueryRow(ctx, "SHOW default_transaction_read_only").Scan(&readOnly); err != nil || readOnly != "on" {
 		return fmt.Errorf("verify policy database read-only session")
 	}
-	for name, statement := range map[string]string{"easy_oidc_client_exists": cfg.Queries.ClientExists, "easy_oidc_user_access": cfg.Queries.UserAccess, "easy_oidc_trust_bindings": cfg.Queries.TrustBindings} {
+	for name, statement := range map[string]string{"truster_client_exists": cfg.Queries.ClientExists, "truster_user_access": cfg.Queries.UserAccess, "truster_trust_bindings": cfg.Queries.TrustBindings} {
 		if _, err = conn.Conn().Prepare(ctx, name, statement); err != nil {
 			return fmt.Errorf("prepare policy database query")
 		}

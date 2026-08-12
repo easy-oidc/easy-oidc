@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package authpolicy
@@ -17,9 +17,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/easy-oidc/easy-oidc/internal/config"
 	"github.com/jackc/pgx/v5"
 	jsonschema "github.com/santhosh-tekuri/jsonschema/v6"
+	"github.com/truster-dev/truster/internal/config"
 )
 
 // TestPostgreSQLOperationLogs verifies final outcomes, cache state, malformed results, and subject redaction.

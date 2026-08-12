@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package cmd
@@ -7,8 +7,8 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/easy-oidc/easy-oidc/internal/config"
 	"github.com/spf13/cobra"
+	"github.com/truster-dev/truster/internal/config"
 )
 
 // newCheckConfigCmd constructs the configuration validation command.

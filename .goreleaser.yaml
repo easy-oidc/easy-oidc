@@ -1,21 +1,21 @@
-# Easy OIDC <https://easy-oidc.dev>
-# Copyright The Easy OIDC Authors
+# Truster <https://truster.dev>
+# Copyright The Truster Authors
 # SPDX-License-Identifier: Apache-2.0
 
 # yaml-language-server: $schema=https://goreleaser.com/static/schema.json
 
 version: 2
 
-project_name: easy-oidc
+project_name: truster
 
 before:
   hooks:
     - make precommit
 
 builds:
-  - id: easy-oidc
-    main: ./cmd/easy-oidc
-    binary: easy-oidc
+  - id: truster
+    main: ./cmd/truster
+    binary: truster
     env:
       - CGO_ENABLED=1
     goos:
@@ -30,15 +30,15 @@ builds:
           - CC=aarch64-linux-gnu-gcc-13
     ldflags:
       - -s -w
-      - -X github.com/easy-oidc/easy-oidc/internal/buildvars.buildVersion={{ .Tag }}
-      - -X github.com/easy-oidc/easy-oidc/internal/buildvars.buildDate={{ .Date }}
-      - -X github.com/easy-oidc/easy-oidc/internal/buildvars.commitHash={{ .FullCommit }}
-      - -X github.com/easy-oidc/easy-oidc/internal/buildvars.commitDate={{ .Env.COMMIT_DATE }}
-      - -X github.com/easy-oidc/easy-oidc/internal/buildvars.commitBranch=unknown
+      - -X github.com/truster-dev/truster/internal/buildvars.buildVersion={{ .Tag }}
+      - -X github.com/truster-dev/truster/internal/buildvars.buildDate={{ .Date }}
+      - -X github.com/truster-dev/truster/internal/buildvars.commitHash={{ .FullCommit }}
+      - -X github.com/truster-dev/truster/internal/buildvars.commitDate={{ .Env.COMMIT_DATE }}
+      - -X github.com/truster-dev/truster/internal/buildvars.commitBranch=unknown
     mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
-  - id: easy-oidc
+  - id: truster
     formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
@@ -79,8 +79,8 @@ changelog:
 
 release:
   github:
-    owner: easy-oidc
-    name: easy-oidc
+    owner: truster-dev
+    name: truster
   draft: true
   prerelease: auto
   replace_existing_artifacts: false

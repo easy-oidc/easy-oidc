@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package templates
@@ -134,7 +134,7 @@ func TestDefaultEmailIncludesExpiry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if subject != "Easy OIDC verification code" {
+	if subject != "Truster verification code" {
 		t.Fatalf("default subject = %q", subject)
 	}
 }

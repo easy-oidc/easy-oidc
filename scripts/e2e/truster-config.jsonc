@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 {
@@ -11,20 +11,20 @@
 
   "secrets": {
     "provider": "env",
-    "signing_key_name": "EASYOIDC_SIGNING_KEY",
-    "encryption_key_name": "EASYOIDC_ENCRYPTION_KEY",
+    "signing_key_name": "TRUSTER_SIGNING_KEY",
+    "encryption_key_name": "TRUSTER_ENCRYPTION_KEY",
   },
 
   "state_database": {
     "driver": "postgresql",
-    "connection_string_secret": "EASYOIDC_STATE_DB_URL",
-    "migrations": { "connection_string_secret": "EASYOIDC_STATE_MIGRATION_DB_URL" },
+    "connection_string_secret": "TRUSTER_STATE_DB_URL",
+    "migrations": { "connection_string_secret": "TRUSTER_STATE_MIGRATION_DB_URL" },
   },
 
   "policy_database": {
     // The policy database supplies the db-* clients after the static flows.
     "driver": "postgresql",
-    "connection_string_secret": "EASYOIDC_POLICY_DB_URL",
+    "connection_string_secret": "TRUSTER_POLICY_DB_URL",
     "redirect_uris": ["http://localhost:18000"],
     "client_defaults": {
       "require_user_groups_from_policy": true,
@@ -36,7 +36,7 @@
     "generic": {
       "type": "generic",
       "display_name": "E2E Dex",
-      "credentials_secret": "EASYOIDC_DEX_CREDENTIALS",
+      "credentials_secret": "TRUSTER_DEX_CREDENTIALS",
       "scopes": ["openid", "email", "profile", "groups"],
 
       "generic": {

@@ -4,11 +4,11 @@ title: 'Deploy to Google Cloud using OpenTofu/Terraform'
 linkTitle: 'Google Cloud'
 ---
 
-This guide deploys a persistent Easy OIDC issuer on Google Cloud with Google
+This guide deploys a persistent Truster issuer on Google Cloud with Google
 sign-in and one kubelogin client. It uses the official OpenTofu/Terraform module
 and creates a small Compute Engine deployment.
 
-The module runs Easy OIDC and Caddy on one virtual machine. Caddy obtains the
+The module runs Truster and Caddy on one virtual machine. Caddy obtains the
 HTTPS certificate, SQLite stores login state, and the instance can read only the
 Secret Manager secrets named in its configuration.
 
@@ -31,7 +31,7 @@ This guide uses these examples. Replace them consistently with your values.
 | Region | `us-central1` |
 | Zone | `us-central1-a` |
 | Cloud DNS zone name | `example-com` |
-| Easy OIDC hostname | `auth.example.com` |
+| Truster hostname | `auth.example.com` |
 | Google callback URL | `https://auth.example.com/callback/google` |
 | kubelogin client ID | `kubelogin-prod` |
 | Allowed user | `alice@example.com` |
@@ -72,7 +72,7 @@ cat > google-credentials.json <<'EOF'
 {"client_id":"YOUR_GOOGLE_CLIENT_ID","client_secret":"YOUR_GOOGLE_CLIENT_SECRET"}
 EOF
 
-gcloud secrets create easy-oidc-google \
+gcloud secrets create truster-google \
   --replication-policy=automatic \
   --data-file=google-credentials.json
 
@@ -83,7 +83,7 @@ Generate the token-signing key directly into a second secret:
 
 ```console
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 | \
-  gcloud secrets create easy-oidc-signing-key \
+  gcloud secrets create truster-signing-key \
     --replication-policy=automatic \
     --data-file=-
 ```
@@ -91,11 +91,11 @@ openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 | \
 Replacing a signing key invalidates tokens signed by the previous key. Rotate it
 deliberately and expect users to sign in again.
 
-Easy OIDC uses full Secret Manager version names. For this example they are:
+Truster uses full Secret Manager version names. For this example they are:
 
 ```text
-projects/my-project/secrets/easy-oidc-google/versions/latest
-projects/my-project/secrets/easy-oidc-signing-key/versions/latest
+projects/my-project/secrets/truster-google/versions/latest
+projects/my-project/secrets/truster-signing-key/versions/latest
 ```
 
 The module grants its instance service account access to the referenced secrets.
@@ -134,12 +134,12 @@ provider "google" {
 }
 
 resource "google_compute_network" "main" {
-  name                    = "easy-oidc"
+  name                    = "truster"
   auto_create_subnetworks = false
 }
 
-module "easy_oidc" {
-  source  = "easy-oidc/easy-oidc/google"
+module "truster" {
+  source  = "truster/truster/google"
   version = "~> 2.0"
 
   project_id  = local.project_id
@@ -149,15 +149,15 @@ module "easy_oidc" {
   oidc_addr   = local.oidc_hostname
   enable_ipv6 = false
 
-  easy_oidc_config = {
+  truster_config = {
     secrets = {
-      signing_key_name = "projects/${local.project_id}/secrets/easy-oidc-signing-key/versions/latest"
+      signing_key_name = "projects/${local.project_id}/secrets/truster-signing-key/versions/latest"
     }
     user_login_connectors = {
       google = {
         type               = "google"
         display_name       = "Google"
-        credentials_secret = "projects/${local.project_id}/secrets/easy-oidc-google/versions/latest"
+        credentials_secret = "projects/${local.project_id}/secrets/truster-google/versions/latest"
       }
     }
     static_policy = {
@@ -185,14 +185,14 @@ resource "google_dns_record_set" "oidc" {
   name         = "${local.oidc_hostname}."
   type         = "A"
   ttl          = 300
-  rrdatas      = [module.easy_oidc.public_ipv4]
+  rrdatas      = [module.truster.public_ipv4]
 }
 ```
 
 The module creates a subnet, firewall rules for ports 80 and 443, a static IP,
 an instance service account, and the Compute Engine instance. The example adds
 the VPC and DNS record. It disables IPv6 to keep the first deployment simple;
-the [module input reference](https://github.com/easy-oidc/terraform-google-easy-oidc#variables)
+the [module input reference](https://github.com/truster-dev/terraform-google-truster#variables)
 documents dual-stack and existing-subnet options.
 
 ## 5. Deploy
@@ -251,14 +251,14 @@ exec-based credentials to each user's kubeconfig.
 
 The module supplies deployment-owned values for `issuer_url`,
 `http_listen_addr`, `secrets.provider`, and the SQLite state path. Put the
-remaining application settings under `easy_oidc_config`.
+remaining application settings under `truster_config`.
 
 Migration credentials remain separate by default. For a PostgreSQL state
 database, set `run_db_migrations = true` only if the instance should read the
-migration secret and run `easy-oidc migrate` before every service start. See the
+migration secret and run `truster migrate` before every service start. See the
 [state database guide](/docs/state-database/) for the least-privilege tradeoff.
 
-Use the [module input reference](https://github.com/easy-oidc/terraform-google-easy-oidc#variables)
+Use the [module input reference](https://github.com/truster-dev/terraform-google-truster#variables)
 for networking, service accounts, encryption, SSH, and version controls. Use the
 [application configuration reference](/docs/config/) for sign-in methods,
 clients, users, groups, and token settings.
@@ -267,13 +267,13 @@ clients, users, groups, and token settings.
 
 **Certificate errors**
 
-- Verify the A record points to `module.easy_oidc.public_ipv4`.
+- Verify the A record points to `module.truster.public_ipv4`.
 - Verify ports 80 and 443 are reachable while Caddy obtains the certificate.
 - Wait for DNS changes to propagate before restarting the instance.
 
 **Secret access errors**
 
-- Use full Secret Manager version names in `easy_oidc_config`.
+- Use full Secret Manager version names in `truster_config`.
 - Verify the referenced secret exists in the named project.
 - If `grant_secret_accessor` is false, grant the instance service account
   `roles/secretmanager.secretAccessor` on each required secret.
@@ -291,4 +291,4 @@ See [Troubleshooting](/docs/troubleshooting/) for application-level checks.
 - [Configure Kubernetes integration](/docs/kubernetes/)
 - [Set up kubelogin](/docs/kubelogin/)
 - [Add clients and groups](/docs/config/)
-- [Review the module input reference](https://github.com/easy-oidc/terraform-google-easy-oidc#variables)
+- [Review the module input reference](https://github.com/truster-dev/terraform-google-truster#variables)

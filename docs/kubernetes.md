@@ -5,15 +5,15 @@ linkTitle: 'Kubernetes'
 weight: 5
 ---
 
-This guide is for cluster administrators configuring Kubernetes to trust Easy
-OIDC. For the user-side credential plugin and kubeconfig, see the
+This guide is for cluster administrators configuring Kubernetes to trust
+Truster. For the user-side credential plugin and kubeconfig, see the
 [kubelogin guide](/docs/kubelogin/).
 
 ## Responsibilities
 
-Easy OIDC authenticates the user and issues signed ID tokens containing identity
+Truster authenticates the user and issues signed ID tokens containing identity
 claims. The Kubernetes API server validates those tokens and turns selected
-claims into a username and groups. **Kubernetes RBAC, not Easy OIDC, authorizes
+claims into a username and groups. **Kubernetes RBAC, not Truster, authorizes
 requests.** A valid token grants no Kubernetes permissions until a RoleBinding or
 ClusterRoleBinding grants them.
 
@@ -28,9 +28,9 @@ For a self-managed API server, configure:
 --oidc-groups-claim=groups
 ```
 
-- The issuer URL must exactly match Easy OIDC's configured issuer and be
+- The issuer URL must exactly match Truster's configured issuer and be
   reachable from the control plane. Kubernetes discovers signing keys from it.
-- The client ID must match the Easy OIDC client used by kubelogin; Kubernetes
+- The client ID must match the Truster client used by kubelogin; Kubernetes
   checks it against the token's audience.
 - The username and groups settings select the claims Kubernetes passes to RBAC.
 - If the issuer uses a private CA, configure `--oidc-ca-file` as well.
@@ -43,13 +43,13 @@ them.
 
 ## Choose claims deliberately
 
-Easy OIDC uses the normalized email address as `sub` and also emits `email`.
+Truster uses the normalized email address as `sub` and also emits `email`.
 Using `email` for `--oidc-username-claim` produces readable RBAC subjects. Using
 `sub` is also possible, but bindings must then use the exact username Kubernetes
 derives from that claim, including any configured/default prefix.
 
-Set `--oidc-groups-claim=groups` when using Easy OIDC group mappings. Group-based
-bindings usually scale better than per-user bindings. Keep separate Easy OIDC
+Set `--oidc-groups-claim=groups` when using Truster group mappings. Group-based
+bindings usually scale better than per-user bindings. Keep separate Truster
 clients and group mappings when clusters need different group sets, and set each
 cluster's `--oidc-client-id` accordingly.
 
@@ -59,7 +59,7 @@ by the API server's claim and prefix settings.
 
 ## Configure RBAC
 
-Prefer a group binding. This example grants the Easy OIDC `prod-admins` group a
+Prefer a group binding. This example grants the Truster `prod-admins` group a
 pre-existing cluster role:
 
 ```yaml
@@ -82,7 +82,7 @@ binding has the same shape with `kind: User` and a `name` matching the configure
 username claim, such as `alice@example.com`.
 
 Removing a binding changes authorization immediately. Removing a user from an
-Easy OIDC group mapping prevents that group from appearing in newly issued
+Truster group mapping prevents that group from appearing in newly issued
 tokens; an existing token remains valid until it expires (15 minutes by default).
 
 ## Managed-cluster constraints
@@ -99,7 +99,7 @@ Hosted control planes often do not allow arbitrary API server flags:
   authentication options, for example, depend on the GKE product and mode rather
   than user-supplied API server flags.
 
-Check the provider and cluster-version documentation before deploying Easy OIDC.
+Check the provider and cluster-version documentation before deploying Truster.
 If the provider cannot express the issuer, audience, and claim mapping above,
 this integration cannot be enabled through direct API server OIDC authentication.
 

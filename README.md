@@ -1,12 +1,12 @@
 <!--
-Easy OIDC <https://easy-oidc.dev>
-Copyright The Easy OIDC Authors
+Truster <https://truster.dev>
+Copyright The Truster Authors
 SPDX-License-Identifier: Apache-2.0
 -->
 
-# Easy OIDC
+# Truster
 
-Easy OIDC is designed to make setting up and operating an OIDC server straightforward:
+Truster is designed to make setting up and operating an OIDC server straightforward:
 
 - Supports Google/GitHub/other OIDC providers, or OTP email login.
 - No passwords stored in its database.
@@ -16,7 +16,7 @@ Easy OIDC is designed to make setting up and operating an OIDC server straightfo
 - All HTML page and email templates can be customised without rebuilding the binary.
 - Can run on a single VM instance for minimal cost.
 
-Use Easy OIDC if you:
+Use Truster if you:
 
 - want users to sign in with accounts they already have;
 - want to manage email-to-group mapping policies in config files in git, or a database;
@@ -24,10 +24,10 @@ Use Easy OIDC if you:
 - use Kubernetes RBAC to decide what each group can do, or just need an OIDC service for your app.
 
 Official OpenTofu/Terraform modules are available
-  for [AWS](https://github.com/easy-oidc/terraform-aws-easy-oidc) and
-  [Google Cloud](https://github.com/easy-oidc/terraform-google-easy-oidc), and an OCI Helm chart is published for each release.
+  for [AWS](https://github.com/truster-dev/terraform-aws-truster) and
+  [Google Cloud](https://github.com/truster-dev/terraform-google-truster), and an OCI Helm chart is published for each release.
 
-See [Why Easy OIDC?](docs/why-easy-oidc.md) for its intended scope and
+See [Why Truster?](docs/why-truster.md) for its intended scope and
 operational limits.
 
 ## Try it locally
@@ -42,10 +42,10 @@ the demo email instead of sending it for real:
 go run github.com/axllent/mailpit@latest
 ```
 
-Start Easy OIDC in the second terminal:
+Start Truster in the second terminal:
 
 ```console
-go run ./cmd/easy-oidc serve --demo
+go run ./cmd/truster serve --demo
 ```
 
 Then begin a login:
@@ -59,7 +59,7 @@ kubectl oidc-login setup \
 
 Your browser will ask for an email address. Enter any address, open Mailpit at
 <http://localhost:8025>, and copy the code from the new message back into the
-browser. kubelogin will print the identity returned by Easy OIDC.
+browser. kubelogin will print the identity returned by Truster.
 
 Demo mode is for local evaluation only. It generates temporary signing and
 email-code secrets and removes its SQLite database when the process exits.
@@ -97,6 +97,6 @@ make test
 
 ## License
 
-Easy OIDC is licensed under the Apache License, Version 2.0.
-Copyright The Easy OIDC Authors.
+Truster is licensed under the Apache License, Version 2.0.
+Copyright The Truster Authors.
 See the [LICENSE](./LICENSE) file for details.

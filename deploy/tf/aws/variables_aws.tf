@@ -1,5 +1,5 @@
-# Easy OIDC <https://easy-oidc.dev>
-# Copyright The Easy OIDC Authors
+# Truster <https://truster.dev>
+# Copyright The Truster Authors
 # SPDX-License-Identifier: Apache-2.0
 
 variable "tags" {
@@ -9,7 +9,7 @@ variable "tags" {
 }
 
 variable "vpc_id" {
-  description = "VPC ID where easy-oidc will be deployed"
+  description = "VPC ID where truster will be deployed"
   type        = string
 }
 
@@ -20,7 +20,7 @@ variable "subnet_id" {
 }
 
 variable "secrets_provider" {
-  description = "AWS secrets backend used by Easy OIDC"
+  description = "AWS secrets backend used by Truster"
   type        = string
   default     = "aws-parameter-store"
 

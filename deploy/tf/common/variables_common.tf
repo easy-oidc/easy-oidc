@@ -1,11 +1,11 @@
-# Easy OIDC <https://easy-oidc.dev>
-# Copyright The Easy OIDC Authors
+# Truster <https://truster.dev>
+# Copyright The Truster Authors
 # SPDX-License-Identifier: Apache-2.0
 
 variable "name_prefix" {
   description = "Prefix for resource names"
   type        = string
-  default     = "easy-oidc"
+  default     = "truster"
 }
 
 variable "oidc_addr" {
@@ -14,7 +14,7 @@ variable "oidc_addr" {
 }
 
 variable "run_db_migrations" {
-  description = "Run state database migrations before every Easy OIDC service start. Enabling this grants the instance access to state_database.migrations.connection_string_secret when configured."
+  description = "Run state database migrations before every Truster service start. Enabling this grants the instance access to state_database.migrations.connection_string_secret when configured."
   type        = bool
   default     = false
 }
@@ -66,14 +66,14 @@ variable "instance_disk_size_gb" {
   }
 }
 
-variable "easy_oidc_version" {
-  description = "Easy OIDC release to install; must be v2.0.0 or later, or latest"
+variable "truster_version" {
+  description = "Truster release to install; must be v2.0.0 or later, or latest"
   type        = string
   default     = "latest"
 
   validation {
-    condition     = var.easy_oidc_version == "latest" || can(regex("^v(?:[2-9]|[1-9][0-9]+)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)$", var.easy_oidc_version))
-    error_message = "easy_oidc_version must be latest or a final Easy OIDC release tag of v2.0.0 or later."
+    condition     = var.truster_version == "latest" || can(regex("^v(?:[2-9]|[1-9][0-9]+)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)$", var.truster_version))
+    error_message = "truster_version must be latest or a final Truster release tag of v2.0.0 or later."
   }
 }
 

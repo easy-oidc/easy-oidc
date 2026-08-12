@@ -1,11 +1,11 @@
 ---
 draft: false
-title: 'Easy OIDC System Design & Specification'
+title: 'Truster System Design & Specification'
 linkTitle: 'Specification'
 weight: 2
 ---
 
-Easy OIDC is a minimal OIDC provider designed primarily for Kubernetes. It
+Truster is a minimal OIDC provider designed primarily for Kubernetes. It
 federates authentication to one or more upstream providers, normalizes users to
 email identities, and maps those emails to static groups.
 
@@ -26,20 +26,20 @@ this specification.
 - Secure startup validation: invalid configuration, secrets, or templates prevent
   the server from serving requests.
 
-Easy OIDC does not provide local passwords, an administration UI, dynamic
+Truster does not provide local passwords, an administration UI, dynamic
 upstream-group synchronization, SAML, or non-PKCE downstream flows.
 
 The optional [policy database](policy-database.md) supplies database policy
 through bounded, read-only PostgreSQL queries, while static policy retains
 precedence for clients with the same ID. Operators or another system write this
-policy data; Easy OIDC only reads it. The policy database and protocol state
+policy data; Truster only reads it. The policy database and protocol state
 database are separate stores with separate responsibilities.
 
 ## Architecture
 
 ```text
 ┌──────────┐  Auth Code + PKCE  ┌───────────────┐   HTTP   ┌───────────┐
-│kubelogin │───────────────────▶│ TLS proxy     │─────────▶│ easy-oidc │
+│kubelogin │───────────────────▶│ TLS proxy     │─────────▶│ truster │
 └──────────┘                    │ (for example, │          └────┬──────┘
                                 │ Caddy)        │               │
                                 └───────────────┘               ├────▶ State DB
@@ -68,14 +68,14 @@ provider values are not written into the application configuration or either dat
 ## Authentication flow
 
 1. A downstream client starts `/authorize` with a PKCE challenge.
-2. With one OAuth connector, Easy OIDC redirects automatically. Otherwise the
+2. With one OAuth connector, Truster redirects automatically. Otherwise the
    user selects an upstream provider or enters an email address.
 3. OAuth connectors return a stable provider subject and one or more email
    assertions. Direct email authentication uses the normalized email as its
    connector subject.
 4. If several email assertions are available, the user chooses one from a
    stateless authenticated selection token.
-5. Easy OIDC accepts the chosen email directly, accepts the provider's
+5. Truster accepts the chosen email directly, accepts the provider's
    verification assertion, or requires a typed OTP according to the configured
    verification mode.
 6. The original OAuth state is atomically consumed and a single-use opaque
@@ -95,7 +95,7 @@ downstream `sub` and `email`, so the same email has the same downstream identity
 across connectors.
 
 Local verification is recorded for each connector identity and exact email. In
-`disabled` mode, the default, Easy OIDC accepts the chosen email and preserves the
+`disabled` mode, the default, Truster accepts the chosen email and preserves the
 provider's `email_verified` assertion. In `provider` mode, a current verified
 assertion is accepted and an unverified assertion requires local verification.
 In `strict` mode, provider assertions are ignored and local verification is
@@ -126,7 +126,7 @@ required once.
 | `/token` | Consume an authorization code and validate PKCE |
 | `/revoke` | Revoke a refresh grant |
 | `/jwks` | Public signing keys |
-| `/userinfo` | Return claims for a valid Easy OIDC token |
+| `/userinfo` | Return claims for a valid Truster token |
 | `/healthz` | Health check |
 
 Connector callbacks and browser form endpoints are internal parts of the login
@@ -156,12 +156,12 @@ A representative multiple-connector configuration is:
 
   "secrets": {
     "provider": "env",
-    "signing_key_name": "EASYOIDC_SIGNING_KEY"
+    "signing_key_name": "TRUSTER_SIGNING_KEY"
   },
 
   "state_database": {
     "driver": "sqlite",
-    "path": "/var/lib/easy-oidc/easy-oidc-state.db"
+    "path": "/var/lib/truster/truster-state.db"
   },
 
   "user_login_connectors": {
@@ -169,7 +169,7 @@ A representative multiple-connector configuration is:
       "type": "google",
       "display_name": "Company Google",
       "order": 10,
-      "credentials_secret": "EASYOIDC_GOOGLE_CREDENTIALS",
+      "credentials_secret": "TRUSTER_GOOGLE_CREDENTIALS",
       "google": {
         "hd": "example.com"
       }
@@ -178,7 +178,7 @@ A representative multiple-connector configuration is:
       "type": "generic",
       "display_name": "Engineering Dex",
       "order": 20,
-      "credentials_secret": "EASYOIDC_DEX_CREDENTIALS",
+      "credentials_secret": "TRUSTER_DEX_CREDENTIALS",
       "generic": {
         "authorization_url": "https://dex.example.com/auth",
         "token_url": "https://dex.example.com/token",
@@ -209,7 +209,7 @@ With the `env` provider, the signing key and each OAuth credential name are
 environment-variable names. OAuth credential values are JSON objects containing
 `client_id` and `client_secret`. Production deployments can instead use AWS
 Secrets Manager, AWS Systems Manager Parameter Store, Google Secret Manager, or
-Azure Key Vault. See the [example configurations](https://github.com/easy-oidc/easy-oidc/tree/main/examples/config)
+Azure Key Vault. See the [example configurations](https://github.com/truster-dev/truster/tree/main/examples/config)
 for direct email, GitHub, SMTP, Turnstile, and template settings.
 
 ### Group resolution
@@ -226,7 +226,7 @@ For an authenticated email and downstream client:
 
 The client-level `require_user_groups_from_policy` setting overrides
 `static_policy.require_user_groups_from_policy`. It defaults to true when neither is configured.
-Only groups resolved by Easy OIDC policy satisfy this requirement; upstream
+Only groups resolved by Truster policy satisfy this requirement; upstream
 group claims do not.
 
 ## ID token claims
@@ -250,7 +250,7 @@ An issued ID token has claims equivalent to:
 
 | Claim | Meaning |
 |---|---|
-| `iss` | Configured Easy OIDC issuer URL. |
+| `iss` | Configured Truster issuer URL. |
 | `aud` | Downstream client ID that initiated authorization. |
 | `sub` | Normalized email; provider subjects are never exposed. |
 | `email` | The same normalized email identity used downstream. |
@@ -271,7 +271,7 @@ An issued ID token has claims equivalent to:
 
 ## Kubernetes integration
 
-Kubernetes API servers can validate Easy OIDC tokens directly:
+Kubernetes API servers can validate Truster tokens directly:
 
 ```text
 --oidc-issuer-url=https://auth.example.com
@@ -305,10 +305,10 @@ RBAC examples, and complete kubeconfig instructions.
 
 The companion modules provision the cloud runtime around the binary:
 
-- `terraform-aws-easy-oidc` provisions an ARM64 or AMD64 EC2 instance, IAM
+- `terraform-aws-truster` provisions an ARM64 or AMD64 EC2 instance, IAM
   permissions, security groups, optional networking resources, systemd services,
   and Caddy.
-- `terraform-google-easy-oidc` provisions a Compute Engine VM, service account,
+- `terraform-google-truster` provisions a Compute Engine VM, service account,
   firewall rules, optional networking resources, systemd services, and Caddy.
 
 The module names retain `terraform` for registry and repository compatibility,
@@ -322,11 +322,11 @@ tofu apply
 
 Secrets should be created outside OpenTofu/Terraform and passed to the module by
 name or ARN so secret values do not enter state. Instance startup writes the
-JSONC configuration, starts Easy OIDC and Caddy, and lets Easy OIDC read its
+JSONC configuration, starts Truster and Caddy, and lets Truster read its
 configured secrets using the instance IAM role or service account. See the
 [AWS deployment guide](/docs/deploy/aws/) for the complete module example,
 variables, outputs, DNS, and replacement procedure, or the
-[Google Cloud module](https://github.com/easy-oidc/terraform-google-easy-oidc/blob/main/README.md#usage)
+[Google Cloud module](https://github.com/truster-dev/terraform-google-truster/blob/main/README.md#usage)
 for Google Cloud deployment instructions.
 
 ## Implementation dependencies
@@ -351,15 +351,15 @@ the default for broad Kubernetes compatibility.
 
 ## Persistence and lifecycle
 
-By default, SQLite state lives at `./data/easy-oidc-state.db`; configure
+By default, SQLite state lives at `./data/truster-state.db`; configure
 `state_database.path` to move it. SQLite is simplest for one replica.
 PostgreSQL shares protocol state across replicas.
 Authorization state, codes, OTP challenges, and
 verification records survive process restarts. Signing-key rotation currently
-requires replacing the configured key and restarting Easy OIDC.
+requires replacing the configured key and restarting Truster.
 
 Configuration, secrets, and templates are loaded at startup. The process exits
 instead of serving requests if configuration validation, secret loading,
-template parsing, or template test rendering fails. `easy-oidc check config` and
-`easy-oidc check templates` perform the corresponding checks for CI, while
-`easy-oidc dev` serves live-reloading template previews with mock data.
+template parsing, or template test rendering fails. `truster check config` and
+`truster check templates` perform the corresponding checks for CI, while
+`truster dev` serves live-reloading template previews with mock data.

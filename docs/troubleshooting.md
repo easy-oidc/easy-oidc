@@ -18,9 +18,9 @@ curl --fail --silent --show-error \
   | jq '{issuer, authorization_endpoint, token_endpoint, jwks_uri}'
 ```
 
-The `issuer` value must exactly match the URL configured in Easy OIDC, kubelogin,
+The `issuer` value must exactly match the URL configured in Truster, kubelogin,
 and the Kubernetes API server. Fetch the reported `jwks_uri` as well. A failure
-before either request reaches Easy OIDC usually points to DNS, TLS, routing, or
+before either request reaches Truster usually points to DNS, TLS, routing, or
 firewall configuration rather than an OIDC setting.
 
 ## kubectl reports Unauthorized or Forbidden
@@ -34,12 +34,12 @@ firewall configuration rather than an OIDC setting.
   kubelogin issues;
   follow [kubelogin troubleshooting](/docs/kubelogin/#user-side-troubleshooting).
 
-Easy OIDC ID tokens expire after 15 minutes by default. Expiry is not normally an
+Truster ID tokens expire after 15 minutes by default. Expiry is not normally an
 error: kubelogin refreshes when refresh tokens are enabled and available, or
 starts a new browser login otherwise. Offline grants additionally require the
 client to allow them and an `offline_access` request.
 
-To inspect the identity and groups returned by Easy OIDC, run `kubectl oidc-login
+To inspect the identity and groups returned by Truster, run `kubectl oidc-login
 setup` as shown in the [kubelogin guide](/docs/kubelogin/). Do not paste a token
 into a third-party JWT website.
 
@@ -58,15 +58,15 @@ Check `iss`, `aud`, `exp`, `email`, and `groups`. Treat the output as sensitive.
 
 ## Browser sign-in fails
 
-- For OIDC callback, token, or refresh errors, inspect Easy OIDC logs and the
+- For OIDC callback, token, or refresh errors, inspect Truster logs and the
   relevant client and refresh-token settings in the
   [configuration reference](/docs/config/).
 - For an upstream `redirect_uri_mismatch`, configure the OAuth application with
   `https://auth.example.com/callback/<connector-id>` and ensure the connector ID
-  matches [Easy OIDC configuration](/docs/config/).
+  matches [Truster configuration](/docs/config/).
 - For an empty `groups` claim, verify the client's `user_group_mapping`, the
   normalized user email, and the referenced mapping in the
-  [configuration reference](/docs/config/), then restart Easy OIDC.
+  [configuration reference](/docs/config/), then restart Truster.
 - For `invalid_grant` or an expired authorization code, synchronize system clocks
   and retry the browser flow once; authorization codes are short-lived and
   single-use.
@@ -79,13 +79,13 @@ fails, use the focused [kubelogin troubleshooting guide](/docs/kubelogin/#user-s
 On a systemd deployment, check the unit and startup logs first:
 
 ```console
-sudo systemctl status easy-oidc --no-pager
-sudo journalctl -u easy-oidc -b --no-pager
-sudo /usr/local/bin/easy-oidc check config \
-  --config /etc/easy-oidc/config.jsonc
+sudo systemctl status truster --no-pager
+sudo journalctl -u truster -b --no-pager
+sudo /usr/local/bin/truster check config \
+  --config /etc/truster/config.jsonc
 ```
 
-Easy OIDC exits rather than serving with invalid configuration, inaccessible
+Truster exits rather than serving with invalid configuration, inaccessible
 secrets, an invalid signing key, or invalid templates. The log should identify
 which startup check failed. Check that the configured state database path is
 writable by the service user, or that PostgreSQL is reachable with the runtime
@@ -97,7 +97,7 @@ the installed files:
 ```console
 sudo journalctl -u cloud-init -b --no-pager
 sudo tail -n 200 /var/log/cloud-init-output.log
-sudo ls -l /usr/local/bin/easy-oidc /etc/easy-oidc/config.jsonc
+sudo ls -l /usr/local/bin/truster /etc/truster/config.jsonc
 ```
 
 Do not include the full configuration or secret values in an issue.
@@ -129,7 +129,7 @@ trust that CA.
 
 Test the discovery and JWKS URLs from the control-plane network, not only from
 your workstation. Check routing, firewall rules, DNS resolution, and private-CA
-trust between the API server and Easy OIDC. A browser login can succeed while
+trust between the API server and Truster. A browser login can succeed while
 Kubernetes authentication fails if only the user's network can reach the issuer.
 
 ## Infrastructure cannot read a secret
@@ -142,15 +142,15 @@ database credentials may deliberately be unavailable to the server process.
 
 ## Rotate a signing key
 
-Easy OIDC loads its signing key at startup and currently publishes one key.
+Truster loads its signing key at startup and currently publishes one key.
 Replacing it therefore makes tokens signed by the previous key unusable once
 verifiers refresh the JWKS document.
 
 1. Back up the current secret according to your secret manager's recovery policy.
 2. Generate and store a new key compatible with `signing_algorithm`.
-3. If `jwks_kid` is omitted, Easy OIDC derives a new ID from the key. If it is
+3. If `jwks_kid` is omitted, Truster derives a new ID from the key. If it is
    fixed, change it so the new public key is not published under the old ID.
-4. Restart every Easy OIDC replica so they all use the same key.
+4. Restart every Truster replica so they all use the same key.
 5. Confirm discovery and JWKS are reachable, then test a new login.
 6. Expect users with tokens from the old key to authenticate again.
 
@@ -171,8 +171,8 @@ remains clear.
 # Validate discovery metadata
 curl https://auth.example.com/.well-known/openid-configuration | jq
 
-# Follow Easy OIDC logs on a systemd deployment
-sudo journalctl -u easy-oidc -f
+# Follow Truster logs on a systemd deployment
+sudo journalctl -u truster -f
 
 # Follow reverse-proxy logs on a Caddy deployment
 sudo journalctl -u caddy -f
@@ -189,7 +189,7 @@ kubectl oidc-login get-token \
 
 Review the [configuration reference](/docs/config/) and
 [system design](/docs/spec/), then search
-[GitHub issues](https://github.com/easy-oidc/easy-oidc/issues). A new issue should
+[GitHub issues](https://github.com/truster-dev/truster/issues). A new issue should
 include reproduction steps, version, deployment method, and redacted relevant
 logs and configuration. Include the exact error text, but never include ID
 tokens, refresh tokens, authorization codes, private keys, or client secrets.

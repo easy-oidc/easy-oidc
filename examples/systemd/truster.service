@@ -1,17 +1,17 @@
-# Easy OIDC <https://easy-oidc.dev>
-# Copyright The Easy OIDC Authors
+# Truster <https://truster.dev>
+# Copyright The Truster Authors
 # SPDX-License-Identifier: Apache-2.0
 
 [Unit]
-Description=Easy OIDC Server
+Description=Truster Server
 After=network.target
 
 [Service]
 Type=simple
-User=easy-oidc
-Group=easy-oidc
-WorkingDirectory=/opt/easy-oidc
-ExecStart=/usr/local/bin/easy-oidc serve --config /etc/easy-oidc/config.jsonc
+User=truster
+Group=truster
+WorkingDirectory=/opt/truster
+ExecStart=/usr/local/bin/truster serve --config /etc/truster/config.jsonc
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
@@ -22,7 +22,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/easy-oidc
+ReadWritePaths=/var/lib/truster
 PrivateDevices=true
 ProtectKernelTunables=true
 ProtectControlGroups=true

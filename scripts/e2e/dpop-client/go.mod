@@ -1,8 +1,8 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
-module github.com/easy-oidc/easy-oidc/scripts/e2e/dpop-client
+module github.com/truster-dev/truster/scripts/e2e/dpop-client
 
 go 1.26.2
 

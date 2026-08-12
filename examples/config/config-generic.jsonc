@@ -1,9 +1,9 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 {
-  "$schema": "https://easy-oidc.dev/schema/v2/config.schema.json",
+  "$schema": "https://truster.dev/schema/v2/config.schema.json",
 
   // Core settings
   "issuer_url": "https://auth.example.com",
@@ -13,12 +13,12 @@
   // Secrets configuration
   "secrets": {
     "provider": "env", // "aws-secrets-manager", "aws-parameter-store", "google-secret-manager", "azure", or "env" for local dev
-    "signing_key_name": "EASYOIDC_SIGNING_KEY",
+    "signing_key_name": "TRUSTER_SIGNING_KEY",
   },
 
   "state_database": {
     "driver": "sqlite",
-    "path": "/var/lib/easy-oidc/easy-oidc-state.db",
+    "path": "/var/lib/truster/truster-state.db",
   },
 
   // Upstream connector - Generic OAuth2/OIDC provider
@@ -26,7 +26,7 @@
     "generic": {
       "type": "generic",
       "display_name": "Generic OIDC",
-      "credentials_secret": "EASYOIDC_GENERIC_CREDENTIALS",
+      "credentials_secret": "TRUSTER_GENERIC_CREDENTIALS",
       "scopes": ["openid", "email", "profile"],
 
       // Generic provider configuration

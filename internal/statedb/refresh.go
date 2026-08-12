@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package statedb
@@ -464,7 +464,7 @@ func (s *Store) LoadFlowCredential(flowID, clientID, connectorID string, now tim
 
 // deriveCredentialKey derives the grant encryption key from the client-held secret.
 func deriveCredentialKey(secret [32]byte) ([]byte, error) {
-	key, err := hkdf.Key(sha256.New, secret[:], nil, "easy-oidc upstream credential v1", 32)
+	key, err := hkdf.Key(sha256.New, secret[:], nil, "truster upstream credential v1", 32)
 	if err != nil {
 		return nil, fmt.Errorf("derive credential key: %w", err)
 	}

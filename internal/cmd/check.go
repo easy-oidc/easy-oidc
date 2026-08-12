@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package cmd
@@ -12,7 +12,7 @@ import (
 
 // newCheckCmd constructs the configuration, template, and trust checking command group.
 func newCheckCmd() *cobra.Command {
-	configPath := os.Getenv("EASYOIDC_CONFIG_PATH")
+	configPath := os.Getenv("TRUSTER_CONFIG_PATH")
 	if configPath == "" {
 		configPath = "./config.jsonc"
 	}

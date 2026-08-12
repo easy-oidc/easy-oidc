@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package config
@@ -16,7 +16,7 @@ import (
 	"github.com/tailscale/hujson"
 )
 
-const configSchemaID = "https://easy-oidc.dev/schema/v2/config.schema.json"
+const configSchemaID = "https://truster.dev/schema/v2/config.schema.json"
 
 // TestExampleConfigs validates every example against both the v2 JSON Schema
 // and the application's authoritative configuration loader.
@@ -31,7 +31,7 @@ func TestExampleConfigs(t *testing.T) {
 		t.Fatal("no example configurations found")
 	}
 
-	t.Setenv("EASYOIDC_TEMPLATES_DIR", "")
+	t.Setenv("TRUSTER_TEMPLATES_DIR", "")
 	for _, examplePath := range examples {
 		t.Run(filepath.Base(examplePath), func(t *testing.T) {
 			data, readErr := os.ReadFile(examplePath)
@@ -58,13 +58,13 @@ func TestConfigSchemaContracts(t *testing.T) {
 		"http_listen_addr": "127.0.0.1:8080",
 		"secrets": map[string]any{
 			"provider":         "env",
-			"signing_key_name": "EASYOIDC_SIGNING_KEY",
+			"signing_key_name": "TRUSTER_SIGNING_KEY",
 		},
 		"user_login_connectors": map[string]any{
 			"google": map[string]any{
 				"type":               "google",
 				"display_name":       "Google",
-				"credentials_secret": "EASYOIDC_GOOGLE_CREDENTIALS",
+				"credentials_secret": "TRUSTER_GOOGLE_CREDENTIALS",
 			},
 		},
 		"static_policy": map[string]any{
@@ -76,7 +76,7 @@ func TestConfigSchemaContracts(t *testing.T) {
 		cfg["user_login_connectors"].(map[string]any)["github"] = map[string]any{
 			"type":               "github",
 			"display_name":       "GitHub",
-			"credentials_secret": "EASYOIDC_GITHUB_CREDENTIALS",
+			"credentials_secret": "TRUSTER_GITHUB_CREDENTIALS",
 		}
 	}
 	addEmail := func(cfg map[string]any) {
@@ -86,12 +86,12 @@ func TestConfigSchemaContracts(t *testing.T) {
 		}
 		cfg["email"] = map[string]any{
 			"verification_mode": "disabled",
-			"otp_secret_name":   "EASYOIDC_OTP_SECRET",
+			"otp_secret_name":   "TRUSTER_OTP_SECRET",
 			"smtp": map[string]any{
 				"host":               "smtp.example.com",
 				"port":               json.Number("587"),
 				"from_address":       "auth@example.com",
-				"credentials_secret": "EASYOIDC_SMTP_CREDENTIALS",
+				"credentials_secret": "TRUSTER_SMTP_CREDENTIALS",
 			},
 		}
 	}
@@ -136,14 +136,14 @@ func TestConfigSchemaContracts(t *testing.T) {
 		{"mixed connectors require encryption", false, addGitHub},
 		{"GitHub with encryption", true, func(cfg map[string]any) {
 			addGitHub(cfg)
-			cfg["secrets"].(map[string]any)["encryption_key_name"] = "EASYOIDC_ENCRYPTION_KEY"
+			cfg["secrets"].(map[string]any)["encryption_key_name"] = "TRUSTER_ENCRYPTION_KEY"
 		}},
 		{"static refresh requires encryption", false, func(cfg map[string]any) {
 			cfg["static_policy"].(map[string]any)["clients"].(map[string]any)["kubelogin"] = map[string]any{"refresh_tokens": map[string]any{"enabled": true}}
 		}},
 		{"static refresh with encryption", true, func(cfg map[string]any) {
 			cfg["static_policy"].(map[string]any)["clients"].(map[string]any)["kubelogin"] = map[string]any{"refresh_tokens": map[string]any{"enabled": true}}
-			cfg["secrets"].(map[string]any)["encryption_key_name"] = "EASYOIDC_ENCRYPTION_KEY"
+			cfg["secrets"].(map[string]any)["encryption_key_name"] = "TRUSTER_ENCRYPTION_KEY"
 		}},
 		{"email-only static refresh without encryption", true, func(cfg map[string]any) {
 			addEmail(cfg)
@@ -203,7 +203,7 @@ func TestConfigSchemaContracts(t *testing.T) {
 		}},
 		{"display name is not a bare sender address", false, func(cfg map[string]any) {
 			addEmail(cfg)
-			cfg["email"].(map[string]any)["smtp"].(map[string]any)["from_address"] = "Easy OIDC <auth@example.com>"
+			cfg["email"].(map[string]any)["smtp"].(map[string]any)["from_address"] = "Truster <auth@example.com>"
 		}},
 		{"group mapping requires a dotted email domain", false, func(cfg map[string]any) {
 			cfg["static_policy"].(map[string]any)["user_group_mappings"] = map[string]any{
@@ -455,7 +455,7 @@ func TestStateDatabaseSchemaAndLoaderValidation(t *testing.T) {
 			c["state_database"].(map[string]any)["migrations"] = map[string]any{"connection_string_secret": "STATE_MIGRATION_DATABASE_URL"}
 		}},
 		{"sqlite", true, func(c map[string]any) {
-			c["state_database"] = map[string]any{"driver": "sqlite", "path": "/tmp/easy-oidc.db"}
+			c["state_database"] = map[string]any{"driver": "sqlite", "path": "/tmp/truster.db"}
 		}},
 		{"sqlite defaults", true, func(c map[string]any) { c["state_database"] = map[string]any{} }},
 		{"omitted state database", true, func(c map[string]any) { delete(c, "state_database") }},
@@ -469,7 +469,7 @@ func TestStateDatabaseSchemaAndLoaderValidation(t *testing.T) {
 		{"sqlite empty path", false, func(c map[string]any) { c["state_database"] = map[string]any{"path": ""} }},
 		{"sqlite null path", false, func(c map[string]any) { c["state_database"] = map[string]any{"path": nil} }},
 		{"sqlite blank path", false, func(c map[string]any) { c["state_database"] = map[string]any{"path": " "} }},
-		{"PostgreSQL with SQLite path", false, func(c map[string]any) { c["state_database"].(map[string]any)["path"] = "/tmp/easy-oidc.db" }},
+		{"PostgreSQL with SQLite path", false, func(c map[string]any) { c["state_database"].(map[string]any)["path"] = "/tmp/truster.db" }},
 		{"PostgreSQL with empty SQLite path", false, func(c map[string]any) { c["state_database"].(map[string]any)["path"] = "" }},
 		{"zero connections", false, func(c map[string]any) { c["state_database"].(map[string]any)["max_connections"] = json.Number("0") }},
 		{"nonpositive connections", false, func(c map[string]any) { c["state_database"].(map[string]any)["max_connections"] = json.Number("-1") }},
@@ -501,7 +501,7 @@ func TestStateDatabaseSchemaAndLoaderValidation(t *testing.T) {
 			if tc.name == "defaults" && loaded != nil && (loaded.StateDatabase.MaxConnections != 16 || loaded.StateDatabase.QueryTimeout.Duration() != 5*time.Second) {
 				t.Fatalf("unexpected PostgreSQL defaults: %#v", loaded.StateDatabase)
 			}
-			if (tc.name == "sqlite defaults" || tc.name == "omitted state database") && loaded != nil && (loaded.StateDatabase.Driver != "sqlite" || loaded.StateDatabase.Path != "data/easy-oidc-state.db") {
+			if (tc.name == "sqlite defaults" || tc.name == "omitted state database") && loaded != nil && (loaded.StateDatabase.Driver != "sqlite" || loaded.StateDatabase.Path != "data/truster-state.db") {
 				t.Fatalf("unexpected SQLite defaults: %#v", loaded.StateDatabase)
 			}
 		})

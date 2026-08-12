@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package oidc
@@ -21,12 +21,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/easy-oidc/easy-oidc/internal/authpolicy"
-	"github.com/easy-oidc/easy-oidc/internal/config"
-	"github.com/easy-oidc/easy-oidc/internal/statedb"
-	"github.com/easy-oidc/easy-oidc/internal/tokens"
-	"github.com/easy-oidc/easy-oidc/internal/upstream"
 	"github.com/lestrrat-go/jwx/v2/jwa"
+	"github.com/truster-dev/truster/internal/authpolicy"
+	"github.com/truster-dev/truster/internal/config"
+	"github.com/truster-dev/truster/internal/statedb"
+	"github.com/truster-dev/truster/internal/tokens"
+	"github.com/truster-dev/truster/internal/upstream"
 )
 
 func TestHandleToken_RequireUserGroupsFromPolicy(t *testing.T) {
@@ -445,12 +445,12 @@ func responseLossServer(t *testing.T, path string) (*Server, *statedb.Store) {
 
 // TestResponseWriteCrashProcess exits from the production HTTP response writer after commit.
 func TestResponseWriteCrashProcess(t *testing.T) {
-	path := os.Getenv("EASY_OIDC_RESPONSE_CRASH_DB")
+	path := os.Getenv("TRUSTER_RESPONSE_CRASH_DB")
 	if path == "" {
 		t.Skip("subprocess helper")
 	}
 	server, _ := responseLossServer(t, path)
-	values := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {os.Getenv("EASY_OIDC_RESPONSE_CRASH_TOKEN")}, "client_id": {"client"}}
+	values := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {os.Getenv("TRUSTER_RESPONSE_CRASH_TOKEN")}, "client_id": {"client"}}
 	request := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(values.Encode()))
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	server.HandleToken(&exitResponseWriter{header: make(http.Header)}, request)
@@ -478,7 +478,7 @@ func TestResponseWriteLossReplaysAndRevokes(t *testing.T) {
 		t.Fatal(err)
 	}
 	command := exec.Command(os.Args[0], "-test.run=^TestResponseWriteCrashProcess$")
-	command.Env = append(os.Environ(), "EASY_OIDC_RESPONSE_CRASH_DB="+path, "EASY_OIDC_RESPONSE_CRASH_TOKEN="+material.Token)
+	command.Env = append(os.Environ(), "TRUSTER_RESPONSE_CRASH_DB="+path, "TRUSTER_RESPONSE_CRASH_TOKEN="+material.Token)
 	if output, runErr := command.CombinedOutput(); runErr != nil {
 		t.Fatalf("response-write crash helper: %v\n%s", runErr, output)
 	}

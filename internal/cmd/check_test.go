@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package cmd
@@ -16,7 +16,7 @@ func TestCheckCommandHierarchy(t *testing.T) {
 	root := NewRootCmd()
 	for _, path := range []string{"check config", "check templates", "check trust"} {
 		command, _, err := root.Find(strings.Fields(path))
-		if err != nil || command.CommandPath() != "easy-oidc "+path {
+		if err != nil || command.CommandPath() != "truster "+path {
 			t.Errorf("Find(%q) command = %v, error = %v", path, command, err)
 		}
 	}
@@ -42,6 +42,6 @@ func invalidTemplateConfig(t *testing.T) string {
 	if err = os.WriteFile(filepath.Join(dir, "pages/error.html"), []byte(`{{define "content"}}{{.Missing}}{{end}}`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("EASYOIDC_TEMPLATES_DIR", dir)
+	t.Setenv("TRUSTER_TEMPLATES_DIR", dir)
 	return configFile
 }

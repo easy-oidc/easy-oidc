@@ -1,9 +1,9 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 {
-  "$schema": "https://easy-oidc.dev/schema/v2/config.schema.json",
+  "$schema": "https://truster.dev/schema/v2/config.schema.json",
 
   // Azure Key Vault configuration example
   "issuer_url": "https://auth.example.com",
@@ -13,13 +13,13 @@
   // Secrets configuration for Azure Key Vault
   "secrets": {
     "provider": "azure",
-    "signing_key_name": "easy-oidc-signing-key",
+    "signing_key_name": "truster-signing-key",
     "azure_keyvault_url": "https://my-vault.vault.azure.net/",
   },
 
   "state_database": {
     "driver": "sqlite",
-    "path": "/var/lib/easy-oidc/easy-oidc-state.db",
+    "path": "/var/lib/truster/truster-state.db",
   },
 
   // Upstream connector
@@ -27,7 +27,7 @@
     "google": {
       "type": "google",
       "display_name": "Google",
-      "credentials_secret": "easy-oidc-google-credentials",
+      "credentials_secret": "truster-google-credentials",
       "scopes": ["openid", "email", "profile"],
 
       // Optional: hint a Google Workspace domain in Google's account chooser

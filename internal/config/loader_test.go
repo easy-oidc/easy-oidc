@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package config
@@ -579,10 +579,10 @@ func validTestConfig() Config {
 		SigningAlgorithm: "RS256",
 		Secrets: SecretsConfig{
 			Provider:       "env",
-			SigningKeyName: "EASYOIDC_SIGNING_KEY",
+			SigningKeyName: "TRUSTER_SIGNING_KEY",
 		},
 		UserLoginConnectors: map[string]ConnectorConfig{
-			"google": {Type: "google", DisplayName: "Google", CredentialsSecret: "EASYOIDC_GOOGLE_CREDENTIALS"},
+			"google": {Type: "google", DisplayName: "Google", CredentialsSecret: "TRUSTER_GOOGLE_CREDENTIALS"},
 		},
 		StaticPolicy: StaticPolicyConfig{
 			Clients: map[string]ClientConfig{"client": {RedirectURIs: []string{"https://client.example.com/callback"}}},
@@ -615,13 +615,13 @@ func TestDPoPDefaultsAndValidation(t *testing.T) {
 func validEmailConfig() *EmailConfig {
 	return &EmailConfig{
 		VerificationMode: "provider",
-		OTPSecretName:    "EASYOIDC_OTP_SECRET",
+		OTPSecretName:    "TRUSTER_OTP_SECRET",
 		OTPTTL:           Duration(5 * time.Minute),
 		SMTP: &SMTPConfig{
 			Host:              "smtp.example.com",
 			Port:              587,
 			FromAddress:       "auth@example.com",
-			CredentialsSecret: "EASYOIDC_SMTP_CREDENTIALS",
+			CredentialsSecret: "TRUSTER_SMTP_CREDENTIALS",
 		},
 	}
 }
@@ -699,12 +699,12 @@ func TestValidateConnectorID(t *testing.T) {
 // TestValidateGitHubRequiresEncryptionKey verifies multi-email selection requires encryption.
 func TestValidateGitHubRequiresEncryptionKey(t *testing.T) {
 	cfg := validTestConfig()
-	cfg.UserLoginConnectors["github"] = ConnectorConfig{Type: "github", DisplayName: "GitHub", CredentialsSecret: "EASYOIDC_GITHUB_CREDENTIALS"}
+	cfg.UserLoginConnectors["github"] = ConnectorConfig{Type: "github", DisplayName: "GitHub", CredentialsSecret: "TRUSTER_GITHUB_CREDENTIALS"}
 	delete(cfg.UserLoginConnectors, "google")
 	if err := validate(&cfg); err == nil {
 		t.Fatal("GitHub connector accepted without an encryption key")
 	}
-	cfg.Secrets.EncryptionKeyName = "EASYOIDC_ENCRYPTION_KEY"
+	cfg.Secrets.EncryptionKeyName = "TRUSTER_ENCRYPTION_KEY"
 	if err := validate(&cfg); err != nil {
 		t.Fatalf("GitHub connector with encryption key rejected: %v", err)
 	}

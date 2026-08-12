@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package config
@@ -53,7 +53,7 @@ func ParseDuration(value string) (time.Duration, error) {
 	return parsed, nil
 }
 
-// Config represents the top-level configuration structure for easy-oidc.
+// Config represents the top-level configuration structure for truster.
 type Config struct {
 	Schema              string                       `json:"$schema,omitempty"`
 	IssuerURL           string                       `json:"issuer_url"`

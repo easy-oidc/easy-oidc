@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package refresh
@@ -16,12 +16,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/easy-oidc/easy-oidc/internal/authpolicy"
-	"github.com/easy-oidc/easy-oidc/internal/config"
-	"github.com/easy-oidc/easy-oidc/internal/statedb"
-	"github.com/easy-oidc/easy-oidc/internal/tokens"
-	"github.com/easy-oidc/easy-oidc/internal/upstream"
 	"github.com/lestrrat-go/jwx/v2/jwa"
+	"github.com/truster-dev/truster/internal/authpolicy"
+	"github.com/truster-dev/truster/internal/config"
+	"github.com/truster-dev/truster/internal/statedb"
+	"github.com/truster-dev/truster/internal/tokens"
+	"github.com/truster-dev/truster/internal/upstream"
 	"golang.org/x/oauth2"
 )
 
@@ -93,7 +93,7 @@ func (c *testConnector) GetIdentity(_ context.Context, token *oauth2.Token) (ups
 
 // TestProviderResponseCrashProcess exits after provider rotation returns but before commit.
 func TestProviderResponseCrashProcess(t *testing.T) {
-	path := os.Getenv("EASY_OIDC_PROVIDER_RESPONSE_CRASH_DB")
+	path := os.Getenv("TRUSTER_PROVIDER_RESPONSE_CRASH_DB")
 	if path == "" {
 		t.Skip("subprocess helper")
 	}
@@ -120,7 +120,7 @@ func TestProviderResponseCrashProcess(t *testing.T) {
 	}
 	connector := &testConnector{refreshed: &upstream.Credential{AccessToken: "new-access", RefreshToken: "new-refresh", AccessExpiry: time.Now().Add(time.Hour)}, exitOnIdentity: true}
 	service := NewService(cfg, store, signer, map[string]upstream.Connector{"provider": connector}, logger, authpolicy.NewResolver(cfg, nil))
-	if _, exchangeErr := service.Exchange(context.Background(), Request{Token: os.Getenv("EASY_OIDC_PROVIDER_RESPONSE_CRASH_TOKEN"), ClientID: "client"}); exchangeErr != nil {
+	if _, exchangeErr := service.Exchange(context.Background(), Request{Token: os.Getenv("TRUSTER_PROVIDER_RESPONSE_CRASH_TOKEN"), ClientID: "client"}); exchangeErr != nil {
 		t.Fatal(exchangeErr)
 	}
 	t.Fatal("exchange reached the final commit")
@@ -155,7 +155,7 @@ func TestRestartAfterProviderResponseFencesGrant(t *testing.T) {
 		t.Fatal(err)
 	}
 	command := exec.Command(os.Args[0], "-test.run=^TestProviderResponseCrashProcess$")
-	command.Env = append(os.Environ(), "EASY_OIDC_PROVIDER_RESPONSE_CRASH_DB="+path, "EASY_OIDC_PROVIDER_RESPONSE_CRASH_TOKEN="+material.Token)
+	command.Env = append(os.Environ(), "TRUSTER_PROVIDER_RESPONSE_CRASH_DB="+path, "TRUSTER_PROVIDER_RESPONSE_CRASH_TOKEN="+material.Token)
 	if output, runErr := command.CombinedOutput(); runErr != nil {
 		t.Fatalf("provider-response crash helper: %v\n%s", runErr, output)
 	}

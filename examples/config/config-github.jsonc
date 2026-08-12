@@ -1,9 +1,9 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 {
-  "$schema": "https://easy-oidc.dev/schema/v2/config.schema.json",
+  "$schema": "https://truster.dev/schema/v2/config.schema.json",
 
   // Core settings
   "issuer_url": "https://auth.example.com",
@@ -14,14 +14,14 @@
   "secrets": {
     "provider": "aws-secrets-manager",
     "aws_region": "us-west-2",
-    "signing_key_name": "easy-oidc-signing-key",
+    "signing_key_name": "truster-signing-key",
     // 64-character hex master key generated with: openssl rand -hex 32
-    "encryption_key_name": "easy-oidc-encryption-key",
+    "encryption_key_name": "truster-encryption-key",
   },
 
   "state_database": {
     "driver": "sqlite",
-    "path": "/var/lib/easy-oidc/easy-oidc-state.db",
+    "path": "/var/lib/truster/truster-state.db",
   },
 
   // Upstream connector
@@ -29,7 +29,7 @@
     "github": {
       "type": "github",
       "display_name": "GitHub",
-      "credentials_secret": "easy-oidc-github-credentials",
+      "credentials_secret": "truster-github-credentials",
       "scopes": ["user:email"],
 
       // Optional: for GitHub Enterprise

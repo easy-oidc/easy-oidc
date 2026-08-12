@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package authpolicy
@@ -15,19 +15,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/easy-oidc/easy-oidc/internal/config"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/truster-dev/truster/internal/config"
 )
 
 // TestPostgreSQLIntegration verifies production pgx startup, decoding, strict contracts, and failures.
 func TestPostgreSQLIntegration(t *testing.T) {
-	url := os.Getenv("EASYOIDC_POLICY_TEST_DB_URL")
+	url := os.Getenv("TRUSTER_POLICY_TEST_DB_URL")
 	if url == "" {
-		t.Skip("EASYOIDC_POLICY_TEST_DB_URL is not set")
+		t.Skip("TRUSTER_POLICY_TEST_DB_URL is not set")
 	}
-	t.Log("EASYOIDC_POLICY_TEST_DB_URL is set; running PostgreSQL integration coverage")
+	t.Log("TRUSTER_POLICY_TEST_DB_URL is set; running PostgreSQL integration coverage")
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	admin, err := pgxpool.New(ctx, url)

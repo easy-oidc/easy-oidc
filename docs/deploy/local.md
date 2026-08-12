@@ -4,7 +4,7 @@ title: 'Run locally for development and testing'
 linkTitle: 'Local'
 ---
 
-This guide runs Easy OIDC and a local email inbox on your computer. It is the
+This guide runs Truster and a local email inbox on your computer. It is the
 fastest way to try a complete sign-in flow without a cloud account, domain, or
 real email service.
 
@@ -18,7 +18,7 @@ You need:
 
 - Go and OpenSSL;
 - [kubelogin](https://github.com/int128/kubelogin); and
-- a local checkout of the Easy OIDC repository.
+- a local checkout of the Truster repository.
 
 ## 1. Start a local email inbox
 
@@ -33,10 +33,10 @@ Messages remain on your computer instead of being delivered.
 
 ## 2. Try the temporary demo
 
-In a second terminal, from the Easy OIDC repository, run:
+In a second terminal, from the Truster repository, run:
 
 ```console
-go run ./cmd/easy-oidc serve --demo
+go run ./cmd/truster serve --demo
 ```
 
 Begin a login in a third terminal:
@@ -50,7 +50,7 @@ kubectl oidc-login setup \
 
 Enter any email address in the browser. Open Mailpit, read the new message, and
 enter its code in the browser. kubelogin then prints the identity returned by
-Easy OIDC.
+Truster.
 
 Demo mode generates temporary keys and deletes its SQLite database when it
 stops. Continue with the next section if you need the same local issuer across
@@ -62,30 +62,30 @@ Create a directory for local-only data and generate separate signing and email
 code secrets:
 
 ```console
-mkdir -p .easy-oidc-local/secrets
+mkdir -p .truster-local/secrets
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 \
-  > .easy-oidc-local/secrets/signing-key.pem
-openssl rand -hex 32 > .easy-oidc-local/secrets/otp-secret
-chmod -R go-rwx .easy-oidc-local
+  > .truster-local/secrets/signing-key.pem
+openssl rand -hex 32 > .truster-local/secrets/otp-secret
+chmod -R go-rwx .truster-local
 ```
 
-Save this configuration as `.easy-oidc-local/config.jsonc`:
+Save this configuration as `.truster-local/config.jsonc`:
 
 ```jsonc
 {
-  "$schema": "https://easy-oidc.dev/schema/v2/config.schema.json",
+  "$schema": "https://truster.dev/schema/v2/config.schema.json",
   "issuer_url": "http://localhost:8080",
   "http_listen_addr": "127.0.0.1:8080",
 
   "secrets": {
     "provider": "file",
-    "file_directory": ".easy-oidc-local/secrets",
+    "file_directory": ".truster-local/secrets",
     "signing_key_name": "signing-key.pem"
   },
 
   "state_database": {
     "driver": "sqlite",
-    "path": ".easy-oidc-local/state.db"
+    "path": ".truster-local/state.db"
   },
 
   "user_login_connectors": {
@@ -102,7 +102,7 @@ Save this configuration as `.easy-oidc-local/config.jsonc`:
       "host": "localhost",
       "port": 1025,
       "tls_mode": "plaintext",
-      "from_name": "Easy OIDC",
+      "from_name": "Truster",
       "from_address": "auth@localhost"
     }
   },
@@ -117,32 +117,32 @@ Save this configuration as `.easy-oidc-local/config.jsonc`:
 }
 ```
 
-Keep `.easy-oidc-local` out of version control because it contains private key
+Keep `.truster-local` out of version control because it contains private key
 material. Check the configuration, then start the persistent local issuer:
 
 ```console
-go run ./cmd/easy-oidc check config --config .easy-oidc-local/config.jsonc
-go run ./cmd/easy-oidc serve --config .easy-oidc-local/config.jsonc
+go run ./cmd/truster check config --config .truster-local/config.jsonc
+go run ./cmd/truster serve --config .truster-local/config.jsonc
 ```
 
 Use the same kubelogin command from step 2. The signing key and SQLite state now
-remain in `.easy-oidc-local` when Easy OIDC stops.
+remain in `.truster-local` when Truster stops.
 
 ## What this setup proves
 
 You have now exercised the same main responsibilities as a deployed issuer:
 
-- Easy OIDC authenticates a user through a configured sign-in method;
+- Truster authenticates a user through a configured sign-in method;
 - the client begins a standard authorization-code flow with PKCE;
-- Easy OIDC creates a signed ID token; and
+- Truster creates a signed ID token; and
 - kubelogin verifies and displays the returned identity.
 
-Kubernetes authorization is a separate step. Easy OIDC supplies identity and
+Kubernetes authorization is a separate step. Truster supplies identity and
 groups; Kubernetes RBAC decides what they may do.
 
 ## Next Steps
 
 - [Learn the main concepts and terminology](/docs/concepts/)
-- [Configure Kubernetes to trust Easy OIDC](/docs/kubernetes/)
+- [Configure Kubernetes to trust Truster](/docs/kubernetes/)
 - [Configure kubelogin for a cluster](/docs/kubelogin/)
 - [Deploy to AWS](/docs/deploy/aws/) or [Google Cloud](/docs/deploy/google/)

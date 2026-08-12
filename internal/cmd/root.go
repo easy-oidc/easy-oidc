@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package cmd
@@ -7,18 +7,18 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/easy-oidc/easy-oidc/internal/buildvars"
 	"github.com/spf13/cobra"
+	"github.com/truster-dev/truster/internal/buildvars"
 )
 
-// NewRootCmd creates the Easy OIDC command hierarchy.
+// NewRootCmd creates the Truster command hierarchy.
 func NewRootCmd() *cobra.Command {
 	var showVersion bool
 	var verboseVersion bool
 	command := &cobra.Command{
-		Use:   "easy-oidc",
+		Use:   "truster",
 		Short: "Minimal OIDC server for Kubernetes",
-		Long: `easy-oidc is a lightweight OIDC server designed for Kubernetes clusters.
+		Long: `truster is a lightweight OIDC server designed for Kubernetes clusters.
 It delegates user authentication to configured login connectors and applies authorization policy.`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
@@ -29,7 +29,7 @@ It delegates user authentication to configured login connectors and applies auth
 				return command.Help()
 			}
 			output := command.OutOrStdout()
-			if _, err := fmt.Fprintf(output, "easy-oidc version %s\n", buildvars.BuildVersion()); err != nil {
+			if _, err := fmt.Fprintf(output, "truster version %s\n", buildvars.BuildVersion()); err != nil {
 				return fmt.Errorf("write version: %w", err)
 			}
 			if verboseVersion {

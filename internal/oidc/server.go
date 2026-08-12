@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 package oidc
 
@@ -9,17 +9,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/easy-oidc/easy-oidc/internal/authpolicy"
-	"github.com/easy-oidc/easy-oidc/internal/challenge"
-	"github.com/easy-oidc/easy-oidc/internal/config"
-	"github.com/easy-oidc/easy-oidc/internal/dpop"
-	"github.com/easy-oidc/easy-oidc/internal/email"
-	"github.com/easy-oidc/easy-oidc/internal/refresh"
-	"github.com/easy-oidc/easy-oidc/internal/statedb"
-	"github.com/easy-oidc/easy-oidc/internal/templates"
-	"github.com/easy-oidc/easy-oidc/internal/tokens"
-	"github.com/easy-oidc/easy-oidc/internal/trust"
-	"github.com/easy-oidc/easy-oidc/internal/upstream"
+	"github.com/truster-dev/truster/internal/authpolicy"
+	"github.com/truster-dev/truster/internal/challenge"
+	"github.com/truster-dev/truster/internal/config"
+	"github.com/truster-dev/truster/internal/dpop"
+	"github.com/truster-dev/truster/internal/email"
+	"github.com/truster-dev/truster/internal/refresh"
+	"github.com/truster-dev/truster/internal/statedb"
+	"github.com/truster-dev/truster/internal/templates"
+	"github.com/truster-dev/truster/internal/tokens"
+	"github.com/truster-dev/truster/internal/trust"
+	"github.com/truster-dev/truster/internal/upstream"
 	"golang.org/x/time/rate"
 )
 

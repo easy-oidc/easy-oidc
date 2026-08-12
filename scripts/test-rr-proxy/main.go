@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package main
@@ -13,8 +13,8 @@ import (
 	"sync/atomic"
 )
 
-// main serves the E2E issuer and alternates requests between the configured Easy
-// OIDC replicas. Routing each request independently verifies that OIDC flows
+// main serves the E2E issuer and alternates requests between the configured
+// Truster replicas. Routing each request independently verifies that OIDC flows
 // work across replicas sharing PostgreSQL state.
 func main() {
 	listenAddress := flag.String("listen", "", "proxy listen address")

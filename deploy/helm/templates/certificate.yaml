@@ -1,18 +1,18 @@
-# Easy OIDC <https://easy-oidc.dev>
-# Copyright The Easy OIDC Authors
+# Truster <https://truster.dev>
+# Copyright The Truster Authors
 # SPDX-License-Identifier: Apache-2.0
 
 {{- if .Values.server.tls.certManager.enabled }}
-{{- include "easy-oidc.validateConfig" . }}
+{{- include "truster.validateConfig" . }}
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: {{ include "easy-oidc.fullname" . }}
+  name: {{ include "truster.fullname" . }}
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "easy-oidc.labels" . | nindent 4 }}
+    {{- include "truster.labels" . | nindent 4 }}
 spec:
-  secretName: {{ include "easy-oidc.serverTLSSecretName" . }}
+  secretName: {{ include "truster.serverTLSSecretName" . }}
   issuerRef:
     name: {{ .Values.server.tls.certManager.issuerRef.name | quote }}
     kind: {{ .Values.server.tls.certManager.issuerRef.kind | quote }}

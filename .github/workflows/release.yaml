@@ -1,5 +1,5 @@
-# Easy OIDC <https://easy-oidc.dev>
-# Copyright The Easy OIDC Authors
+# Truster <https://truster.dev>
+# Copyright The Truster Authors
 # SPDX-License-Identifier: Apache-2.0
 
 name: Release
@@ -99,9 +99,9 @@ jobs:
         run: |
           go install github.com/podplane/ocimage@v1
           go install github.com/google/go-containerregistry/cmd/crane@v0.20.6
-          tags="ghcr.io/easy-oidc/easy-oidc:$VERSION"
+          tags="ghcr.io/truster-dev/truster:$VERSION"
           if [[ "$VERSION" != *-* ]]; then
-            tags="$tags ghcr.io/easy-oidc/easy-oidc:latest"
+            tags="$tags ghcr.io/truster-dev/truster:latest"
           fi
           build_args=(
             "BUILD_VERSION=${{ github.ref_name }}"
@@ -120,7 +120,7 @@ jobs:
               GOOS=linux \
               GOARCH="$arch" \
               CC="$cc" \
-              BUILD_OUTPUT="bin/linux_$arch/easy-oidc" \
+              BUILD_OUTPUT="bin/linux_$arch/truster" \
               BUILD_TAGS="netgo osusergo sqlite_omit_load_extension" \
               BUILD_EXTRA_LDFLAGS="-s -w -linkmode external -extldflags '-static'"
           done
@@ -128,7 +128,7 @@ jobs:
             "${build_args[@]}" \
             IMAGE_TAGS="$tags" \
             IMAGE_PUSH=true
-          digest="$(crane digest "ghcr.io/easy-oidc/easy-oidc:$VERSION")"
+          digest="$(crane digest "ghcr.io/truster-dev/truster:$VERSION")"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
       - name: Generate and attest image SBOMs
@@ -136,12 +136,12 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          image="ghcr.io/easy-oidc/easy-oidc"
+          image="ghcr.io/truster-dev/truster"
           mkdir -p dist/image-sboms
           for arch in amd64 arm64; do
             digest="$(crane digest --platform "linux/$arch" "$image:$VERSION")"
             subject="$image@$digest"
-            sbom="dist/image-sboms/easy-oidc_${VERSION}_linux_${arch}.spdx.json"
+            sbom="dist/image-sboms/truster_${VERSION}_linux_${arch}.spdx.json"
             syft "registry:$subject" --output "spdx-json=$sbom"
             cosign attest --yes --type spdxjson --predicate "$sbom" "$subject"
           done
@@ -150,12 +150,12 @@ jobs:
       - name: Sign container image
         env:
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
-        run: cosign sign --yes "ghcr.io/easy-oidc/easy-oidc@${IMAGE_DIGEST}"
+        run: cosign sign --yes "ghcr.io/truster-dev/truster@${IMAGE_DIGEST}"
 
       - name: Attest container image
         uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
         with:
-          subject-name: ghcr.io/easy-oidc/easy-oidc
+          subject-name: ghcr.io/truster-dev/truster
           subject-digest: ${{ steps.image.outputs.digest }}
           push-to-registry: true
 
@@ -170,7 +170,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          helm lint --strict deploy/helm --set config.existingConfigMap=easy-oidc-config
+          helm lint --strict deploy/helm --set config.existingConfigMap=truster-config
           mkdir -p dist/charts
           helm package deploy/helm \
             --version "$VERSION" \
@@ -179,24 +179,24 @@ jobs:
           echo "$GH_TOKEN" | helm registry login ghcr.io \
             --username "${{ github.actor }}" \
             --password-stdin
-          helm push "dist/charts/easy-oidc-${VERSION}.tgz" \
-            oci://ghcr.io/easy-oidc/charts
-          cosign sign --yes "ghcr.io/easy-oidc/charts/easy-oidc:${VERSION}"
+          helm push "dist/charts/truster-${VERSION}.tgz" \
+            oci://ghcr.io/truster-dev/charts
+          cosign sign --yes "ghcr.io/truster-dev/charts/truster:${VERSION}"
           syft "dir:deploy/helm" \
-            --output "spdx-json=dist/charts/easy-oidc-${VERSION}.spdx.json"
+            --output "spdx-json=dist/charts/truster-${VERSION}.spdx.json"
           cosign sign-blob --yes \
-            --bundle "dist/charts/easy-oidc-${VERSION}.tgz.bundle" \
-            "dist/charts/easy-oidc-${VERSION}.tgz"
+            --bundle "dist/charts/truster-${VERSION}.tgz.bundle" \
+            "dist/charts/truster-${VERSION}.tgz"
           gh release upload "${{ github.ref_name }}" \
-            "dist/charts/easy-oidc-${VERSION}.tgz" \
-            "dist/charts/easy-oidc-${VERSION}.tgz.bundle" \
-            "dist/charts/easy-oidc-${VERSION}.spdx.json"
-          echo "archive=dist/charts/easy-oidc-${VERSION}.tgz" >> "$GITHUB_OUTPUT"
+            "dist/charts/truster-${VERSION}.tgz" \
+            "dist/charts/truster-${VERSION}.tgz.bundle" \
+            "dist/charts/truster-${VERSION}.spdx.json"
+          echo "archive=dist/charts/truster-${VERSION}.tgz" >> "$GITHUB_OUTPUT"
 
       - name: Attest release artifacts
         uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
         with:
-          subject-checksums: dist/easy-oidc_${{ steps.version.outputs.version }}_checksums.txt
+          subject-checksums: dist/truster_${{ steps.version.outputs.version }}_checksums.txt
 
       - name: Attest Helm chart
         uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0

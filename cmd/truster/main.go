@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package main
@@ -7,7 +7,7 @@ package main
 import (
 	"os"
 
-	"github.com/easy-oidc/easy-oidc/internal/cmd"
+	"github.com/truster-dev/truster/internal/cmd"
 )
 
 func main() {

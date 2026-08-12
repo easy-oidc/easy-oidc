@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package dpop
@@ -53,7 +53,7 @@ func TestPublicConformanceFixtures(t *testing.T) {
 			if err = json.Unmarshal(raw, &fixture); err != nil {
 				t.Fatal(err)
 			}
-			if fixture.Schema != "easy-oidc-dpop-conformance-v1" || fixture.Algorithm != algorithm {
+			if fixture.Schema != "truster-dpop-conformance-v1" || fixture.Algorithm != algorithm {
 				t.Fatal("invalid fixture schema/profile")
 			}
 			proof := fixture.Proof

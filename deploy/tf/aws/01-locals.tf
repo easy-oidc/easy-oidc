@@ -1,5 +1,5 @@
-# Easy OIDC <https://easy-oidc.dev>
-# Copyright The Easy OIDC Authors
+# Truster <https://truster.dev>
+# Copyright The Truster Authors
 # SPDX-License-Identifier: Apache-2.0
 
 locals {
@@ -17,19 +17,19 @@ locals {
   # Collect all secrets referenced by the application configuration
   secret_references = toset(compact(concat(
     [
-      try(var.easy_oidc_config.secrets.signing_key_name, null),
-      try(var.easy_oidc_config.secrets.encryption_key_name, null),
+      try(var.truster_config.secrets.signing_key_name, null),
+      try(var.truster_config.secrets.encryption_key_name, null),
     ],
-    [for connector in values(try(var.easy_oidc_config.user_login_connectors, {})) : try(connector.credentials_secret, null)],
+    [for connector in values(try(var.truster_config.user_login_connectors, {})) : try(connector.credentials_secret, null)],
     [
-      try(var.easy_oidc_config.email.otp_secret_name, null),
-      try(var.easy_oidc_config.email.smtp.credentials_secret, null),
-      try(var.easy_oidc_config.email.turnstile.secret_name, null),
-      try(var.easy_oidc_config.state_database.connection_string_secret, null),
-      try(var.easy_oidc_config.policy_database.connection_string_secret, null),
+      try(var.truster_config.email.otp_secret_name, null),
+      try(var.truster_config.email.smtp.credentials_secret, null),
+      try(var.truster_config.email.turnstile.secret_name, null),
+      try(var.truster_config.state_database.connection_string_secret, null),
+      try(var.truster_config.policy_database.connection_string_secret, null),
     ],
     var.run_db_migrations ? [
-      try(var.easy_oidc_config.state_database.migrations.connection_string_secret, null),
+      try(var.truster_config.state_database.migrations.connection_string_secret, null),
     ] : [],
   )))
 

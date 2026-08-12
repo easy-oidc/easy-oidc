@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package oidc
@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/easy-oidc/easy-oidc/internal/statedb"
+	"github.com/truster-dev/truster/internal/statedb"
 )
 
 // OAuthState represents the OAuth2 state parameter data.

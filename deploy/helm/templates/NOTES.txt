@@ -1,5 +1,5 @@
-Easy OIDC is available inside the cluster at:
-  {{ ternary "https" "http" .Values.server.tls.enabled }}://{{ include "easy-oidc.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}
+Truster is available inside the cluster at:
+  {{ ternary "https" "http" .Values.server.tls.enabled }}://{{ include "truster.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}
 
 The configured issuer URL must match the externally visible HTTPS URL.
 {{- if and .Values.server.tls.enabled .Values.ingress.enabled }}
@@ -12,7 +12,7 @@ serving certificate.
 Ingress is disabled. Expose the Service through a TLS-terminating proxy before production use.
 {{- end }}
 {{- if and .Values.server.tls.enabled (or .Values.config.rawOverride .Values.config.existingConfigMap) }}
-The opaque Easy OIDC configuration must reference:
-  /var/run/easy-oidc/tls/tls.crt
-  /var/run/easy-oidc/tls/tls.key
+The opaque Truster configuration must reference:
+  /var/run/truster/tls/tls.crt
+  /var/run/truster/tls/tls.key
 {{- end }}

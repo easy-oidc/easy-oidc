@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package oidc
@@ -7,19 +7,19 @@ package oidc
 import (
 	"encoding/json"
 	"errors"
-	"github.com/easy-oidc/easy-oidc/internal/authpolicy"
-	"github.com/easy-oidc/easy-oidc/internal/config"
-	"github.com/easy-oidc/easy-oidc/internal/dpop"
+	"github.com/truster-dev/truster/internal/authpolicy"
+	"github.com/truster-dev/truster/internal/config"
+	"github.com/truster-dev/truster/internal/dpop"
 	"mime"
 	"net"
 	"net/http"
 	"time"
 
-	refreshdomain "github.com/easy-oidc/easy-oidc/internal/refresh"
-	"github.com/easy-oidc/easy-oidc/internal/statedb"
-	"github.com/easy-oidc/easy-oidc/internal/tokens"
-	"github.com/easy-oidc/easy-oidc/internal/trust"
-	"github.com/easy-oidc/easy-oidc/internal/upstream"
+	refreshdomain "github.com/truster-dev/truster/internal/refresh"
+	"github.com/truster-dev/truster/internal/statedb"
+	"github.com/truster-dev/truster/internal/tokens"
+	"github.com/truster-dev/truster/internal/trust"
+	"github.com/truster-dev/truster/internal/upstream"
 )
 
 const (

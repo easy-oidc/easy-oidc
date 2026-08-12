@@ -47,22 +47,22 @@ mock_provider "http" {
 }
 
 variables {
-  vpc_id            = "vpc-0123456789abcdef0"
-  subnet_id         = "subnet-0123456789abcdef0"
-  oidc_addr         = "auth.example.com"
-  easy_oidc_version = "v2.0.0"
-  caddy_version     = "v2.10.0"
+  vpc_id          = "vpc-0123456789abcdef0"
+  subnet_id       = "subnet-0123456789abcdef0"
+  oidc_addr       = "auth.example.com"
+  truster_version = "v2.0.0"
+  caddy_version   = "v2.10.0"
 
-  easy_oidc_config = {
+  truster_config = {
     secrets = {
-      signing_key_name    = "/easy-oidc/signing"
-      encryption_key_name = "/easy-oidc/encryption"
+      signing_key_name    = "/truster/signing"
+      encryption_key_name = "/truster/encryption"
     }
     user_login_connectors = {
       google = {
         type               = "google"
         display_name       = "Google"
-        credentials_secret = "/easy-oidc/google"
+        credentials_secret = "/truster/google"
       }
     }
     static_policy = {
@@ -176,13 +176,13 @@ run "refresh_with_non_email_connector_requires_encryption" {
   command = plan
 
   variables {
-    easy_oidc_config = {
-      secrets = { signing_key_name = "/easy-oidc/signing" }
+    truster_config = {
+      secrets = { signing_key_name = "/truster/signing" }
       user_login_connectors = {
         google = {
           type               = "google"
           display_name       = "Google"
-          credentials_secret = "/easy-oidc/google"
+          credentials_secret = "/truster/google"
         }
       }
       static_policy = {
@@ -196,53 +196,53 @@ run "refresh_with_non_email_connector_requires_encryption" {
     }
   }
 
-  expect_failures = [var.easy_oidc_config]
+  expect_failures = [var.truster_config]
 }
 
 run "email_delivery_requires_smtp" {
   command = plan
 
   variables {
-    easy_oidc_config = {
-      secrets = { signing_key_name = "/easy-oidc/signing" }
+    truster_config = {
+      secrets = { signing_key_name = "/truster/signing" }
       user_login_connectors = {
         email = { type = "email", display_name = "Email" }
       }
-      email         = { otp_secret_name = "/easy-oidc/otp", otp_ttl = "5m" }
+      email         = { otp_secret_name = "/truster/otp", otp_ttl = "5m" }
       static_policy = { clients = { app = { redirect_uris = ["https://app.example/callback"] } } }
     }
   }
 
-  expect_failures = [var.easy_oidc_config]
+  expect_failures = [var.truster_config]
 }
 
 run "static_client_requires_redirects" {
   command = plan
 
   variables {
-    easy_oidc_config = {
-      secrets = { signing_key_name = "/easy-oidc/signing" }
+    truster_config = {
+      secrets = { signing_key_name = "/truster/signing" }
       user_login_connectors = {
-        google = { type = "google", display_name = "Google", credentials_secret = "/easy-oidc/google" }
+        google = { type = "google", display_name = "Google", credentials_secret = "/truster/google" }
       }
       static_policy = { clients = { app = {} } }
     }
   }
 
-  expect_failures = [var.easy_oidc_config]
+  expect_failures = [var.truster_config]
 }
 
 run "generic_refresh_cannot_override_owned_parameters" {
   command = plan
 
   variables {
-    easy_oidc_config = {
-      secrets = { signing_key_name = "/easy-oidc/signing" }
+    truster_config = {
+      secrets = { signing_key_name = "/truster/signing" }
       user_login_connectors = {
         upstream = {
           type               = "generic"
           display_name       = "Upstream"
-          credentials_secret = "/easy-oidc/upstream"
+          credentials_secret = "/truster/upstream"
           generic = {
             authorization_url = "https://idp.example/authorize"
             token_url         = "https://idp.example/token"
@@ -255,20 +255,20 @@ run "generic_refresh_cannot_override_owned_parameters" {
     }
   }
 
-  expect_failures = [var.easy_oidc_config]
+  expect_failures = [var.truster_config]
 }
 
 run "refresh_idle_ttl_cannot_exceed_absolute_ttl" {
   command = plan
 
   variables {
-    easy_oidc_config = {
+    truster_config = {
       secrets = {
-        signing_key_name    = "/easy-oidc/signing"
-        encryption_key_name = "/easy-oidc/encryption"
+        signing_key_name    = "/truster/signing"
+        encryption_key_name = "/truster/encryption"
       }
       user_login_connectors = {
-        google = { type = "google", display_name = "Google", credentials_secret = "/easy-oidc/google" }
+        google = { type = "google", display_name = "Google", credentials_secret = "/truster/google" }
       }
       static_policy = {
         clients = {
@@ -285,17 +285,17 @@ run "refresh_idle_ttl_cannot_exceed_absolute_ttl" {
     }
   }
 
-  expect_failures = [var.easy_oidc_config]
+  expect_failures = [var.truster_config]
 }
 
 run "preset_service_issuer_fields_cannot_be_overridden" {
   command = plan
 
   variables {
-    easy_oidc_config = {
-      secrets = { signing_key_name = "/easy-oidc/signing" }
+    truster_config = {
+      secrets = { signing_key_name = "/truster/signing" }
       user_login_connectors = {
-        google = { type = "google", display_name = "Google", credentials_secret = "/easy-oidc/google" }
+        google = { type = "google", display_name = "Google", credentials_secret = "/truster/google" }
       }
       service_token_issuers = {
         actions = { provider = "github", signing_algs = ["RS256"] }
@@ -304,21 +304,21 @@ run "preset_service_issuer_fields_cannot_be_overridden" {
     }
   }
 
-  expect_failures = [var.easy_oidc_config]
+  expect_failures = [var.truster_config]
 }
 
 run "policy_database_empty_refresh_uses_disabled_default" {
   command = plan
 
   variables {
-    easy_oidc_config = {
-      secrets = { signing_key_name = "/easy-oidc/signing" }
+    truster_config = {
+      secrets = { signing_key_name = "/truster/signing" }
       user_login_connectors = {
         google = { type = "google", display_name = "Google", credentials_secret = "[REDACTED:secret-value]" }
       }
       policy_database = {
         driver                   = "postgresql"
-        connection_string_secret = "/easy-oidc/policy-database"
+        connection_string_secret = "/truster/policy-database"
         redirect_uris            = ["https://app.example/callback"]
         client_defaults          = { refresh_tokens = {} }
       }
@@ -330,8 +330,8 @@ run "explicit_empty_default_redirects_are_invalid" {
   command = plan
 
   variables {
-    easy_oidc_config = {
-      secrets = { signing_key_name = "/easy-oidc/signing" }
+    truster_config = {
+      secrets = { signing_key_name = "/truster/signing" }
       user_login_connectors = {
         google = { type = "google", display_name = "Google", credentials_secret = "[REDACTED:secret-value]" }
       }
@@ -344,17 +344,17 @@ run "explicit_empty_default_redirects_are_invalid" {
     }
   }
 
-  expect_failures = [var.easy_oidc_config]
+  expect_failures = [var.truster_config]
 }
 
 run "zero_refresh_duration_is_invalid" {
   command = plan
 
   variables {
-    easy_oidc_config = {
+    truster_config = {
       secrets = {
-        signing_key_name    = "/easy-oidc/signing"
-        encryption_key_name = "/easy-oidc/encryption"
+        signing_key_name    = "/truster/signing"
+        encryption_key_name = "/truster/encryption"
       }
       user_login_connectors = {
         google = { type = "google", display_name = "Google", credentials_secret = "[REDACTED:secret-value]" }
@@ -373,20 +373,20 @@ run "zero_refresh_duration_is_invalid" {
     }
   }
 
-  expect_failures = [var.easy_oidc_config]
+  expect_failures = [var.truster_config]
 }
 
 run "equivalent_email_otp_duration_is_valid" {
   command = plan
 
   variables {
-    easy_oidc_config = {
-      secrets = { signing_key_name = "/easy-oidc/signing" }
+    truster_config = {
+      secrets = { signing_key_name = "/truster/signing" }
       user_login_connectors = {
         email = { type = "email", display_name = "Email" }
       }
       email = {
-        otp_secret_name = "/easy-oidc/otp"
+        otp_secret_name = "/truster/otp"
         otp_ttl         = "60s"
         smtp = {
           host         = "smtp.example.com"

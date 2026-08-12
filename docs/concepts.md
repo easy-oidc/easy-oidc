@@ -5,7 +5,7 @@ linkTitle: 'Concepts and terminology'
 weight: 2
 ---
 
-Easy OIDC sits between the service that signs a user in, and the application or
+Truster sits between the service that signs a user in, and the application or
 Kubernetes cluster that uses the resulting identity. This page defines the
 terms needed to configure and integrate it.
 
@@ -13,31 +13,31 @@ terms needed to configure and integrate it.
 
 - An **issuer** is the authority that creates tokens. Its URL identifies that
   authority and must exactly match the token's `iss` claim. In a downstream
-  login, Easy OIDC is the issuer.
-- A **client** is an application that asks Easy OIDC to sign someone in or
+  login, Truster is the issuer.
+- A **client** is an application that asks Truster to sign someone in or
   issue tokens. Each client has an ID and an explicit configuration.
-- A **redirect URI** is the exact client URL to which Easy OIDC returns the
+- A **redirect URI** is the exact client URL to which Truster returns the
   browser after sign-in. It must be registered for the client; it is not an
   arbitrary destination.
-- An **upstream connector** (or **provider**) connects Easy OIDC to the service
+- An **upstream connector** (or **provider**) connects Truster to the service
   where the person signs in, such as Google, GitHub, a generic OIDC provider,
   or email-code authentication.
-- A **subject** is the identity named by a token's `sub` claim. Easy OIDC
+- A **subject** is the identity named by a token's `sub` claim. Truster
   normally uses a normalized email address for an interactive user's subject.
 - An **audience** identifies who a token is intended for through its `aud`
   claim. A recipient must reject a token not intended for it.
 - A **claim** is a named fact in a token, such as `sub`, `email`, `groups`,
   `iss`, or `aud`.
 
-The upstream provider authenticates its own account. Easy OIDC decides whether
+The upstream provider authenticates its own account. Truster decides whether
 to accept that result and maps it to the identity, subject, and claims it
-issues. Easy OIDC does not decide what that identity may do in an application
+issues. Truster does not decide what that identity may do in an application
 or cluster: downstream APIs enforce application authorization, and Kubernetes
 enforces its own RBAC.
 
 ## Tokens and keys
 
-A **token** is a credential issued for a specific purpose. Easy OIDC issues
+A **token** is a credential issued for a specific purpose. Truster issues
 short-lived ID and access tokens as signed JSON Web Tokens (JWTs); both have a
 15-minute lifetime by default.
 
@@ -50,20 +50,20 @@ short-lived ID and access tokens as signed JSON Web Tokens (JWTs); both have a
   without another login. Refresh tokens are optional and require stronger
   storage and revocation handling.
 - A **JWT** (JSON Web Token) is a signed, compact set of claims. A **JWK**
-  (JSON Web Key) describes a cryptographic key; Easy OIDC publishes a set of
+  (JSON Web Key) describes a cryptographic key; Truster publishes a set of
   public JWKs (a JWKS) so token recipients can verify JWT signatures.
 
-Easy OIDC signs tokens, but each downstream API and Kubernetes API server
+Truster signs tokens, but each downstream API and Kubernetes API server
 remains responsible for validating the signature, issuer, audience, expiry,
 token purpose, and any required claims before trusting one.
 
 ## Flow protections
 
 - **PKCE** binds an authorization code to the client that started the login.
-  Easy OIDC requires it for every client, preventing an intercepted code from
+  Truster requires it for every client, preventing an intercepted code from
   being redeemed without the original verifier.
 - **PAR** (Pushed Authorization Requests) sends the authorization request
-  directly to Easy OIDC before the browser redirect. The redirect carries a
+  directly to Truster before the browser redirect. The redirect carries a
   short-lived reference, so browser URL changes cannot alter protected request
   details such as the redirect URI, PKCE challenge, or DPoP key binding.
 - **DPoP** binds access and refresh tokens to a client-held cryptographic key.
@@ -78,23 +78,23 @@ pending browser logins, authorization codes, and refresh grants. It belongs in
 the state database. 
 
 **Policy** is the current decision data—such as configured clients, allowed 
-users, groups, and trust bindings—that controls whether Easy OIDC may issue
+users, groups, and trust bindings—that controls whether Truster may issue
 credentials and which claims they contain.
 
-For non-human external OIDC and CI identities, Easy OIDC separates trust into
+For non-human external OIDC and CI identities, Truster separates trust into
 three practical layers:
 
 - A **trust issuer** (`service_token_issuers`) defines an external token
-  authority Easy OIDC can verify.
+  authority Truster can verify.
 - A **trust policy** defines reusable claim requirements for tokens from that
   issuer.
-- A **trust binding** authorizes one of those policies for a particular Easy
-  OIDC client, adds any narrower claim requirements, and maps a successful
+- A **trust binding** authorizes one of those policies for a particular Truster
+  client, adds any narrower claim requirements, and maps a successful
   match to a subject and groups.
 
-Trust evaluation requires exactly one matching binding. Easy OIDC and its
+Trust evaluation requires exactly one matching binding. Truster and its
 policy database **fail closed**: when required data is invalid or unavailable,
-or a trustworthy decision cannot be made, Easy OIDC refuses to issue a token
+or a trustworthy decision cannot be made, Truster refuses to issue a token
 rather than using stale data or guessing.
 
 ## Next steps

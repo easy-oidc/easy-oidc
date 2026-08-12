@@ -1,5 +1,5 @@
-# Easy OIDC <https://easy-oidc.dev>
-# Copyright The Easy OIDC Authors
+# Truster <https://truster.dev>
+# Copyright The Truster Authors
 # SPDX-License-Identifier: Apache-2.0
 
 .DEFAULT_GOAL := help
@@ -11,17 +11,17 @@ COMMIT_HASH := $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
 COMMIT_DATE := $(shell TZ=UTC git log -1 --format=%cd --date=format-local:'%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || echo unknown)
 COMMIT_BRANCH := $(shell branch=$$(git symbolic-ref --short -q HEAD); if [ -n "$$branch" ]; then echo "$$branch"; else echo unknown; fi)
 
-BUILDVARS_PKG := github.com/easy-oidc/easy-oidc/internal/buildvars
+BUILDVARS_PKG := github.com/truster-dev/truster/internal/buildvars
 
 BINARY_DIR := bin
 OCIMAGE ?= ocimage
 IMAGE_ARCHES ?= amd64,arm64
 IMAGE_PLATFORMS := $(shell printf '%s' '$(IMAGE_ARCHES)' | tr -d ' ' | sed 's/[^,][^,]*/linux\/&/g')
-IMAGE_TAGS ?= ghcr.io/easy-oidc/easy-oidc:$(patsubst v%,%,$(BUILD_VERSION))
+IMAGE_TAGS ?= ghcr.io/truster-dev/truster:$(patsubst v%,%,$(BUILD_VERSION))
 IMAGE_PUSH ?= false
 GOOS ?= $(shell go env GOOS)
 GOARCH ?= $(shell go env GOARCH)
-BUILD_OUTPUT ?= $(BINARY_DIR)/easy-oidc
+BUILD_OUTPUT ?= $(BINARY_DIR)/truster
 BUILD_TAGS ?=
 BUILD_EXTRA_LDFLAGS ?=
 # Kubeconform only bundles schemas for native Kubernetes resources. Resolve
@@ -83,11 +83,11 @@ test: ## Run tests with race detector
 
 test-postgresql: ## Start/reuse local PostgreSQL and run real state database tests
 	@set -e; CONTAINER_CMD=$${CONTAINER_CMD:-$$(command -v podman || command -v docker)}; test -n "$$CONTAINER_CMD" || { echo "podman or docker is required"; exit 1; }; \
-	$$CONTAINER_CMD inspect easy-oidc-state-test >/dev/null 2>&1 || $$CONTAINER_CMD run -d --name easy-oidc-state-test -p 55435:5432 -e POSTGRES_USER=easy_oidc -e POSTGRES_PASSWORD=easy_oidc -e POSTGRES_DB=easy_oidc_state docker.io/library/postgres@sha256:6567bca8d7bc8c82c5922425a0baee57be8402df92bae5eacad5f01ae9544daa >/dev/null; \
-	$$CONTAINER_CMD start easy-oidc-state-test >/dev/null 2>&1 || true; \
-	ready=0; for i in $$(seq 1 30); do $$CONTAINER_CMD exec easy-oidc-state-test pg_isready -U easy_oidc -d easy_oidc_state >/dev/null 2>&1 && ready=1 && break; sleep 1; done; \
+	$$CONTAINER_CMD inspect truster-state-test >/dev/null 2>&1 || $$CONTAINER_CMD run -d --name truster-state-test -p 55435:5432 -e POSTGRES_USER=truster -e POSTGRES_PASSWORD=truster -e POSTGRES_DB=truster_state docker.io/library/postgres@sha256:6567bca8d7bc8c82c5922425a0baee57be8402df92bae5eacad5f01ae9544daa >/dev/null; \
+	$$CONTAINER_CMD start truster-state-test >/dev/null 2>&1 || true; \
+	ready=0; for i in $$(seq 1 30); do $$CONTAINER_CMD exec truster-state-test pg_isready -U truster -d truster_state >/dev/null 2>&1 && ready=1 && break; sleep 1; done; \
 	test "$$ready" = 1 || { echo "PostgreSQL did not become ready"; exit 1; }; \
-	EASYOIDC_STATE_TEST_DB_URL='postgresql://easy_oidc:easy_oidc@127.0.0.1:55435/easy_oidc_state?sslmode=disable' go test -v -race -count=1 ./internal/statedb -run PostgreSQL
+	TRUSTER_STATE_TEST_DB_URL='postgresql://truster:truster@127.0.0.1:55435/truster_state?sslmode=disable' go test -v -race -count=1 ./internal/statedb -run PostgreSQL
 
 e2e: ## Run E2E tests with Dex upstream
 	@echo "Running E2E tests..."
@@ -95,8 +95,8 @@ e2e: ## Run E2E tests with Dex upstream
 
 check: fmt lint test ## Format, lint, and test
 
-build: ## Build the easy-oidc binary
-	@echo "Building easy-oidc..."
+build: ## Build the truster binary
+	@echo "Building truster..."
 	@mkdir -p "$(dir $(BUILD_OUTPUT))"
 	@rm -f "$(BUILD_OUTPUT)"
 	CGO_ENABLED="$(CGO_ENABLED)" GOOS="$(GOOS)" GOARCH="$(GOARCH)" CC="$(CC)" go build \
@@ -104,12 +104,12 @@ build: ## Build the easy-oidc binary
 		$(if $(strip $(BUILD_TAGS)),-tags="$(BUILD_TAGS)",) \
 		-ldflags="$(BUILD_EXTRA_LDFLAGS) $(LDFLAGS)" \
 		-o "$(BUILD_OUTPUT)" \
-		./cmd/easy-oidc
+		./cmd/truster
 
 image: ## Package prebuilt architecture-specific binaries as an OCI image
 	@set -eu; \
 	for arch in $$(printf '%s' '$(IMAGE_ARCHES)' | tr ',' ' '); do \
-		binary="$(BINARY_DIR)/linux_$$arch/easy-oidc"; \
+		binary="$(BINARY_DIR)/linux_$$arch/truster"; \
 		test -x "$$binary" || { \
 			echo "prebuilt image binary not found or not executable: $$binary" >&2; \
 			echo "run make build for linux/$$arch before make image" >&2; \
@@ -117,7 +117,7 @@ image: ## Package prebuilt architecture-specific binaries as an OCI image
 		}; \
 	done
 	$(OCIMAGE) build \
-		--file images/easy-oidc/Containerfile \
+		--file images/truster/Containerfile \
 		--platform $(IMAGE_PLATFORMS) \
 		$(foreach tag,$(IMAGE_TAGS),--tag $(tag)) \
 		--build-arg VERSION=$(BUILD_VERSION) \
@@ -126,31 +126,31 @@ image: ## Package prebuilt architecture-specific binaries as an OCI image
 		$(if $(filter true,$(IMAGE_PUSH)),--push,) \
 		.
 
-helm-lint: ## Lint the Easy OIDC Helm chart
+helm-lint: ## Lint the Truster Helm chart
 	@command -v helm >/dev/null 2>&1 || { echo "helm is required but not installed"; exit 1; }
-	helm lint --strict deploy/helm --set config.existingConfigMap=easy-oidc-config
+	helm lint --strict deploy/helm --set config.existingConfigMap=truster-config
 
 helm-validate: helm-lint ## Render and validate representative Helm configurations
 	@command -v kubeconform >/dev/null 2>&1 || { echo "kubeconform is required but not installed"; exit 1; }
-	bash -o pipefail -c 'helm template easy-oidc deploy/helm \
-		--set config.existingConfigMap=easy-oidc-config \
+	bash -o pipefail -c 'helm template truster deploy/helm \
+		--set config.existingConfigMap=truster-config \
 		| kubeconform -strict -summary -kubernetes-version 1.34.0 \
 			-schema-location default -schema-location "$(KUBECONFORM_CRD_SCHEMA_LOCATION)"'
-	bash -o pipefail -c 'helm template easy-oidc deploy/helm \
+	bash -o pipefail -c 'helm template truster deploy/helm \
 		--values tests/helm/generated-config-values.yaml \
 		| kubeconform -strict -summary -kubernetes-version 1.34.0 \
 			-schema-location default -schema-location "$(KUBECONFORM_CRD_SCHEMA_LOCATION)"'
-	bash -o pipefail -c 'helm template easy-oidc deploy/helm \
+	bash -o pipefail -c 'helm template truster deploy/helm \
 		--values tests/helm/generated-config-values.yaml \
 		--set config.state_database.driver=postgresql \
-		--set config.state_database.connection_string_secret=EASYOIDC_STATE_DB_URL \
+		--set config.state_database.connection_string_secret=TRUSTER_STATE_DB_URL \
 		--set replicaCount=2 \
 		--set deploymentStrategy.type=RollingUpdate \
 		| kubeconform -strict -summary -kubernetes-version 1.34.0 \
 			-schema-location default -schema-location "$(KUBECONFORM_CRD_SCHEMA_LOCATION)"'
 
 dev: ## Run the template development server
-	go run ./cmd/easy-oidc dev --templates-dir ./templates
+	go run ./cmd/truster dev --templates-dir ./templates
 
 clean: ## Remove build artifacts
 	@echo "Cleaning build artifacts..."

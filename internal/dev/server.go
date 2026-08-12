@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package dev
@@ -23,7 +23,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/easy-oidc/easy-oidc/internal/templates"
+	"github.com/truster-dev/truster/internal/templates"
 	"golang.org/x/term"
 )
 
@@ -117,7 +117,7 @@ func (s *templateServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	manager, loadErr, revision := s.manager, s.loadErr, s.revision
 	s.mu.RUnlock()
 	w.Header().Set("Cache-Control", "no-store")
-	if r.URL.Path == "/__easy_oidc_dev/revision" {
+	if r.URL.Path == "/__truster_dev/revision" {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = fmt.Fprint(w, revision)
 		return
@@ -146,7 +146,7 @@ func (s *templateServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var err error
 	switch r.URL.Path {
 	case "/":
-		output.WriteString(`<!doctype html><html><head><meta charset="utf-8"><title>Easy OIDC template previews</title></head><body><main><h1>Easy OIDC template previews</h1><ul><li><a target="_blank" href="/pages/selector.html">Connector selector</a></li><li><a target="_blank" href="/pages/identity.html">Identity selector</a></li><li><a target="_blank" href="/pages/otp.html">OTP entry</a></li><li><a target="_blank" href="/pages/error.html">Error page</a></li><li><a target="_blank" href="/email/otp.html">HTML email</a></li><li><a target="_blank" href="/email/otp.txt">Plain-text email</a></li></ul></main></body></html>`)
+		output.WriteString(`<!doctype html><html><head><meta charset="utf-8"><title>Truster template previews</title></head><body><main><h1>Truster template previews</h1><ul><li><a target="_blank" href="/pages/selector.html">Connector selector</a></li><li><a target="_blank" href="/pages/identity.html">Identity selector</a></li><li><a target="_blank" href="/pages/otp.html">OTP entry</a></li><li><a target="_blank" href="/pages/error.html">Error page</a></li><li><a target="_blank" href="/email/otp.html">HTML email</a></li><li><a target="_blank" href="/email/otp.txt">Plain-text email</a></li></ul></main></body></html>`)
 	case "/pages/selector.html":
 		err = manager.RenderPage(&output, "selector", templates.SelectorData{
 			Title: "Sign in", State: "mock-state", Connectors: []templates.ConnectorData{
@@ -198,7 +198,7 @@ func (*templateServer) handleMockPost(w http.ResponseWriter, r *http.Request) {
 
 // injectReload adds a browser-side revision poller to an HTML response.
 func injectReload(body []byte, revision uint64) []byte {
-	script := []byte(`<script>(()=>{const r="` + strconv.FormatUint(revision, 10) + `";setInterval(async()=>{try{if(await(await fetch("/__easy_oidc_dev/revision",{cache:"no-store"})).text()!=r)location.reload()}catch{}},500)})()</script>`)
+	script := []byte(`<script>(()=>{const r="` + strconv.FormatUint(revision, 10) + `";setInterval(async()=>{try{if(await(await fetch("/__truster_dev/revision",{cache:"no-store"})).text()!=r)location.reload()}catch{}},500)})()</script>`)
 	if bytes.Contains(body, []byte("</body>")) {
 		return bytes.Replace(body, []byte("</body>"), append(script, []byte("</body>")...), 1)
 	}

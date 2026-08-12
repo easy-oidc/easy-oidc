@@ -1,5 +1,5 @@
-# Easy OIDC <https://easy-oidc.dev>
-# Copyright The Easy OIDC Authors
+# Truster <https://truster.dev>
+# Copyright The Truster Authors
 # SPDX-License-Identifier: Apache-2.0
 
 resource "google_service_account" "main" {
@@ -7,7 +7,7 @@ resource "google_service_account" "main" {
 
   project      = local.project_id
   account_id   = replace(var.name_prefix, "/[^a-z0-9-]/", "-")
-  display_name = "easy-oidc instance service account"
+  display_name = "truster instance service account"
 }
 
 resource "google_secret_manager_secret_iam_member" "secret_accessor" {

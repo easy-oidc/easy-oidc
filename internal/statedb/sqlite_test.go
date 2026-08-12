@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package statedb
@@ -15,7 +15,7 @@ import (
 // TestNewSQLiteSecuresStateFiles verifies newly created state directories and SQLite files are private.
 func TestNewSQLiteSecuresStateFiles(t *testing.T) {
 	directory := filepath.Join(t.TempDir(), "state")
-	path := filepath.Join(directory, "easy-oidc.db")
+	path := filepath.Join(directory, "truster.db")
 	store, err := NewSQLite(path, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
@@ -38,7 +38,7 @@ func TestNewSQLiteRejectsUnsafeExistingFiles(t *testing.T) {
 	if err := os.Mkdir(directory, 0700); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(directory, "easy-oidc.db")
+	path := filepath.Join(directory, "truster.db")
 	if err := os.WriteFile(path, nil, 0644); err != nil {
 		t.Fatal(err)
 	}

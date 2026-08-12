@@ -1,6 +1,6 @@
 <!--
-Easy OIDC <https://easy-oidc.dev>
-Copyright The Easy OIDC Authors
+Truster <https://truster.dev>
+Copyright The Truster Authors
 SPDX-License-Identifier: Apache-2.0
 -->
 
@@ -8,31 +8,31 @@ SPDX-License-Identifier: Apache-2.0
 
 ## Installation
 
-### 1. Install easy-oidc
+### 1. Install truster
 
 ```bash
 # Copy binary
-sudo cp bin/easy-oidc /usr/local/bin/easy-oidc
-sudo chmod +x /usr/local/bin/easy-oidc
+sudo cp bin/truster /usr/local/bin/truster
+sudo chmod +x /usr/local/bin/truster
 
 # Create user
-sudo useradd -r -s /usr/sbin/nologin easy-oidc
+sudo useradd -r -s /usr/sbin/nologin truster
 
 # Create config directory
-sudo mkdir -p /etc/easy-oidc
-sudo cp examples/config/config-google.jsonc /etc/easy-oidc/config.jsonc
-sudo chown -R easy-oidc:easy-oidc /etc/easy-oidc
+sudo mkdir -p /etc/truster
+sudo cp examples/config/config-google.jsonc /etc/truster/config.jsonc
+sudo chown -R truster:truster /etc/truster
 
 # Create data directory for SQLite database
-sudo mkdir -p /var/lib/easy-oidc
-sudo chown easy-oidc:easy-oidc /var/lib/easy-oidc
-sudo chmod 700 /var/lib/easy-oidc
+sudo mkdir -p /var/lib/truster
+sudo chown truster:truster /var/lib/truster
+sudo chmod 700 /var/lib/truster
 
 # Install systemd service
-sudo cp examples/systemd/easy-oidc.service /etc/systemd/system/
+sudo cp examples/systemd/truster.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable easy-oidc
-sudo systemctl start easy-oidc
+sudo systemctl enable truster
+sudo systemctl start truster
 ```
 
 ### 2. Install Caddy
@@ -80,9 +80,9 @@ Caddy automatically:
 ## Checking Status
 
 ```bash
-# Check easy-oidc
-sudo systemctl status easy-oidc
-sudo journalctl -u easy-oidc -f
+# Check truster
+sudo systemctl status truster
+sudo journalctl -u truster -f
 
 # Check Caddy
 sudo systemctl status caddy
@@ -97,8 +97,8 @@ curl https://auth.example.com/.well-known/openid-configuration
 ## Logs
 
 ```bash
-# easy-oidc logs (JSON format)
-sudo journalctl -u easy-oidc -n 100 --no-pager
+# truster logs (JSON format)
+sudo journalctl -u truster -n 100 --no-pager
 
 # Caddy access logs
 sudo tail -f /var/log/caddy/access.log
@@ -107,8 +107,8 @@ sudo tail -f /var/log/caddy/access.log
 ## Reloading Configuration
 
 ```bash
-# Reload easy-oidc (reads new config)
-sudo systemctl restart easy-oidc
+# Reload truster (reads new config)
+sudo systemctl restart truster
 
 # Reload Caddy (no downtime)
 sudo systemctl reload caddy
@@ -126,8 +126,8 @@ sudo netstat -tlnp | grep ':80\|:443'
 - Check port 80 is accessible (Let's Encrypt validation)
 - Check logs: `sudo journalctl -u caddy -n 50`
 
-**easy-oidc not starting:**
-- Check config: `/usr/local/bin/easy-oidc check config --config /etc/easy-oidc/config.jsonc`
-- Check templates: `/usr/local/bin/easy-oidc check templates --config /etc/easy-oidc/config.jsonc`
+**truster not starting:**
+- Check config: `/usr/local/bin/truster check config --config /etc/truster/config.jsonc`
+- Check templates: `/usr/local/bin/truster check templates --config /etc/truster/config.jsonc`
 - Check secrets are accessible (AWS IAM role, env vars, etc.)
-- Check logs: `sudo journalctl -u easy-oidc -n 50`
+- Check logs: `sudo journalctl -u truster -n 50`

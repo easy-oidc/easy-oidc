@@ -1,14 +1,14 @@
-# Easy OIDC <https://easy-oidc.dev>
-# Copyright The Easy OIDC Authors
+# Truster <https://truster.dev>
+# Copyright The Truster Authors
 # SPDX-License-Identifier: Apache-2.0
 
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "easy-oidc.fullname" . }}
+  name: {{ include "truster.fullname" . }}
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "easy-oidc.labels" . | nindent 4 }}
+    {{- include "truster.labels" . | nindent 4 }}
   {{- with .Values.service.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
@@ -22,4 +22,4 @@ spec:
       protocol: TCP
       appProtocol: {{ ternary "https" "http" .Values.server.tls.enabled }}
   selector:
-    {{- include "easy-oidc.selectorLabels" . | nindent 4 }}
+    {{- include "truster.selectorLabels" . | nindent 4 }}

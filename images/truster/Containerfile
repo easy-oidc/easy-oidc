@@ -1,5 +1,5 @@
-# Easy OIDC <https://easy-oidc.dev>
-# Copyright The Easy OIDC Authors
+# Truster <https://truster.dev>
+# Copyright The Truster Authors
 # SPDX-License-Identifier: Apache-2.0
 
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:f5b485ea962d9bd1186b2f6b3a061191539b905b82ec395de78cbfae51f20e35
@@ -10,16 +10,16 @@ ARG VERSION=dev
 ARG BUILD_DATE=unknown
 ARG COMMIT_HASH=unknown
 
-LABEL org.opencontainers.image.title="Easy OIDC" \
+LABEL org.opencontainers.image.title="Truster" \
       org.opencontainers.image.description="A minimal self-hosted OIDC issuer for your apps and Kubernetes clusters" \
-      org.opencontainers.image.source="https://github.com/easy-oidc/easy-oidc" \
-      org.opencontainers.image.documentation="https://easy-oidc.dev/docs/" \
+      org.opencontainers.image.source="https://github.com/truster-dev/truster" \
+      org.opencontainers.image.documentation="https://truster.dev/docs/" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.revision="${COMMIT_HASH}"
 
-COPY --chmod=555 bin/${TARGETOS}_${TARGETARCH}/easy-oidc /easy-oidc
+COPY --chmod=555 bin/${TARGETOS}_${TARGETARCH}/truster /truster
 
-ENTRYPOINT ["/easy-oidc"]
-CMD ["serve", "--config", "/etc/easy-oidc/config.jsonc"]
+ENTRYPOINT ["/truster"]
+CMD ["serve", "--config", "/etc/truster/config.jsonc"]

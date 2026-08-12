@@ -1,6 +1,6 @@
 # Main Example
 
-This example demonstrates a complete deployment of easy-oidc with:
+This example demonstrates a complete deployment of truster with:
 
 - VPC with dual-stack IPv4/IPv6 networking
 - Internet Gateway for bidirectional internet access
@@ -15,7 +15,7 @@ Create encrypted parameters in AWS Systems Manager Parameter Store:
 ```bash
 # OAuth credentials
 aws ssm put-parameter \
-  --name /easy-oidc/google-credentials \
+  --name /truster/google-credentials \
   --type SecureString \
   --value '{
     "client_id": "123456789.apps.googleusercontent.com",
@@ -25,14 +25,14 @@ aws ssm put-parameter \
 # PKCS8 PEM private key for the default RS256 algorithm
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 > signing-key.pem
 aws ssm put-parameter \
-  --name /easy-oidc/signing-key \
+  --name /truster/signing-key \
   --type SecureString \
   --value "$(cat signing-key.pem)"
 rm signing-key.pem
 
 # Encryption master key
 aws ssm put-parameter \
-  --name /easy-oidc/encryption-key \
+  --name /truster/encryption-key \
   --type SecureString \
   --value "$(openssl rand -hex 32)"
 ```

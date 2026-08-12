@@ -7,7 +7,7 @@ weight: 8
 # DPoP integration
 
 DPoP protects access and refresh tokens if they are copied. The SPA or BFF keeps a
-private signing key and sends a new signed proof with every protected request. Easy OIDC
+private signing key and sends a new signed proof with every protected request. Truster
 validates proofs only for requests to its own endpoints, including `/par`, `/token`,
 `/revoke`, and `/userinfo`. Each application API must independently validate the access
 token and the DPoP proof for requests it receives.
@@ -35,7 +35,7 @@ mode or signing algorithm, create a new client ID instead; existing logins may o
 stop working. Losing the private key also requires a new login.
 
 Browser clients should set `require_par: true`. PAR saves the authorization request in
-Easy OIDC before the browser redirect, so the redirect cannot change its PKCE or DPoP
+Truster before the browser redirect, so the redirect cannot change its PKCE or DPoP
 values.
 
 ## The flow at a glance
@@ -52,7 +52,7 @@ values.
 6. **SPA or BFF:** Use that key again when refreshing tokens or revoking the refresh
    grant.
 
-Easy OIDC receives the public key and its thumbprint, never the private key.
+Truster receives the public key and its thumbprint, never the private key.
 
 ## Create the key and thumbprint
 
@@ -94,7 +94,7 @@ Its payload contains:
 - `ath`: only when calling an API, the SHA-256 hash of the exact access-token text,
   encoded with URL-safe base64 without trailing `=` padding.
 
-Easy OIDC accepts `iat` from ten seconds in the past through five seconds in the future.
+Truster accepts `iat` from ten seconds in the past through five seconds in the future.
 Proofs are limited to 8 KiB. Create a new proof for every request and retry. For `htu`,
 use the public URL advertised to clients, not an internal address behind a proxy.
 
@@ -104,9 +104,9 @@ POST the normal Authorization Code + PKCE form fields and `client_id` to `/par`.
 send `dpop_jkt`, a proof whose `htu` is the public `/par` URL, or both. If you send both,
 they must identify the same key.
 
-Easy OIDC returns a `request_uri` that expires after 60 seconds and works once. Open
+Truster returns a `request_uri` that expires after 60 seconds and works once. Open
 `/authorize` in the browser with only that value and `client_id`. With `require_par`
-enabled, Easy OIDC rejects login requests that skip `/par`.
+enabled, Truster rejects login requests that skip `/par`.
 
 ## Exchange, refresh, and revoke
 
@@ -127,7 +127,7 @@ Authorization: DPoP <access-token>
 DPoP: <fresh-proof-with-ath>
 ```
 
-Easy OIDC does not validate requests sent to an application API. The API must
+Truster does not validate requests sent to an application API. The API must
 independently validate the access token and proof before handling the request:
 
 1. Validate the token's signature, issuer, audience, expiry, and authorization claims.
@@ -141,12 +141,12 @@ independently validate the access token and proof before handling the request:
    reject reuse seen by the same API replica during that window.
 
 Reject private or symmetric embedded keys and JWT headers that refer to keys on another
-server. Easy OIDC does not use the optional DPoP nonce feature.
+server. Truster does not use the optional DPoP nonce feature.
 
 ## Replay protection and failures
 
 RFC 9449 requires a short proof lifetime; strict global single-use tracking is optional
-and can be impractical across replicas. Easy OIDC retains replay hashes in a bounded
+and can be impractical across replicas. Truster retains replay hashes in a bounded
 in-memory cache for its 15-second acceptance window. A replay reaching the same process
 is always rejected without a database write or database availability dependency. The
 cache stores only a hash of the thumbprint, `jti`, method, and URL—not proofs, tokens,
@@ -154,13 +154,13 @@ public keys, or raw `jti` values.
 
 Each replica has an independent cache, so cross-replica replay detection is best-effort
 rather than guaranteed. This is intentional and permitted by RFC 9449. Kubernetes
-client-IP affinity does not reliably keep one DPoP key on one replica, so Easy OIDC does
+client-IP affinity does not reliably keep one DPoP key on one replica, so Truster does
 not require or enable it. A gateway that supports consistent hashing by the complete
 `DPoP` header can route an exact replay to the same backend, but that is an optional,
 provider-specific mitigation. Losing a replay cache does not require an outage or a
 15-second HTTP 503 recovery period.
 
-Easy OIDC limits PAR, token, and revocation separately to 100 requests per second per
+Truster limits PAR, token, and revocation separately to 100 requests per second per
 process, with a burst of 200, before request parsing or database access. Keep per-user or
 per-IP limits at your reverse proxy or API gateway. Monitor replay attempts, rate-limit
 rejections, request latency, and server clock accuracy.

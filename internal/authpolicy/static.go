@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package authpolicy
@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/easy-oidc/easy-oidc/internal/config"
+	"github.com/truster-dev/truster/internal/config"
 )
 
 // resolveStaticUser returns effective user groups from static configuration.

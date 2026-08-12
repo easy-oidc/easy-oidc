@@ -1,5 +1,5 @@
-# Easy OIDC <https://easy-oidc.dev>
-# Copyright The Easy OIDC Authors
+# Truster <https://truster.dev>
+# Copyright The Truster Authors
 # SPDX-License-Identifier: Apache-2.0
 
 # IAM role for instance
@@ -36,13 +36,13 @@ resource "aws_iam_role_policy" "instance_role_secret_access" {
         for reference in local.secret_references :
         !startswith(reference, "arn:") || can(regex(var.secrets_provider == "aws-parameter-store" ? ":ssm:" : ":secretsmanager:", reference))
       ])
-      error_message = "Secret ARNs in easy_oidc_config must match secrets_provider."
+      error_message = "Secret ARNs in truster_config must match secrets_provider."
     }
 
     precondition {
       condition = !var.run_db_migrations || (
-        try(var.easy_oidc_config.state_database.driver == "postgresql", false) &&
-        try(trimspace(var.easy_oidc_config.state_database.migrations.connection_string_secret) != "", false)
+        try(var.truster_config.state_database.driver == "postgresql", false) &&
+        try(trimspace(var.truster_config.state_database.migrations.connection_string_secret) != "", false)
       )
       error_message = "run_db_migrations requires a PostgreSQL state_database and a non-empty state_database.migrations.connection_string_secret."
     }

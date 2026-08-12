@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package statedb
@@ -270,20 +270,20 @@ func TestParseRefreshTokenRejectsNonCanonicalValues(t *testing.T) {
 
 // TestRefreshCrashProcess performs one checkpoint and exits without closing SQLite.
 func TestRefreshCrashProcess(t *testing.T) {
-	scenario := os.Getenv("EASY_OIDC_CRASH_SCENARIO")
+	scenario := os.Getenv("TRUSTER_CRASH_SCENARIO")
 	if scenario == "" {
 		t.Skip("subprocess helper")
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	store, err := NewSQLite(os.Getenv("EASY_OIDC_CRASH_DB"), logger)
+	store, err := NewSQLite(os.Getenv("TRUSTER_CRASH_DB"), logger)
 	if err != nil {
 		t.Fatal(err)
 	}
-	current, err := ParseRefreshToken(os.Getenv("EASY_OIDC_CRASH_CURRENT"))
+	current, err := ParseRefreshToken(os.Getenv("TRUSTER_CRASH_CURRENT"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	now, err := time.Parse(time.RFC3339Nano, os.Getenv("EASY_OIDC_CRASH_NOW"))
+	now, err := time.Parse(time.RFC3339Nano, os.Getenv("TRUSTER_CRASH_NOW"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +297,7 @@ func TestRefreshCrashProcess(t *testing.T) {
 		}
 	}
 	if scenario == "after-commit" {
-		replacement, parseErr := ParseRefreshToken(os.Getenv("EASY_OIDC_CRASH_REPLACEMENT"))
+		replacement, parseErr := ParseRefreshToken(os.Getenv("TRUSTER_CRASH_REPLACEMENT"))
 		if parseErr != nil {
 			t.Fatal(parseErr)
 		}
@@ -350,11 +350,11 @@ func TestRefreshCrashRestartBoundaries(t *testing.T) {
 		t.Helper()
 		command := exec.Command(os.Args[0], "-test.run=^TestRefreshCrashProcess$")
 		command.Env = append(os.Environ(),
-			"EASY_OIDC_CRASH_SCENARIO="+scenario,
-			"EASY_OIDC_CRASH_DB="+path,
-			"EASY_OIDC_CRASH_CURRENT="+current.Token,
-			"EASY_OIDC_CRASH_REPLACEMENT="+replacement.Token,
-			"EASY_OIDC_CRASH_NOW="+now.Format(time.RFC3339Nano),
+			"TRUSTER_CRASH_SCENARIO="+scenario,
+			"TRUSTER_CRASH_DB="+path,
+			"TRUSTER_CRASH_CURRENT="+current.Token,
+			"TRUSTER_CRASH_REPLACEMENT="+replacement.Token,
+			"TRUSTER_CRASH_NOW="+now.Format(time.RFC3339Nano),
 		)
 		if output, err := command.CombinedOutput(); err != nil {
 			t.Fatalf("crash helper: %v\n%s", err, output)

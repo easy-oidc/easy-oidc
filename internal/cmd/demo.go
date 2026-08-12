@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package cmd
@@ -15,9 +15,9 @@ import (
 	"os"
 	"path/filepath"
 
-	exampleconfig "github.com/easy-oidc/easy-oidc/examples/config"
-	"github.com/easy-oidc/easy-oidc/internal/config"
-	"github.com/easy-oidc/easy-oidc/internal/secrets"
+	exampleconfig "github.com/truster-dev/truster/examples/config"
+	"github.com/truster-dev/truster/internal/config"
+	"github.com/truster-dev/truster/internal/secrets"
 )
 
 // demoSecrets stores secrets generated for one demo server process.
@@ -48,11 +48,11 @@ func newDemoRuntime() (*config.Config, secrets.Provider, func(), error) {
 		return nil, nil, nil, fmt.Errorf("generate demo OTP secret: %w", err)
 	}
 
-	tempDir, err := os.MkdirTemp("", "easy-oidc-demo-")
+	tempDir, err := os.MkdirTemp("", "truster-demo-")
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("create demo state directory: %w", err)
 	}
-	cfg.StateDatabase.Path = filepath.Join(tempDir, "easy-oidc-state.db")
+	cfg.StateDatabase.Path = filepath.Join(tempDir, "truster-state.db")
 	cleanup := func() { _ = os.RemoveAll(tempDir) }
 	provider := demoSecrets{
 		cfg.Secrets.SigningKeyName: signingKey,

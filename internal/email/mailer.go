@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package email
@@ -19,10 +19,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/easy-oidc/easy-oidc/internal/config"
+	"github.com/truster-dev/truster/internal/config"
 )
 
-// Sender sends the application email messages supported by Easy OIDC.
+// Sender sends the application email messages supported by Truster.
 type Sender interface {
 	SendOTP(ctx context.Context, to, code string, expiresAt time.Time) error
 }
@@ -66,7 +66,7 @@ func (m *SMTPMailer) send(ctx context.Context, to, subject, textBody, htmlBody s
 	if _, err := rand.Read(boundaryBytes); err != nil {
 		return fmt.Errorf("generate MIME boundary: %w", err)
 	}
-	boundary := "easy-oidc-" + base64.RawURLEncoding.EncodeToString(boundaryBytes)
+	boundary := "truster-" + base64.RawURLEncoding.EncodeToString(boundaryBytes)
 	from := (&mail.Address{Name: m.config.FromName, Address: m.config.FromAddress}).String()
 	var message bytes.Buffer
 	fmt.Fprintf(&message, "From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: multipart/alternative; boundary=%q\r\n\r\n", from, to, mime.QEncoding.Encode("utf-8", subject), boundary)

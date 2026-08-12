@@ -1,12 +1,12 @@
 <!--
-Easy OIDC <https://easy-oidc.dev>
-Copyright The Easy OIDC Authors
+Truster <https://truster.dev>
+Copyright The Truster Authors
 SPDX-License-Identifier: Apache-2.0
 -->
 
 # AGENTS.md
 
-This file contains guidance for AI coding agents working on the easy-oidc project.
+This file contains guidance for AI coding agents working on the truster project.
 
 ## Frequently Used Commands
 
@@ -21,7 +21,7 @@ make clean          # Clean build artifacts
 `make build` accepts standard `GOOS`, `GOARCH`, and `CC` settings plus
 `BUILD_OUTPUT`, `BUILD_TAGS`, and `BUILD_EXTRA_LDFLAGS`. Before `make image`,
 build each architecture selected by `IMAGE_ARCHES` into
-`bin/linux_<arch>/easy-oidc`.
+`bin/linux_<arch>/truster`.
 
 ### Testing
 ```bash
@@ -43,21 +43,21 @@ make check          # Run fmt, lint, and test
 ### Development
 ```bash
 # Run locally with example config
-./bin/easy-oidc serve --config examples/config/config-local-dev.jsonc --debug
+./bin/truster serve --config examples/config/config-local-dev.jsonc --debug
 
 # Validate configuration and templates
-./bin/easy-oidc check config --config config.jsonc
-./bin/easy-oidc check templates --config config.jsonc
+./bin/truster check config --config config.jsonc
+./bin/truster check templates --config config.jsonc
 
 # Show version
-./bin/easy-oidc --version
+./bin/truster --version
 ```
 
 ## Project Structure
 
 ```
 .
-├── cmd/easy-oidc/          # Main entry point
+├── cmd/truster/          # Main entry point
 ├── internal/
 │   ├── buildvars/          # Build version info
 │   ├── cmd/                # Cobra CLI commands
@@ -69,7 +69,7 @@ make check          # Run fmt, lint, and test
 │   └── tokens/             # Token signing, JWKS, groups
 ├── examples/               # Example configs and deployment files
 ├── deploy/helm/            # Kubernetes application chart
-├── images/easy-oidc/       # Packaging-only ocimage definition
+├── images/truster/       # Packaging-only ocimage definition
 └── scripts/                # Helper scripts, automation, and Git hooks
 ```
 
@@ -99,7 +99,7 @@ The repository does not currently commit generated source files. Go module sums 
 
 ## Upstream Connectors
 
-easy-oidc supports multiple upstream OAuth2/OIDC providers:
+truster supports multiple upstream OAuth2/OIDC providers:
 
 - **Google**: Built-in Google OAuth2 with hosted domain support
 - **GitHub**: Built-in GitHub OAuth2 with GitHub Enterprise support

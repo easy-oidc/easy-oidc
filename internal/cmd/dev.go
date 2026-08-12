@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package cmd
@@ -7,13 +7,13 @@ package cmd
 import (
 	"os"
 
-	"github.com/easy-oidc/easy-oidc/internal/dev"
 	"github.com/spf13/cobra"
+	"github.com/truster-dev/truster/internal/dev"
 )
 
 // newDevCmd constructs the template development command.
 func newDevCmd() *cobra.Command {
-	templatesDir := os.Getenv("EASYOIDC_TEMPLATES_DIR")
+	templatesDir := os.Getenv("TRUSTER_TEMPLATES_DIR")
 	if templatesDir == "" {
 		templatesDir = "./templates"
 	}

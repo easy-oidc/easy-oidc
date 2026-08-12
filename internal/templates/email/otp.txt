@@ -1,5 +1,5 @@
 {{define "content"}}
-Your Easy OIDC verification code is {{.Code}}.
+Your Truster verification code is {{.Code}}.
 
 It expires at {{.ExpiresAt.Format "15:04 UTC on 2 January 2006"}} (in {{printf "%.0f" .ExpiresIn.Minutes}} minutes).
 {{end}}

@@ -7,7 +7,7 @@ weight: 7
 
 # App Integration Guide For Developers
 
-This page describes a recommended way for developers to use Easy OIDC with their
+This page describes a recommended way for developers to use Truster with their
 apps, using an SPA backed by a Go HTTP API as a reference example. It also
 explains when a direct SPA or backend for frontend (BFF) is a better fit. See
 [Concepts](/docs/concepts/) for terminology and [DPoP integration](/docs/dpop/)
@@ -21,7 +21,7 @@ needs to call the API:
 1. **SPA and API with token cookies (recommended):** If the SPA and its API are same-site, and
    that API is the resource server, use `HttpOnly` token cookies with a
    browser-held DPoP key. This is the recommended design.
-2. **Direct SPA with DPoP:** If browser JavaScript must call Easy OIDC or
+2. **Direct SPA with DPoP:** If browser JavaScript must call Truster or
    independent APIs itself, use `Authorization: DPoP`.
 3. **Backend For Frontend (BFF):** If the backend must call downstream APIs, or
    the browser cannot keep a persistent Web Crypto key, let the BFF own the
@@ -34,7 +34,7 @@ cannot provide them, use a BFF rather than an incomplete version of the design.
 
 In this design, JavaScript owns a non-extractable DPoP key but cannot read the
 OAuth tokens. The tokens travel in `HttpOnly` cookies, and the API handles the
-calls to Easy OIDC for login, refresh, and revocation. The access token remains
+calls to Truster for login, refresh, and revocation. The access token remains
 the credential. The API also keeps a session record containing metadata and the
 current refresh-token hash (and not raw tokens), so that it can coordinate refreshes
 and revoke access immediately.
@@ -57,7 +57,7 @@ than an `Authorization` header. Most DPoP middleware follows RFC 9449 and expect
                │ proofs +      │ cookies +
                │ cookies       │ hash/expiry
                ▼               │
-┌ API ────────────────────────────────────────┐           ┌ Easy OIDC ────────────┐
+┌ API ────────────────────────────────────────┐           ┌ Truster ────────────┐
 │ Resource server and OAuth flow              │── OAuth ─▶│ Authorization server  │
 │                                             │◀─ tokens ─│                       │
 └──────────────────────┬──────────────────────┘           └───────────────────────┘
@@ -69,15 +69,15 @@ than an `Authorization` header. Most DPoP middleware follows RFC 9449 and expect
              └───────────────────────────────┘
 ```
 
-In **Easy OIDC**, configure a dedicated public client with required ES256/P-256
+In **Truster**, configure a dedicated public client with required ES256/P-256
 DPoP, PAR, PKCE, and rotating refresh tokens. Pin its issuer, client ID, callback,
-and provider endpoints. Prefer a same-origin SPA and API. The relevant part of the Easy OIDC configuration looks like this; replace the
+and provider endpoints. Prefer a same-origin SPA and API. The relevant part of the Truster configuration looks like this; replace the
 client ID and callback URL, and add the service, state, secrets, and login
 connector settings described in [Configuration](/docs/config/):
 
 ```jsonc
 {
-  "$schema": "https://easy-oidc.dev/schema/v2/config.schema.json",
+  "$schema": "https://truster.dev/schema/v2/config.schema.json",
   "static_policy": {
     "clients": {
       "example-web": {
@@ -98,7 +98,7 @@ connector settings described in [Configuration](/docs/config/):
 }
 ```
 
-If Easy OIDC should restrict access by group, configure a
+If Truster should restrict access by group, configure a
 `user_group_mapping` and change `require_user_groups_from_policy` to `true`.
 
 The reference design uses numbered slots so one browser can stay signed in as
@@ -116,7 +116,7 @@ the user's identity. An app that supports one login can use a single fixed slot.
 3. **API:** Bind the initiating browser with a separate `Secure`, `HttpOnly`,
    `SameSite=Lax` transaction cookie. Allow only local redirect destinations.
 4. **Browser and API:** The SPA sends `dpop_jkt` and one fresh proof targeted at
-   Easy OIDC's public `/par` URL. The API constructs the fixed PAR request and
+   Truster's public `/par` URL. The API constructs the fixed PAR request and
    forwards the proof.
 5. **API and Browser:** The API callback validates the transaction cookie and
    `state`, records the code once, and redirects to the SPA. The SPA then posts a
@@ -189,7 +189,7 @@ SPA DPoP or put a same-site BFF in front of the API.
 ### Refresh and logout
 
 - **Browser:** Create refresh and revocation proofs with the same slot key and the
-  real Easy OIDC endpoint URL; these proofs do not include `ath`.
+  real Truster endpoint URL; these proofs do not include `ath`.
 - **API:** Serialize refresh-token rotation per `sid` in durable server state and
   store only a refresh-token hash.
 - **Browser:** Use the browser's
@@ -206,7 +206,7 @@ SPA DPoP or put a same-site BFF in front of the API.
   a newer token, key, or cleared slot. If it is unclear whether rotation
   succeeded, require a new login rather than falling back to weaker
   authentication.
-- **API:** On logout, revoke the local `sid` first, then ask Easy OIDC to revoke the
+- **API:** On logout, revoke the local `sid` first, then ask Truster to revoke the
   grant. Always clear the token cookies, even if remote revocation fails.
 - **Browser:** Always clear the slot's key on logout. Do not refresh or reactivate
   a revoked `sid`.
@@ -219,7 +219,7 @@ memory where possible and avoid persistent refresh tokens. If persistence is
 necessary, bind the refresh token with DPoP and use a short lifetime, because
 browser storage is not secret storage.
 
-If Easy OIDC is cross-origin, a controlled proxy must provide exact-origin CORS
+If Truster is cross-origin, a controlled proxy must provide exact-origin CORS
 for `/par`, `/token`, and `/revoke` without changing their public URLs.
 
 ## Option 3: Backend For Frontend (BFF)
@@ -227,7 +227,7 @@ for `/par`, `/token`, and `/revoke` without changing their public URLs.
 Use a BFF when the backend must call downstream APIs or the browser cannot keep a
 durable key. The BFF protects the tokens and DPoP key, while the browser receives
 a random `Secure`, `HttpOnly`, `SameSite` session cookie. The BFF creates proofs
-for Easy OIDC and downstream APIs. Apply the same validation, rotation,
+for Truster and downstream APIs. Apply the same validation, rotation,
 revocation, and cookie-CSRF protections. Multiple BFF replicas must share token
 and key state or route each session to the same replica.
 

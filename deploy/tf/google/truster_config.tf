@@ -1,0 +1,1 @@
+../common/truster_config.tf

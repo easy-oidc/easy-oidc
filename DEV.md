@@ -1,6 +1,6 @@
 <!--
-Easy OIDC <https://easy-oidc.dev>
-Copyright The Easy OIDC Authors
+Truster <https://truster.dev>
+Copyright The Truster Authors
 SPDX-License-Identifier: Apache-2.0
 -->
 
@@ -22,7 +22,7 @@ scripts/generate-signing-key.sh | pbcopy
 openssl rand -hex 32
 ```
 
-Paste the keys into `EASYOIDC_SIGNING_KEY` and `EASYOIDC_ENCRYPTION_KEY` in
+Paste the keys into `TRUSTER_SIGNING_KEY` and `TRUSTER_ENCRYPTION_KEY` in
 `.env`. The encryption key is currently used when testing GitHub connectors.
 
 ## Configure Google OAuth
@@ -32,7 +32,7 @@ Paste the keys into `EASYOIDC_SIGNING_KEY` and `EASYOIDC_ENCRYPTION_KEY` in
 3. Configure the connector's credential secret as one JSON environment variable:
 
 ```bash
-export EASYOIDC_GOOGLE_CREDENTIALS='{"client_id":"123456789.apps.googleusercontent.com","client_secret":"replace-me"}'
+export TRUSTER_GOOGLE_CREDENTIALS='{"client_id":"123456789.apps.googleusercontent.com","client_secret":"replace-me"}'
 ```
 
 Each configured OAuth connector has its own `credentials_secret`, so multiple
@@ -44,15 +44,15 @@ Load `.env` with `direnv` or your preferred shell tooling, then run:
 
 ```bash
 make build
-./bin/easy-oidc serve --config examples/config/config-local-dev.jsonc --debug
+./bin/truster serve --config examples/config/config-local-dev.jsonc --debug
 ```
 
 Validate configuration and all effective templates separately without loading
 operational secrets or contacting external services:
 
 ```bash
-./bin/easy-oidc check config --config examples/config/config-local-dev.jsonc
-./bin/easy-oidc check templates --config examples/config/config-local-dev.jsonc
+./bin/truster check config --config examples/config/config-local-dev.jsonc
+./bin/truster check templates --config examples/config/config-local-dev.jsonc
 ```
 
 Develop custom templates with mock data, no operational secrets, and automatic
@@ -85,23 +85,23 @@ go run github.com/axllent/mailpit@latest
 Alternatively, run its container:
 
 ```bash
-docker run --rm --name easy-oidc-mailpit \
+docker run --rm --name truster-mailpit \
   -p 8025:8025 \
   -p 1025:1025 \
   axllent/mailpit
 ```
 
-For a self-contained demo, start Easy OIDC with generated process-scoped secrets
+For a self-contained demo, start Truster with generated process-scoped secrets
 and a temporary SQLite database, then open Mailpit at <http://localhost:8025>:
 
 ```bash
-go run ./cmd/easy-oidc serve --demo
+go run ./cmd/truster serve --demo
 ```
 
 To use the editable email development configuration instead, load `.env` and run:
 
 ```bash
-./bin/easy-oidc serve --config examples/config/config-email-dev.jsonc --debug
+./bin/truster serve --config examples/config/config-email-dev.jsonc --debug
 ```
 
 See [`examples/config/config-multiple.jsonc`](examples/config/config-multiple.jsonc)
@@ -115,7 +115,7 @@ The `.env` file is ignored by Git and must never be committed.
 ## PostgreSQL state tests
 
 Run the real PostgreSQL migration, concurrency, timeout, and readiness tests
-against the pinned local container (an existing `easy-oidc-state-test` container
+against the pinned local container (an existing `truster-state-test` container
 on port 55435 is reused):
 
 ```bash
@@ -125,15 +125,15 @@ make test-postgresql
 The equivalent explicit command is:
 
 ```bash
-EASYOIDC_STATE_TEST_DB_URL='postgresql://easy_oidc:easy_oidc@127.0.0.1:55435/easy_oidc_state?sslmode=disable' \
+TRUSTER_STATE_TEST_DB_URL='postgresql://truster:truster@127.0.0.1:55435/truster_state?sslmode=disable' \
   go test -v -race ./internal/statedb -run PostgreSQL
 ```
 
 Run the opt-in representative state-operation benchmarks against the same real
-PostgreSQL database (the benchmark resets only `easy_oidc_state`):
+PostgreSQL database (the benchmark resets only `truster_state`):
 
 ```bash
-EASYOIDC_STATE_TEST_DB_URL='postgresql://easy_oidc:easy_oidc@127.0.0.1:55435/easy_oidc_state?sslmode=disable' \
+TRUSTER_STATE_TEST_DB_URL='postgresql://truster:truster@127.0.0.1:55435/truster_state?sslmode=disable' \
   go test ./internal/statedb -run '^$' -bench '^BenchmarkPostgreSQL' -benchmem
 ```
 
@@ -141,7 +141,7 @@ EASYOIDC_STATE_TEST_DB_URL='postgresql://easy_oidc:easy_oidc@127.0.0.1:55435/eas
 
 ### Environment variable is not set
 
-Load the example exports into the current shell before starting Easy OIDC:
+Load the example exports into the current shell before starting Truster:
 
 ```bash
 source .env
@@ -181,7 +181,7 @@ provider, or set `static_policy.require_user_groups_from_policy` to `false` whil
   matching Mailpit authentication and allow insecure authentication only for
   local plaintext SMTP.
 - If ports `1025` or `8025` are already occupied, stop the existing service or
-  consistently change both the Docker port mapping and Easy OIDC configuration.
+  consistently change both the Docker port mapping and Truster configuration.
 
 See the main [troubleshooting guide](docs/troubleshooting.md) for deployment,
 OIDC, kubelogin, and Kubernetes issues.

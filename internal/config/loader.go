@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package config
@@ -19,9 +19,9 @@ import (
 )
 
 const (
-	defaultClientExistsQuery  = `SELECT EXISTS (SELECT 1 FROM easy_oidc_policy.clients WHERE client_id = $1) AS exists`
-	defaultUserAccessQuery    = `SELECT users.subject IS NOT NULL AS allowed, COALESCE(users.groups, ARRAY[]::text[]) AS groups FROM (VALUES ($1::text, $2::text)) AS input(client_id, subject) LEFT JOIN easy_oidc_policy.users USING (client_id, subject)`
-	defaultTrustBindingsQuery = `SELECT client_id, issuer_id, binding_id, subject, required_claims, policy_claims, binding_claims, groups FROM easy_oidc_policy.trust_bindings WHERE client_id = $1 AND issuer_id = $2 ORDER BY binding_id`
+	defaultClientExistsQuery  = `SELECT EXISTS (SELECT 1 FROM truster_policy.clients WHERE client_id = $1) AS exists`
+	defaultUserAccessQuery    = `SELECT users.subject IS NOT NULL AS allowed, COALESCE(users.groups, ARRAY[]::text[]) AS groups FROM (VALUES ($1::text, $2::text)) AS input(client_id, subject) LEFT JOIN truster_policy.users USING (client_id, subject)`
+	defaultTrustBindingsQuery = `SELECT client_id, issuer_id, binding_id, subject, required_claims, policy_claims, binding_claims, groups FROM truster_policy.trust_bindings WHERE client_id = $1 AND issuer_id = $2 ORDER BY binding_id`
 )
 
 const DefaultSigningAlgorithm = "RS256"
@@ -74,7 +74,7 @@ func Parse(data []byte) (*Config, error) {
 		cfg.SigningAlgorithm = DefaultSigningAlgorithm
 	}
 
-	if override := os.Getenv("EASYOIDC_TEMPLATES_DIR"); override != "" {
+	if override := os.Getenv("TRUSTER_TEMPLATES_DIR"); override != "" {
 		cfg.TemplatesDir = override
 	}
 	if cfg.Email != nil && cfg.Email.VerificationMode == "" {
@@ -139,7 +139,7 @@ func Parse(data []byte) (*Config, error) {
 		stateDatabase.Driver = "sqlite"
 	}
 	if stateDatabase.Driver == "sqlite" && stateDatabase.Path == "" {
-		stateDatabase.Path = "data/easy-oidc-state.db"
+		stateDatabase.Path = "data/truster-state.db"
 	}
 	if stateDatabase.Driver == "postgresql" {
 		applyDurationDefault(&stateDatabase.QueryTimeout, 5*time.Second)
@@ -815,7 +815,7 @@ func validateConnector(c *ConnectorConfig) error {
 			owned := map[string]bool{"client_id": true, "redirect_uri": true, "response_type": true, "scope": true, "state": true, "nonce": true, "code_challenge": true, "code_challenge_method": true}
 			for key := range c.Generic.Refresh.AuthorizationParams {
 				if owned[key] {
-					return fmt.Errorf("generic.refresh.authorization_params may not set Easy OIDC-owned parameter %q", key)
+					return fmt.Errorf("generic.refresh.authorization_params may not set Truster-owned parameter %q", key)
 				}
 				if key == "" {
 					return fmt.Errorf("generic.refresh.authorization_params keys must not be empty")

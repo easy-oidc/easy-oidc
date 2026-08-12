@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package cmd
@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/easy-oidc/easy-oidc/internal/tokens"
+	"github.com/truster-dev/truster/internal/tokens"
 )
 
 // TestDemoRuntime verifies demo mode is self-contained and process-scoped.

@@ -5,7 +5,7 @@ linkTitle: "GitHub"
 ---
 
 This guide connects GitHub as a sign-in provider. GitHub verifies the user's
-GitHub account; Easy OIDC then decides whether to accept that identity and what
+GitHub account; Truster then decides whether to accept that identity and what
 downstream identity and groups to issue.
 
 ## Prerequisites
@@ -23,7 +23,7 @@ downstream identity and groups to issue.
 
 Fill in the application details:
 
-- **Application name**: `Easy OIDC`
+- **Application name**: `Truster`
 - **Homepage URL**: `https://auth.example.com`
   - Replace `auth.example.com` with your actual OIDC hostname
 - **Application description** (optional): `OIDC provider for Kubernetes authentication`
@@ -34,7 +34,7 @@ Fill in the application details:
 Click **Register application**.
 
 The callback URL is where GitHub returns the browser after sign-in. It must
-exactly match the public Easy OIDC URL and connector ID.
+exactly match the public Truster URL and connector ID.
 
 ## 3. Generate and store the credentials
 
@@ -48,8 +48,8 @@ You should now have:
 - **Client ID**: `Iv1.abc123def456`
 - **Client Secret**: `abc123def456789...` (long string)
 
-The client ID identifies Easy OIDC to GitHub. The client secret proves that
-Easy OIDC is that registered application; copy it immediately because GitHub
+The client ID identifies Truster to GitHub. The client secret proves that
+Truster is that registered application; copy it immediately because GitHub
 does not show it again, and do not put it in source control. Store both values
 using the secret provider for your chosen deployment, then reference that
 credential from the connector. See the [configuration reference](/docs/config/)
@@ -77,7 +77,7 @@ If you're using GitHub Enterprise Server (self-hosted):
   "github": {
     "type": "github",
     "display_name": "GitHub Enterprise",
-    "credentials_secret": "easy-oidc-github-credentials",
+    "credentials_secret": "truster-github-credentials",
     "github": {"hostname": "github.yourcompany.com"}
   }
 }
@@ -89,7 +89,7 @@ To verify your OAuth app is configured correctly:
 
 1. Note your callback URL: `https://auth.example.com/callback/github` (replace
    `github` with your connector ID)
-2. After deploying Easy OIDC, test authentication:
+2. After deploying Truster, test authentication:
 
 ```bash
 kubectl oidc-login setup \
@@ -102,7 +102,7 @@ You should be redirected to GitHub's authorization page.
 
 ## Important Notes
 
-**Email selection**: Easy OIDC requests the account's email list. If GitHub
+**Email selection**: Truster requests the account's email list. If GitHub
 returns more than one address, the user chooses which identity to use; primary
 and verified status are shown rather than silently selecting an address. An
 unverified selection is subject to the configured email-verification policy.
@@ -110,7 +110,7 @@ GitHub-generated `users.noreply` addresses are excluded because they cannot
 receive verification codes.
 
 **Identity acceptance**: GitHub confirms the account and email information, but
-Easy OIDC's policy determines whether to accept it and which downstream groups
+Truster's policy determines whether to accept it and which downstream groups
 to issue. GitHub's OAuth flow does not provide organization/team membership by
 default, so configure group mappings explicitly. Disabling this connector does
 not necessarily block the same person or email address through another enabled
@@ -118,6 +118,6 @@ connector. See the [configuration reference](/docs/config/).
 
 ## Next Steps
 
-- [Configure Easy OIDC](/docs/config/)
+- [Configure Truster](/docs/config/)
 - [Choose a deployment](/docs/deploy/)
 - [Configure Kubernetes integration](/docs/kubernetes/)

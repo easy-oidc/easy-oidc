@@ -1,5 +1,5 @@
-# Easy OIDC <https://easy-oidc.dev>
-# Copyright The Easy OIDC Authors
+# Truster <https://truster.dev>
+# Copyright The Truster Authors
 # SPDX-License-Identifier: Apache-2.0
 
 resource "google_compute_instance" "main" {
@@ -63,19 +63,19 @@ resource "google_compute_instance" "main" {
     precondition {
       condition = alltrue([
         for reference in compact(concat(
-          [var.easy_oidc_config.secrets.signing_key_name, var.easy_oidc_config.secrets.encryption_key_name],
-          [for connector in values(var.easy_oidc_config.user_login_connectors) : connector.credentials_secret],
+          [var.truster_config.secrets.signing_key_name, var.truster_config.secrets.encryption_key_name],
+          [for connector in values(var.truster_config.user_login_connectors) : connector.credentials_secret],
           [
-            try(var.easy_oidc_config.email.otp_secret_name, null),
-            try(var.easy_oidc_config.email.smtp.credentials_secret, null),
-            try(var.easy_oidc_config.email.turnstile.secret_name, null),
-            try(var.easy_oidc_config.state_database.connection_string_secret, null),
-            try(var.easy_oidc_config.state_database.migrations.connection_string_secret, null),
-            try(var.easy_oidc_config.policy_database.connection_string_secret, null),
+            try(var.truster_config.email.otp_secret_name, null),
+            try(var.truster_config.email.smtp.credentials_secret, null),
+            try(var.truster_config.email.turnstile.secret_name, null),
+            try(var.truster_config.state_database.connection_string_secret, null),
+            try(var.truster_config.state_database.migrations.connection_string_secret, null),
+            try(var.truster_config.policy_database.connection_string_secret, null),
           ],
         )) : can(regex("^projects/[^/]+/secrets/[^/]+/versions/[^/]+$", reference))
       ])
-      error_message = "Secret references in easy_oidc_config must be full Secret Manager version names: projects/PROJECT/secrets/SECRET/versions/VERSION."
+      error_message = "Secret references in truster_config must be full Secret Manager version names: projects/PROJECT/secrets/SECRET/versions/VERSION."
     }
 
     precondition {
@@ -85,8 +85,8 @@ resource "google_compute_instance" "main" {
 
     precondition {
       condition = !var.run_db_migrations || (
-        try(var.easy_oidc_config.state_database.driver == "postgresql", false) &&
-        try(trimspace(var.easy_oidc_config.state_database.migrations.connection_string_secret) != "", false)
+        try(var.truster_config.state_database.driver == "postgresql", false) &&
+        try(trimspace(var.truster_config.state_database.migrations.connection_string_secret) != "", false)
       )
       error_message = "run_db_migrations requires a PostgreSQL state_database and a non-empty state_database.migrations.connection_string_secret."
     }

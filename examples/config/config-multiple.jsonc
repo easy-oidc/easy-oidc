@@ -1,21 +1,21 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 {
-  "$schema": "https://easy-oidc.dev/schema/v2/config.schema.json",
+  "$schema": "https://truster.dev/schema/v2/config.schema.json",
 
   "issuer_url": "https://auth.example.com",
   "http_listen_addr": "127.0.0.1:8080",
 
   "secrets": {
     "provider": "env",
-    "signing_key_name": "EASYOIDC_SIGNING_KEY",
+    "signing_key_name": "TRUSTER_SIGNING_KEY",
   },
 
   "state_database": {
     "driver": "sqlite",
-    "path": "/var/lib/easy-oidc/easy-oidc-state.db",
+    "path": "/var/lib/truster/truster-state.db",
   },
 
   "user_login_connectors": {
@@ -23,13 +23,13 @@
       "type": "google",
       "display_name": "Company Google",
       "order": 10,
-      "credentials_secret": "EASYOIDC_GOOGLE_CREDENTIALS",
+      "credentials_secret": "TRUSTER_GOOGLE_CREDENTIALS",
     },
     "engineering-dex": {
       "type": "generic",
       "display_name": "Engineering Dex",
       "order": 20,
-      "credentials_secret": "EASYOIDC_DEX_CREDENTIALS",
+      "credentials_secret": "TRUSTER_DEX_CREDENTIALS",
       "generic": {
         "authorization_url": "https://dex.example.com/auth",
         "token_url": "https://dex.example.com/token",
@@ -46,19 +46,19 @@
 
   "email": {
     "verification_mode": "provider",
-    "otp_secret_name": "EASYOIDC_OTP_SECRET",
+    "otp_secret_name": "TRUSTER_OTP_SECRET",
     "otp_ttl": "5m",
     "smtp": {
       "host": "smtp.example.com",
       "port": 587,
       "tls_mode": "starttls",
-      "from_name": "Easy OIDC",
+      "from_name": "Truster",
       "from_address": "auth@example.com",
-      "credentials_secret": "EASYOIDC_SMTP_CREDENTIALS",
+      "credentials_secret": "TRUSTER_SMTP_CREDENTIALS",
     },
     "turnstile": {
       "site_key": "replace-with-your-turnstile-site-key",
-      "secret_name": "EASYOIDC_TURNSTILE_SECRET",
+      "secret_name": "TRUSTER_TURNSTILE_SECRET",
     },
   },
 

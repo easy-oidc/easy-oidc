@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package cmd
@@ -10,15 +10,15 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/easy-oidc/easy-oidc/internal/config"
-	"github.com/easy-oidc/easy-oidc/internal/secrets"
-	"github.com/easy-oidc/easy-oidc/internal/statedb"
 	"github.com/spf13/cobra"
+	"github.com/truster-dev/truster/internal/config"
+	"github.com/truster-dev/truster/internal/secrets"
+	"github.com/truster-dev/truster/internal/statedb"
 )
 
 // newMigrateCmd creates the explicit state-schema migration command.
 func newMigrateCmd() *cobra.Command {
-	configPath := os.Getenv("EASYOIDC_CONFIG_PATH")
+	configPath := os.Getenv("TRUSTER_CONFIG_PATH")
 	if configPath == "" {
 		configPath = "./config.jsonc"
 	}

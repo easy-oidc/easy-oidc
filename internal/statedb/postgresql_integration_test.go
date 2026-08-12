@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package statedb
@@ -22,9 +22,9 @@ import (
 // postgreSQLStores opens two independent pools against the opt-in integration database.
 func postgreSQLStores(t testing.TB) (*Store, *Store) {
 	t.Helper()
-	dsn := os.Getenv("EASYOIDC_STATE_TEST_DB_URL")
+	dsn := os.Getenv("TRUSTER_STATE_TEST_DB_URL")
 	if dsn == "" {
-		t.Skip("EASYOIDC_STATE_TEST_DB_URL is not set")
+		t.Skip("TRUSTER_STATE_TEST_DB_URL is not set")
 	}
 	if err := MigratePostgreSQL(dsn); err != nil {
 		t.Fatalf("migrate PostgreSQL: %v", err)
@@ -61,17 +61,17 @@ func resetPostgreSQLState(dsn string) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err = tx.Exec(`TRUNCATE easy_oidc_state.oauth_states,
-		easy_oidc_state.auth_codes,
-		easy_oidc_state.flow_credentials,
-		easy_oidc_state.upstream_credentials,
-		easy_oidc_state.otp_challenges,
-		easy_oidc_state.otp_sends,
-		easy_oidc_state.refresh_grants,
-		easy_oidc_state.refresh_tokens,
-		easy_oidc_state.grant_actions,
-		easy_oidc_state.identity_selections,
-		easy_oidc_state.pushed_requests CASCADE`); err != nil {
+	if _, err = tx.Exec(`TRUNCATE truster_state.oauth_states,
+		truster_state.auth_codes,
+		truster_state.flow_credentials,
+		truster_state.upstream_credentials,
+		truster_state.otp_challenges,
+		truster_state.otp_sends,
+		truster_state.refresh_grants,
+		truster_state.refresh_tokens,
+		truster_state.grant_actions,
+		truster_state.identity_selections,
+		truster_state.pushed_requests CASCADE`); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -295,7 +295,7 @@ func TestPostgreSQLSchemaRejection(t *testing.T) {
 // TestPostgreSQLConcurrentNoOpMigrate verifies migration locking after the schema is current.
 func TestPostgreSQLConcurrentNoOpMigrate(t *testing.T) {
 	postgreSQLStores(t)
-	dsn := os.Getenv("EASYOIDC_STATE_TEST_DB_URL")
+	dsn := os.Getenv("TRUSTER_STATE_TEST_DB_URL")
 	errs := make(chan error, 8)
 	for range 8 {
 		go func() { errs <- MigratePostgreSQL(dsn) }()
@@ -310,7 +310,7 @@ func TestPostgreSQLConcurrentNoOpMigrate(t *testing.T) {
 // TestPostgreSQLPoolTimeoutAndReadiness verifies bounded waits when the only connection is exhausted.
 func TestPostgreSQLPoolTimeoutAndReadiness(t *testing.T) {
 	postgreSQLStores(t)
-	dsn := os.Getenv("EASYOIDC_STATE_TEST_DB_URL")
+	dsn := os.Getenv("TRUSTER_STATE_TEST_DB_URL")
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	store, err := NewPostgreSQL(context.Background(), dsn, 1, 50*time.Millisecond, logger)
 	if err != nil {
@@ -384,7 +384,7 @@ func TestPostgreSQLPoolTimeoutAndReadiness(t *testing.T) {
 // TestPostgreSQLRuntimeParametersOverrideDSN verifies authoritative state GUCs and preserved unrelated options.
 func TestPostgreSQLRuntimeParametersOverrideDSN(t *testing.T) {
 	postgreSQLStores(t)
-	dsn := os.Getenv("EASYOIDC_STATE_TEST_DB_URL")
+	dsn := os.Getenv("TRUSTER_STATE_TEST_DB_URL")
 	u, err := url.Parse(dsn)
 	if err != nil {
 		t.Fatal(err)
@@ -392,7 +392,7 @@ func TestPostgreSQLRuntimeParametersOverrideDSN(t *testing.T) {
 	parameters := u.Query()
 	parameters.Set("search_path", "public")
 	parameters.Set("statement_timeout", "30s")
-	parameters.Set("options", "-c application_name=easy-oidc-guc-test -c search_path=public -c statement_timeout=30s")
+	parameters.Set("options", "-c application_name=truster-guc-test -c search_path=public -c statement_timeout=30s")
 	u.RawQuery = parameters.Encode()
 	store, err := NewPostgreSQL(context.Background(), u.String(), 2, 50*time.Millisecond, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
@@ -403,7 +403,7 @@ func TestPostgreSQLRuntimeParametersOverrideDSN(t *testing.T) {
 	if err = store.db.QueryRow(`SELECT current_setting('search_path'),current_setting('application_name')`).Scan(&searchPath, &applicationName); err != nil {
 		t.Fatal(err)
 	}
-	if searchPath != "easy_oidc_state,public" || applicationName != "easy-oidc-guc-test" {
+	if searchPath != "truster_state,public" || applicationName != "truster-guc-test" {
 		t.Fatalf("runtime settings search_path=%q application_name=%q", searchPath, applicationName)
 	}
 	now := time.Now().UTC()
@@ -411,7 +411,7 @@ func TestPostgreSQLRuntimeParametersOverrideDSN(t *testing.T) {
 		t.Fatal(err)
 	}
 	var count int
-	if err = store.db.QueryRow(`SELECT count(*) FROM easy_oidc_state.oauth_states WHERE state_token='forced-search-path'`).Scan(&count); err != nil || count != 1 {
+	if err = store.db.QueryRow(`SELECT count(*) FROM truster_state.oauth_states WHERE state_token='forced-search-path'`).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("state schema write count=%d err=%v", count, err)
 	}
 	if err = store.db.QueryRow(`SELECT pg_sleep(1)`).Scan(new(any)); err == nil {
@@ -422,13 +422,13 @@ func TestPostgreSQLRuntimeParametersOverrideDSN(t *testing.T) {
 // TestPostgreSQLMigrationMetadataIsForcedPublic verifies conflicting migration parameters cannot relocate metadata.
 func TestPostgreSQLMigrationMetadataIsForcedPublic(t *testing.T) {
 	postgreSQLStores(t)
-	dsn := os.Getenv("EASYOIDC_STATE_TEST_DB_URL")
+	dsn := os.Getenv("TRUSTER_STATE_TEST_DB_URL")
 	u, err := url.Parse(dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
 	parameters := u.Query()
-	parameters.Set("search_path", "easy_oidc_state")
+	parameters.Set("search_path", "truster_state")
 	parameters.Set("x-migrations-table", "schema_migrations_conflict")
 	parameters.Set("x-migrations-table-quoted", "false")
 	u.RawQuery = parameters.Encode()
@@ -444,7 +444,7 @@ func TestPostgreSQLMigrationMetadataIsForcedPublic(t *testing.T) {
 	if err = db.QueryRow(`SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename='schema_migrations'`).Scan(&publicCount); err != nil {
 		t.Fatal(err)
 	}
-	if err = db.QueryRow(`SELECT count(*) FROM pg_tables WHERE schemaname='easy_oidc_state' AND tablename LIKE 'schema_migrations%'`).Scan(&stateCount); err != nil {
+	if err = db.QueryRow(`SELECT count(*) FROM pg_tables WHERE schemaname='truster_state' AND tablename LIKE 'schema_migrations%'`).Scan(&stateCount); err != nil {
 		t.Fatal(err)
 	}
 	if publicCount != 1 || stateCount != 0 {
@@ -455,7 +455,7 @@ func TestPostgreSQLMigrationMetadataIsForcedPublic(t *testing.T) {
 // TestPostgreSQLRuntimeRequiresAllPrivileges verifies readiness rejects read-only state roles.
 func TestPostgreSQLRuntimeRequiresAllPrivileges(t *testing.T) {
 	a, _ := postgreSQLStores(t)
-	const role = "easy_oidc_state_readiness_test"
+	const role = "truster_state_readiness_test"
 	cleanup := func() {
 		_, _ = a.db.raw.Exec(`DROP OWNED BY ` + role)
 		_, _ = a.db.raw.Exec(`DROP ROLE IF EXISTS ` + role)
@@ -463,12 +463,12 @@ func TestPostgreSQLRuntimeRequiresAllPrivileges(t *testing.T) {
 	cleanup()
 	t.Cleanup(cleanup)
 	if _, err := a.db.raw.Exec(`CREATE ROLE ` + role + ` LOGIN PASSWORD 'readiness-test';
-		GRANT USAGE ON SCHEMA public,easy_oidc_state TO ` + role + `;
+		GRANT USAGE ON SCHEMA public,truster_state TO ` + role + `;
 		GRANT SELECT ON public.schema_migrations TO ` + role + `;
-		GRANT SELECT ON ALL TABLES IN SCHEMA easy_oidc_state TO ` + role); err != nil {
+		GRANT SELECT ON ALL TABLES IN SCHEMA truster_state TO ` + role); err != nil {
 		t.Fatal(err)
 	}
-	u, err := url.Parse(os.Getenv("EASYOIDC_STATE_TEST_DB_URL"))
+	u, err := url.Parse(os.Getenv("TRUSTER_STATE_TEST_DB_URL"))
 	if err != nil {
 		t.Fatal(err)
 	}

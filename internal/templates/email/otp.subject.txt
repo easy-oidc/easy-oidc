@@ -1,1 +1,1 @@
-{{define "subject"}}Easy OIDC verification code{{end}}
+{{define "subject"}}Truster verification code{{end}}

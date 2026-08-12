@@ -1,5 +1,5 @@
-# Easy OIDC <https://easy-oidc.dev>
-# Copyright The Easy OIDC Authors
+# Truster <https://truster.dev>
+# Copyright The Truster Authors
 # SPDX-License-Identifier: Apache-2.0
 
 # Representative values used by `make helm-validate` to exercise generated
@@ -21,7 +21,7 @@ config:
 secretFiles:
   enabled: true
   csi:
-    secretProviderClass: easy-oidc
+    secretProviderClass: truster
 
 migrations:
   enabled: true

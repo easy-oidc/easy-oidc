@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package cmd
@@ -13,11 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/easy-oidc/easy-oidc/internal/authpolicy"
-	"github.com/easy-oidc/easy-oidc/internal/config"
-	"github.com/easy-oidc/easy-oidc/internal/secrets"
-	"github.com/easy-oidc/easy-oidc/internal/trust"
 	"github.com/spf13/cobra"
+	"github.com/truster-dev/truster/internal/authpolicy"
+	"github.com/truster-dev/truster/internal/config"
+	"github.com/truster-dev/truster/internal/secrets"
+	"github.com/truster-dev/truster/internal/trust"
 )
 
 // newCheckTrustCmd creates the configured external token verifier and trust evaluator command.
@@ -78,7 +78,7 @@ func newCheckTrustCmd(configPath *string) *cobra.Command {
 		}
 		return nil
 	}}
-	command.Flags().StringVar(&clientID, "client-id", "", "Target Easy OIDC client ID")
+	command.Flags().StringVar(&clientID, "client-id", "", "Target Truster client ID")
 	command.Flags().StringVar(&tokenFile, "token-file", "", "External token file, or - for stdin")
 	return command
 }

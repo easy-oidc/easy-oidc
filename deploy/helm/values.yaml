@@ -1,5 +1,5 @@
-# Easy OIDC <https://easy-oidc.dev>
-# Copyright The Easy OIDC Authors
+# Truster <https://truster.dev>
+# Copyright The Truster Authors
 # SPDX-License-Identifier: Apache-2.0
 
 replicaCount: 1
@@ -10,7 +10,7 @@ deploymentStrategy:
   type: Recreate
 
 image:
-  repository: ghcr.io/easy-oidc/easy-oidc
+  repository: ghcr.io/truster-dev/truster
   pullPolicy: IfNotPresent
   # Defaults to the chart appVersion.
   tag: ""
@@ -32,7 +32,7 @@ config:
   http_listen_addr: ":8080"
   secrets:
     provider: file
-    file_directory: /var/run/secrets/easy-oidc
+    file_directory: /var/run/secrets/truster
     signing_key_name: signing-key.pem
   state_database:
     driver: sqlite
@@ -55,7 +55,7 @@ config:
 # Kubernetes Secret. Configure config.secrets.provider as file.
 secretFiles:
   enabled: false
-  mountPath: /var/run/secrets/easy-oidc
+  mountPath: /var/run/secrets/truster
   csi:
     driver: secrets-store.csi.k8s.io
     secretProviderClass: ""
@@ -76,13 +76,13 @@ ingress:
   className: ""
   annotations: {}
   hosts:
-    - host: easy-oidc.example.com
+    - host: truster.example.com
       paths:
         - path: /
           pathType: Prefix
   tls: []
 
-# Optional native HTTPS for traffic from the Service to Easy OIDC. Provide an
+# Optional native HTTPS for traffic from the Service to Truster. Provide an
 # existing kubernetes.io/tls Secret, or let cert-manager create one.
 server:
   tls:

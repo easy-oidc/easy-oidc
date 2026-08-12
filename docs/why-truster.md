@@ -1,11 +1,11 @@
 ---
 draft: false
-title: 'Why Easy OIDC?'
-linkTitle: 'Why Easy OIDC?'
+title: 'Why Truster?'
+linkTitle: 'Why Truster?'
 weight: 2
 ---
 
-Easy OIDC lets people sign in to Kubernetes with an account they already have or
+Truster lets people sign in to Kubernetes with an account they already have or
 a code sent by email. It gives Kubernetes a verified email address and the
 groups you configured, without storing user passwords.
 
@@ -15,13 +15,13 @@ Kubernetes can verify short-lived login tokens, but it does not provide a login
 page or manage human identities. Teams therefore need a trusted service that can
 authenticate each user and tell Kubernetes who they are.
 
-Easy OIDC provides that service. Users sign in through a browser instead of
+Truster provides that service. Users sign in through a browser instead of
 sharing long-lived certificates or tokens. Kubernetes still owns authorization:
 its role-based access control (RBAC) rules decide what each user and group may do.
 
 ## How it works
 
-Easy OIDC runs as one binary. It delegates authentication to Google, GitHub, a
+Truster runs as one binary. It delegates authentication to Google, GitHub, a
 compatible OAuth2/OIDC provider, or a one-time code sent by email. It then
 normalises the email address and looks up the groups configured for that user.
 
@@ -65,12 +65,12 @@ Choose an identity system designed for broader requirements when you need:
 - dynamic Google Workspace groups, GitHub teams, or other upstream group claims;
 - immediate revocation of already-issued tokens;
 - a built-in, supported high-availability control plane;
-- identity features or OAuth flows beyond Easy OIDC's documented scope; or
+- identity features or OAuth flows beyond Truster's documented scope; or
 - policy that cannot be represented safely as email-to-group mappings.
 
 ## Security and operational boundaries
 
-Easy OIDC uses short-lived, asymmetrically signed tokens. Authorization codes are
+Truster uses short-lived, asymmetrically signed tokens. Authorization codes are
 opaque and single-use, clients must use PKCE, and production endpoints are
 expected to use HTTPS. Email verification can trust a provider's assertion,
 verify only when needed, or always require a local email code.
@@ -93,7 +93,7 @@ for the possibility that an email address is renamed or reassigned.
 
 ## Next steps
 
-- [Try Easy OIDC or choose a deployment](/docs/getting-started/)
+- [Try Truster or choose a deployment](/docs/getting-started/)
 - [Deploy to AWS](/docs/deploy/aws/)
 - [Understand the login flow](/docs/oidc-primer/)
 - [Read the configuration reference](/docs/config/)

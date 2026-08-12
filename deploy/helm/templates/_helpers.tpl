@@ -1,12 +1,12 @@
-# Easy OIDC <https://easy-oidc.dev>
-# Copyright The Easy OIDC Authors
+# Truster <https://truster.dev>
+# Copyright The Truster Authors
 # SPDX-License-Identifier: Apache-2.0
 
-{{- define "easy-oidc.name" -}}
+{{- define "truster.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
-{{- define "easy-oidc.fullname" -}}
+{{- define "truster.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
@@ -15,11 +15,11 @@
 {{- end }}
 {{- end }}
 
-{{- define "easy-oidc.chart" -}}
+{{- define "truster.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
-{{- define "easy-oidc.image" -}}
+{{- define "truster.image" -}}
 {{- if .Values.image.digest -}}
 {{- printf "%s@%s" .Values.image.repository .Values.image.digest -}}
 {{- else -}}
@@ -27,35 +27,35 @@
 {{- end -}}
 {{- end }}
 
-{{- define "easy-oidc.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "easy-oidc.name" . }}
+{{- define "truster.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "truster.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
-{{- define "easy-oidc.labels" -}}
-helm.sh/chart: {{ include "easy-oidc.chart" . }}
-{{ include "easy-oidc.selectorLabels" . }}
+{{- define "truster.labels" -}}
+helm.sh/chart: {{ include "truster.chart" . }}
+{{ include "truster.selectorLabels" . }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
-{{- define "easy-oidc.serviceAccountName" -}}
-{{- if .Values.serviceAccount.create }}{{ default (include "easy-oidc.fullname" .) .Values.serviceAccount.name }}{{ else }}{{ default "default" .Values.serviceAccount.name }}{{ end }}
+{{- define "truster.serviceAccountName" -}}
+{{- if .Values.serviceAccount.create }}{{ default (include "truster.fullname" .) .Values.serviceAccount.name }}{{ else }}{{ default "default" .Values.serviceAccount.name }}{{ end }}
 {{- end }}
 
-{{- define "easy-oidc.configMapName" -}}
-{{- default (printf "%s-config" (include "easy-oidc.fullname" .)) .Values.config.existingConfigMap }}
+{{- define "truster.configMapName" -}}
+{{- default (printf "%s-config" (include "truster.fullname" .)) .Values.config.existingConfigMap }}
 {{- end }}
 
-{{- define "easy-oidc.claimName" -}}
-{{- default (include "easy-oidc.fullname" .) .Values.config.state_database.persistence.existingClaim }}
+{{- define "truster.claimName" -}}
+{{- default (include "truster.fullname" .) .Values.config.state_database.persistence.existingClaim }}
 {{- end }}
 
-{{- define "easy-oidc.serverTLSSecretName" -}}
-{{- default (printf "%s-tls" (include "easy-oidc.fullname" .)) .Values.server.tls.secretName }}
+{{- define "truster.serverTLSSecretName" -}}
+{{- default (printf "%s-tls" (include "truster.fullname" .)) .Values.server.tls.secretName }}
 {{- end }}
 
-{{- define "easy-oidc.generatedConfig" -}}
+{{- define "truster.generatedConfig" -}}
 {{- $config := deepCopy .Values.config -}}
 {{- $_ := unset $config "rawOverride" -}}
 {{- $_ := unset $config "existingConfigMap" -}}
@@ -63,16 +63,16 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- $stateDatabase := deepCopy $config.state_database -}}
 {{- $_ := unset $stateDatabase "persistence" -}}
 {{- if and (eq $stateDatabase.driver "sqlite") (empty (default "" $stateDatabase.path)) -}}
-{{- $_ := set $stateDatabase "path" "/var/lib/easy-oidc/easy-oidc-state.db" -}}
+{{- $_ := set $stateDatabase "path" "/var/lib/truster/truster-state.db" -}}
 {{- end -}}
 {{- $_ := set $config "state_database" $stateDatabase -}}
 {{- if .Values.server.tls.enabled -}}
-{{- $_ := set $config "serving_certificate" (dict "certificate_file" "/var/run/easy-oidc/tls/tls.crt" "private_key_file" "/var/run/easy-oidc/tls/tls.key") -}}
+{{- $_ := set $config "serving_certificate" (dict "certificate_file" "/var/run/truster/tls/tls.crt" "private_key_file" "/var/run/truster/tls/tls.key") -}}
 {{- end -}}
 {{- $config | toPrettyJson -}}
 {{- end }}
 
-{{- define "easy-oidc.validateConfig" -}}
+{{- define "truster.validateConfig" -}}
 {{- $raw := not (empty (trim .Values.config.rawOverride)) -}}
 {{- $existing := not (empty (trim .Values.config.existingConfigMap)) -}}
 {{- if and $raw $existing -}}
@@ -99,8 +99,8 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- if and (not $raw) (not $existing) (eq .Values.config.state_database.driver "postgresql") (empty (default "" .Values.config.state_database.connection_string_secret)) -}}
 {{- fail "config.state_database.connection_string_secret is required for generated PostgreSQL configuration" -}}
 {{- end -}}
-{{- if and (not $raw) (not $existing) (eq .Values.config.state_database.driver "sqlite") (not (hasPrefix "/var/lib/easy-oidc/" (clean (default "/var/lib/easy-oidc/easy-oidc-state.db" .Values.config.state_database.path)))) -}}
-{{- fail "generated SQLite config.state_database.path must be beneath /var/lib/easy-oidc so the selected persistence is effective" -}}
+{{- if and (not $raw) (not $existing) (eq .Values.config.state_database.driver "sqlite") (not (hasPrefix "/var/lib/truster/" (clean (default "/var/lib/truster/truster-state.db" .Values.config.state_database.path)))) -}}
+{{- fail "generated SQLite config.state_database.path must be beneath /var/lib/truster so the selected persistence is effective" -}}
 {{- end -}}
 {{- if and .Values.secretFiles.enabled (empty (trim .Values.secretFiles.csi.secretProviderClass)) -}}
 {{- fail "secretFiles.csi.secretProviderClass is required when secretFiles.enabled is true" -}}

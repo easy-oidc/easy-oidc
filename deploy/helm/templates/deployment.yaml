@@ -1,8 +1,8 @@
-# Easy OIDC <https://easy-oidc.dev>
-# Copyright The Easy OIDC Authors
+# Truster <https://truster.dev>
+# Copyright The Truster Authors
 # SPDX-License-Identifier: Apache-2.0
 
-{{- include "easy-oidc.validateConfig" . }}
+{{- include "truster.validateConfig" . }}
 {{- $probeScheme := ternary "HTTPS" "HTTP" .Values.server.tls.enabled -}}
 {{- $livenessProbe := deepCopy .Values.livenessProbe -}}
 {{- $readinessProbe := deepCopy .Values.readinessProbe -}}
@@ -13,21 +13,21 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "easy-oidc.fullname" . }}
+  name: {{ include "truster.fullname" . }}
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "easy-oidc.labels" . | nindent 4 }}
+    {{- include "truster.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
   strategy:
     {{- toYaml .Values.deploymentStrategy | nindent 4 }}
   selector:
     matchLabels:
-      {{- include "easy-oidc.selectorLabels" . | nindent 6 }}
+      {{- include "truster.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "easy-oidc.selectorLabels" . | nindent 8 }}
+        {{- include "truster.selectorLabels" . | nindent 8 }}
         {{- with .Values.podLabels }}{{ toYaml . | nindent 8 }}{{- end }}
       annotations:
         {{- if not .Values.config.existingConfigMap }}
@@ -35,7 +35,7 @@ spec:
         {{- end }}
         {{- with .Values.podAnnotations }}{{ toYaml . | nindent 8 }}{{- end }}
     spec:
-      serviceAccountName: {{ include "easy-oidc.serviceAccountName" . }}
+      serviceAccountName: {{ include "truster.serviceAccountName" . }}
       automountServiceAccountToken: false
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
@@ -46,9 +46,9 @@ spec:
       {{- if .Values.migrations.enabled }}
       initContainers:
         - name: migrate
-          image: {{ include "easy-oidc.image" . | quote }}
+          image: {{ include "truster.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["/easy-oidc", "migrate", "--config", "/etc/easy-oidc/config.jsonc"]
+          command: ["/truster", "migrate", "--config", "/etc/truster/config.jsonc"]
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           resources:
@@ -63,10 +63,10 @@ spec:
           {{- end }}
           volumeMounts:
             - name: config
-              mountPath: /etc/easy-oidc
+              mountPath: /etc/truster
               readOnly: true
             - name: data
-              mountPath: /var/lib/easy-oidc
+              mountPath: /var/lib/truster
             - name: tmp
               mountPath: /tmp
             {{- if or .Values.secretFiles.enabled .Values.migrations.secretFiles.enabled }}
@@ -76,10 +76,10 @@ spec:
             {{- end }}
       {{- end }}
       containers:
-        - name: easy-oidc
-          image: {{ include "easy-oidc.image" . | quote }}
+        - name: truster
+          image: {{ include "truster.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["/easy-oidc", "serve", "--config", "/etc/easy-oidc/config.jsonc"]
+          command: ["/truster", "serve", "--config", "/etc/truster/config.jsonc"]
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           ports:
@@ -104,10 +104,10 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
             - name: config
-              mountPath: /etc/easy-oidc
+              mountPath: /etc/truster
               readOnly: true
             - name: data
-              mountPath: /var/lib/easy-oidc
+              mountPath: /var/lib/truster
             - name: tmp
               mountPath: /tmp
             {{- if .Values.secretFiles.enabled }}
@@ -117,20 +117,20 @@ spec:
             {{- end }}
             {{- if .Values.server.tls.enabled }}
             - name: serving-certificate
-              mountPath: /var/run/easy-oidc/tls
+              mountPath: /var/run/truster/tls
               readOnly: true
             {{- end }}
       volumes:
         - name: config
           configMap:
-            name: {{ include "easy-oidc.configMapName" . }}
+            name: {{ include "truster.configMapName" . }}
             items:
               - key: {{ .Values.config.existingConfigMapKey }}
                 path: config.jsonc
         - name: data
           {{- if and (eq .Values.config.state_database.driver "sqlite") .Values.config.state_database.persistence.enabled }}
           persistentVolumeClaim:
-            claimName: {{ include "easy-oidc.claimName" . }}
+            claimName: {{ include "truster.claimName" . }}
           {{- else }}
           emptyDir: {}
           {{- end }}
@@ -139,7 +139,7 @@ spec:
         {{- if .Values.server.tls.enabled }}
         - name: serving-certificate
           secret:
-            secretName: {{ include "easy-oidc.serverTLSSecretName" . }}
+            secretName: {{ include "truster.serverTLSSecretName" . }}
             defaultMode: 0440
         {{- end }}
         {{- if .Values.secretFiles.enabled }}

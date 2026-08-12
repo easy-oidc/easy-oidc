@@ -1,6 +1,6 @@
 {{define "content"}}
 <h1 style="margin: 0 0 24px; color: #1a1a1a; font-size: 36px; line-height: 1.2; font-weight: 700;">Your verification code</h1>
-<p style="margin: 0 0 16px; color: #333333; font-size: 18px; line-height: 1.6;">Use this code to sign in to Easy OIDC:</p>
+<p style="margin: 0 0 16px; color: #333333; font-size: 18px; line-height: 1.6;">Use this code to sign in to Truster:</p>
 <p style="margin: 0 0 24px; color: #1a1a1a; font-size: 32px; line-height: 1.2; font-weight: 700; letter-spacing: 4px;"><strong>{{.Code}}</strong></p>
 <p style="margin: 0; color: #333333; font-size: 18px; line-height: 1.6;">It expires at <time datetime="{{.ExpiresAt.Format "2006-01-02T15:04:05Z07:00"}}">{{.ExpiresAt.Format "15:04 UTC on 2 January 2006"}}</time> (in {{printf "%.0f" .ExpiresIn.Minutes}} minutes).</p>
 {{end}}

@@ -5,8 +5,8 @@ linkTitle: 'Configuration'
 weight: 7
 ---
 
-Easy OIDC reads a JSONC configuration file. Run it with
-`easy-oidc serve --config config.jsonc` or set `EASYOIDC_CONFIG_PATH`; the
+Truster reads a JSONC configuration file. Run it with
+`truster serve --config config.jsonc` or set `TRUSTER_CONFIG_PATH`; the
 default is `./config.jsonc`.
 
 For OIDC, OAuth, and token terminology used here, see the
@@ -17,16 +17,16 @@ field documentation:
 
 ```jsonc
 {
-  "$schema": "https://easy-oidc.dev/schema/v2/config.schema.json",
+  "$schema": "https://truster.dev/schema/v2/config.schema.json",
   // ...
 }
 ```
 
-The schema catches structural errors while editing. `easy-oidc check config`
+The schema catches structural errors while editing. `truster check config`
 remains authoritative for runtime configuration constraints, while
-`easy-oidc check templates` validates all effective templates.
+`truster check templates` validates all effective templates.
 
-See the [example configurations](https://github.com/easy-oidc/easy-oidc/tree/main/examples/config),
+See the [example configurations](https://github.com/truster-dev/truster/tree/main/examples/config),
 including `config-multiple.jsonc` for multiple connectors, email codes, SMTP, and
 Turnstile.
 
@@ -36,7 +36,7 @@ and `config-state-db.jsonc`.
 
 For clients, users, groups, and trust bindings supplied by database policy, see
 the [policy database guide](policy-database.md) and `config-policy-db.jsonc`.
-Easy OIDC only reads this optional PostgreSQL policy database; operators or
+Truster only reads this optional PostgreSQL policy database; operators or
 another system write its policy data. It is separate from the state database.
 
 ## External OIDC trust
@@ -100,7 +100,7 @@ exactly one binding must match a token.
 You can check a token against the configured trust policies with:
 
 ```sh
-easy-oidc check trust \
+truster check trust \
   --config config.jsonc \
   --client-id cluster-production \
   --token-file token.jwt
@@ -113,18 +113,18 @@ the approved workflow or step; and assign a dedicated least-privilege Kubernetes
 
 ## Deployment modules
 
-This page is the source of truth for Easy OIDC application configuration. The
+This page is the source of truth for Truster application configuration. The
 official OpenTofu/Terraform modules model the application-owned settings as a
-typed `easy_oidc_config` object and add deployment-owned values such as the
+typed `truster_config` object and add deployment-owned values such as the
 issuer, listen address, state database path, and cloud secrets provider.
 
-- [AWS module inputs](https://github.com/easy-oidc/terraform-aws-easy-oidc#variables)
-- [Google Cloud module inputs](https://github.com/easy-oidc/terraform-google-easy-oidc#variables)
+- [AWS module inputs](https://github.com/truster-dev/terraform-aws-truster#variables)
+- [Google Cloud module inputs](https://github.com/truster-dev/terraform-google-truster#variables)
 - [Deployment guides](/docs/deploy/)
 
 Keep infrastructure settings in the module arguments and application settings
-under `easy_oidc_config`. The modules catch type errors and selected cross-field
-errors during planning; Easy OIDC remains authoritative for complete runtime
+under `truster_config`. The modules catch type errors and selected cross-field
+errors during planning; Truster remains authoritative for complete runtime
 validation.
 
 ## Core settings
@@ -134,12 +134,12 @@ validation.
 | `issuer_url` | yes | Public issuer URL. HTTPS is required except on localhost. |
 | `http_listen_addr` | yes | Address used by the built-in server. |
 | `serving_certificate` | no | Enables native HTTPS using `certificate_file` and `private_key_file`. Both paths are required when set. The files are reloaded in place after certificate rotation; a failed reload retains the last valid certificate. |
-| `state_database` | no | Protocol-state database. Defaults to SQLite at `./data/easy-oidc-state.db`. |
-| `signing_algorithm` | no | Defaults to `RS256`. Supports the asymmetric algorithms advertised by Easy OIDC. |
+| `state_database` | no | Protocol-state database. Defaults to SQLite at `./data/truster-state.db`. |
+| `signing_algorithm` | no | Defaults to `RS256`. Supports the asymmetric algorithms advertised by Truster. |
 | `jwks_kid` | no | Signing key ID. Derived from the public key when omitted. |
 | `access_token_ttl` | no | Access-token lifetime using Go duration syntax; defaults to `15m`. |
 | `id_token_ttl` | no | ID-token lifetime using Go duration syntax; defaults to `15m`. |
-| `templates_dir` | no | Directory containing template overrides. `EASYOIDC_TEMPLATES_DIR` takes precedence. |
+| `templates_dir` | no | Directory containing template overrides. `TRUSTER_TEMPLATES_DIR` takes precedence. |
 | `user_login_connectors` | yes | Interactive user login integrations keyed by connector ID. |
 | `service_token_issuers` | no | External issuers accepted for service-token exchange. |
 | `static_policy` | conditional | Static clients and authorization policy. Required without `policy_database`. |
@@ -155,17 +155,17 @@ replay hashes use a bounded process-local cache instead. See the
 
 ## Native HTTPS
 
-Easy OIDC can serve HTTPS directly when a trusted proxy does not terminate TLS
+Truster can serve HTTPS directly when a trusted proxy does not terminate TLS
 for it. Configure paths to a PEM certificate chain and matching private key:
 
 ```jsonc
 "serving_certificate": {
-  "certificate_file": "/var/run/easy-oidc/tls/tls.crt",
-  "private_key_file": "/var/run/easy-oidc/tls/tls.key"
+  "certificate_file": "/var/run/truster/tls/tls.crt",
+  "private_key_file": "/var/run/truster/tls/tls.key"
 }
 ```
 
-Both files must be readable and valid at startup. Easy OIDC periodically reloads
+Both files must be readable and valid at startup. Truster periodically reloads
 the pair, so cert-manager and other atomic file mounts can renew the certificate
 without restarting the process. An invalid replacement is logged and the last
 valid certificate remains active. When this setting is omitted, the server uses
@@ -184,7 +184,7 @@ are rejected.
 ```jsonc
 "secrets": {
   "provider": "file",
-  "file_directory": "/var/run/secrets/easy-oidc",
+  "file_directory": "/var/run/secrets/truster",
   "signing_key_name": "signing-key.pem",
   "encryption_key_name": "encryption-key"
 }
@@ -192,7 +192,7 @@ are rejected.
 
 The file provider is recommended when an orchestrator can mount values
 directly from an external secret manager, such as with the Kubernetes Secrets
-Store CSI Driver. Secret files are read once during startup; restart Easy OIDC
+Store CSI Driver. Secret files are read once during startup; restart Truster
 after rotation. Avoid synchronizing mounted values into Kubernetes Secrets when
 the external provider can supply them directly.
 
@@ -204,7 +204,7 @@ value must be a 64-character hex-encoded 32-byte master key:
 openssl rand -hex 32
 ```
 
-Easy OIDC derives purpose-specific keys from this master with HKDF-SHA256 and
+Truster derives purpose-specific keys from this master with HKDF-SHA256 and
 versioned, domain-separated labels. The signing key and OTP secret remain
 separate because they have different purposes and rotation requirements.
 
@@ -237,7 +237,7 @@ OAuth credential secrets contain:
 ```
 
 The same connector type can be configured more than once, for example to
-aggregate several Dex instances. With one non-email connector, Easy OIDC redirects
+aggregate several Dex instances. With one non-email connector, Truster redirects
 to it automatically. With multiple sign-in methods, it renders a selector.
 
 Google supports `google.hd` for a hosted-domain hint. GitHub supports
@@ -245,7 +245,7 @@ Google supports `google.hd` for a hosted-domain hint. GitHub supports
 `authorization_url`, `token_url`, and `userinfo_url`; `subject_field` defaults to
 `sub`, `email_field` to `email`, and `email_verified_field` to `email_verified`.
 
-Easy OIDC stores an upstream credential by connector ID, stable provider subject,
+Truster stores an upstream credential by connector ID, stable provider subject,
 and normalized email. Google and generic OIDC use the provider's `sub`; GitHub
 uses its numeric account ID. The normalized email is exposed downstream as `sub`,
 allowing different sign-in methods for the same email to resolve to the same
@@ -253,7 +253,7 @@ downstream identity. The `email_verified` claim reflects the accepted provider
 assertion or completed local verification.
 
 GitHub users are asked to choose when their account returns multiple email
-addresses. The page displays each address's primary and verified status; Easy OIDC
+addresses. The page displays each address's primary and verified status; Truster
 does not silently choose one. GitHub-generated `users.noreply` addresses are
 excluded because they cannot receive verification codes.
 
@@ -264,25 +264,25 @@ email configuration verifies OAuth identities according to the configured
 verification policy.
 
 The `email` configuration is optional. When it is omitted, email verification is
-disabled and Easy OIDC accepts the provider's chosen email and preserves its
+disabled and Truster accepts the provider's chosen email and preserves its
 `email_verified` assertion.
 
 ```jsonc
 "email": {
   "verification_mode": "provider",
-  "otp_secret_name": "EASYOIDC_OTP_SECRET",
+  "otp_secret_name": "TRUSTER_OTP_SECRET",
   "otp_ttl": "5m",
   "smtp": {
     "host": "smtp.example.com",
     "port": 587,
     "tls_mode": "starttls",
-    "from_name": "Easy OIDC",
+    "from_name": "Truster",
     "from_address": "auth@example.com",
-    "credentials_secret": "EASYOIDC_SMTP_CREDENTIALS"
+    "credentials_secret": "TRUSTER_SMTP_CREDENTIALS"
   },
   "turnstile": {
     "site_key": "...",
-    "secret_name": "EASYOIDC_TURNSTILE_SECRET"
+    "secret_name": "TRUSTER_TURNSTILE_SECRET"
   }
 }
 ```
@@ -303,7 +303,7 @@ may be omitted; if supplied, it is still validated during startup.
 
 SMTP authentication is optional. When `credentials_secret` is configured, its
 secret must contain `{"username":"...","password":"..."}`; when omitted,
-Easy OIDC does not issue SMTP `AUTH`. `tls_mode` is `starttls` (the default),
+Truster does not issue SMTP `AUTH`. `tls_mode` is `starttls` (the default),
 `implicit`, or `plaintext`. Plaintext SMTP is only permitted when `host` is
 exactly `localhost`, and startup prints a prominent warning because email
 addresses, message contents, and one-time codes cross the connection without
@@ -345,7 +345,7 @@ not satisfy it.
 
 ## Custom templates
 
-Easy OIDC embeds defaults in the binary. `templates_dir` overlays that embedded
+Truster embeds defaults in the binary. `templates_dir` overlays that embedded
 filesystem: provide only the files you want to replace.
 
 | Path | Data |
@@ -380,14 +380,14 @@ render error prevents the server from starting.
 Validate configuration and templates separately in CI with:
 
 ```console
-easy-oidc check config --config ./config.jsonc
-easy-oidc check templates --config ./config.jsonc
+truster check config --config ./config.jsonc
+truster check templates --config ./config.jsonc
 ```
 
 Develop overlays with mock data and live reload using:
 
 ```console
-easy-oidc dev --templates-dir ./templates
+truster dev --templates-dir ./templates
 ```
 
 The development server disables Turnstile and opens an index of page and email

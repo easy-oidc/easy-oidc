@@ -1,6 +1,6 @@
 #!/bin/sh
-# Easy OIDC <https://easy-oidc.dev>
-# Copyright The Easy OIDC Authors
+# Truster <https://truster.dev>
+# Copyright The Truster Authors
 # SPDX-License-Identifier: Apache-2.0
 
 # Generates symlink-free AWS and Google OpenTofu/Terraform module trees from the canonical source.
@@ -23,8 +23,8 @@ fi
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repo_root=$(CDPATH= cd -- "$script_dir/.." && pwd)
 output_root=$1
-marker=.easy-oidc-tf-modules
-legacy_marker=.easy-oidc-terraform-modules
+marker=.truster-tf-modules
+legacy_marker=.truster-terraform-modules
 
 case "$output_root" in
   /|"$repo_root"|"$repo_root"/*) echo "Refusing unsafe output root: $output_root" >&2; exit 1 ;;
@@ -49,7 +49,7 @@ for provider in aws google; do
 # Generated OpenTofu/Terraform module
 
 This tree is generated from
-[easy-oidc/easy-oidc](https://github.com/easy-oidc/easy-oidc/tree/main/deploy/tf/$provider).
+[truster/truster](https://github.com/truster-dev/truster/tree/main/deploy/tf/$provider).
 Do not edit it directly; make changes in the canonical application repository.
 EOF
 done

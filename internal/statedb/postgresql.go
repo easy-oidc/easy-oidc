@@ -1,5 +1,5 @@
-// Easy OIDC <https://easy-oidc.dev>
-// Copyright The Easy OIDC Authors
+// Truster <https://truster.dev>
+// Copyright The Truster Authors
 // SPDX-License-Identifier: Apache-2.0
 
 package statedb
@@ -40,9 +40,9 @@ func NewPostgreSQL(ctx context.Context, connectionString string, maxConnections 
 	if options != "" {
 		options += " "
 	}
-	parameters.Set("options", options+fmt.Sprintf("-c statement_timeout=%d -c search_path=easy_oidc_state,public", statementTimeout))
+	parameters.Set("options", options+fmt.Sprintf("-c statement_timeout=%d -c search_path=truster_state,public", statementTimeout))
 	parameters.Set("statement_timeout", fmt.Sprintf("%d", statementTimeout))
-	parameters.Set("search_path", "easy_oidc_state,public")
+	parameters.Set("search_path", "truster_state,public")
 	u.RawQuery = parameters.Encode()
 	db, err := sql.Open("pgx", u.String())
 	if err != nil {
@@ -108,14 +108,14 @@ func CheckRuntime(ctx context.Context, db interface {
 		return err
 	}
 	var allowed bool
-	err := db.QueryRowContext(ctx, `SELECT has_schema_privilege(current_user,'easy_oidc_state','USAGE')
+	err := db.QueryRowContext(ctx, `SELECT has_schema_privilege(current_user,'truster_state','USAGE')
 		AND COALESCE(bool_and(
 			has_table_privilege(current_user,format('%I.%I',schemaname,tablename),'SELECT')
 			AND has_table_privilege(current_user,format('%I.%I',schemaname,tablename),'INSERT')
 			AND has_table_privilege(current_user,format('%I.%I',schemaname,tablename),'UPDATE')
 			AND has_table_privilege(current_user,format('%I.%I',schemaname,tablename),'DELETE')
 		),false)
-		FROM pg_tables WHERE schemaname='easy_oidc_state'`).Scan(&allowed)
+		FROM pg_tables WHERE schemaname='truster_state'`).Scan(&allowed)
 	if err != nil {
 		return fmt.Errorf("check state database runtime privileges: %w", err)
 	}
