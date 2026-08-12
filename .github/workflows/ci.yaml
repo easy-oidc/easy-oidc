@@ -65,12 +65,20 @@ jobs:
           TRUSTER_POLICY_TEST_DB_URL: postgresql://truster_test:truster_test@localhost:5432/truster_test?sslmode=disable
 
       - name: Upload coverage
-        uses: codecov/codecov-action@5975040f7f7d40edaff8d784b576fd65ae95c073 # v5.5.5
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
         with:
           files: ./coverage.out
 
       - name: Build
         run: make build
+
+  tf-modules:
+    name: Validate TF modules
+    uses: ./.github/workflows/release-tf.yml
+    with:
+      publish: false
+      preflight: ${{ github.event_name == 'push' }}
+    secrets: inherit
 
   e2e:
     name: End-to-end test

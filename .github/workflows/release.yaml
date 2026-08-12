@@ -49,12 +49,12 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Install pinned cross-compilers
+      - name: Install ARM64 cross-compiler
         run: |
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            gcc-13-aarch64-linux-gnu=13.3.0-6ubuntu2~24.04cross1 \
-            libc6-dev-arm64-cross=2.39-0ubuntu8cross1
+            gcc-aarch64-linux-gnu \
+            libc6-dev-arm64-cross
 
       - name: Validate release source
         run: |
@@ -113,7 +113,7 @@ jobs:
           for arch in amd64 arm64; do
             case "$arch" in
               amd64) cc=gcc ;;
-              arm64) cc=aarch64-linux-gnu-gcc-13 ;;
+              arm64) cc=aarch64-linux-gnu-gcc ;;
             esac
             make build \
               "${build_args[@]}" \
@@ -145,7 +145,7 @@ jobs:
             syft "registry:$subject" --output "spdx-json=$sbom"
             cosign attest --yes --type spdxjson --predicate "$sbom" "$subject"
           done
-          gh release upload "${{ github.ref_name }}" dist/image-sboms/*.spdx.json
+          gh release upload "${{ github.ref_name }}" --clobber dist/image-sboms/*.spdx.json
 
       - name: Sign container image
         env:
@@ -187,7 +187,7 @@ jobs:
           cosign sign-blob --yes \
             --bundle "dist/charts/truster-${VERSION}.tgz.bundle" \
             "dist/charts/truster-${VERSION}.tgz"
-          gh release upload "${{ github.ref_name }}" \
+          gh release upload "${{ github.ref_name }}" --clobber \
             "dist/charts/truster-${VERSION}.tgz" \
             "dist/charts/truster-${VERSION}.tgz.bundle" \
             "dist/charts/truster-${VERSION}.spdx.json"
@@ -203,6 +203,17 @@ jobs:
         with:
           subject-path: ${{ steps.chart.outputs.archive }}
 
+  tf-modules:
+    name: Publish changed TF modules
+    needs: release
+    uses: ./.github/workflows/release-tf.yml
+    secrets: inherit
+
+  publish:
+    name: Publish attested release
+    needs: [release, tf-modules]
+    runs-on: ubuntu-24.04
+    steps:
       - name: Publish attested release
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         with:
@@ -213,13 +224,9 @@ jobs:
               repo: context.repo.repo,
               per_page: 100,
             })
-            const release = releases.find(candidate => candidate.tag_name === tag)
+            const release = releases.find(candidate => candidate.tag_name === tag && candidate.draft)
             if (!release) {
               core.setFailed(`Draft release not found for ${tag}`)
-              return
-            }
-            if (!release.draft) {
-              core.setFailed(`Expected ${tag} to be a draft release`)
               return
             }
             await github.rest.repos.updateRelease({
@@ -228,9 +235,3 @@ jobs:
               release_id: release.id,
               draft: false,
             })
-
-  tf-modules:
-    name: Publish changed TF modules
-    needs: release
-    uses: ./.github/workflows/release-tf.yml
-    secrets: inherit

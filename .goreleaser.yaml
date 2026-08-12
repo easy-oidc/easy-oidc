@@ -27,7 +27,7 @@ builds:
       - goos: linux
         goarch: arm64
         env:
-          - CC=aarch64-linux-gnu-gcc-13
+          - CC=aarch64-linux-gnu-gcc
     ldflags:
       - -s -w
       - -X github.com/truster-dev/truster/internal/buildvars.buildVersion={{ .Tag }}
@@ -82,5 +82,6 @@ release:
     owner: truster-dev
     name: truster
   draft: true
+  use_existing_draft: true
   prerelease: auto
-  replace_existing_artifacts: false
+  replace_existing_artifacts: true
