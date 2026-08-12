@@ -138,6 +138,21 @@ func TestConfigSchemaContracts(t *testing.T) {
 			addGitHub(cfg)
 			cfg["secrets"].(map[string]any)["encryption_key_name"] = "EASYOIDC_ENCRYPTION_KEY"
 		}},
+		{"static refresh requires encryption", false, func(cfg map[string]any) {
+			cfg["static_policy"].(map[string]any)["clients"].(map[string]any)["kubelogin"] = map[string]any{"refresh_tokens": map[string]any{"enabled": true}}
+		}},
+		{"static refresh with encryption", true, func(cfg map[string]any) {
+			cfg["static_policy"].(map[string]any)["clients"].(map[string]any)["kubelogin"] = map[string]any{"refresh_tokens": map[string]any{"enabled": true}}
+			cfg["secrets"].(map[string]any)["encryption_key_name"] = "EASYOIDC_ENCRYPTION_KEY"
+		}},
+		{"email-only static refresh without encryption", true, func(cfg map[string]any) {
+			addEmail(cfg)
+			delete(cfg["user_login_connectors"].(map[string]any), "google")
+			cfg["static_policy"].(map[string]any)["clients"].(map[string]any)["kubelogin"] = map[string]any{"refresh_tokens": map[string]any{"enabled": true}}
+		}},
+		{"static offline access requires refresh", false, func(cfg map[string]any) {
+			cfg["static_policy"].(map[string]any)["clients"].(map[string]any)["kubelogin"] = map[string]any{"refresh_tokens": map[string]any{"allow_offline_access": true}}
+		}},
 		{"email connector requires email configuration", false, func(cfg map[string]any) {
 			cfg["user_login_connectors"].(map[string]any)["email"] = map[string]any{
 				"type":         "email",

@@ -184,6 +184,62 @@
         "allOf": [
           {
             "properties": {
+              "static_policy": {
+                "properties": {
+                  "clients": {
+                    "not": {
+                      "additionalProperties": {
+                        "not": {
+                          "properties": {
+                            "refresh_tokens": {
+                              "properties": {
+                                "enabled": { "const": true }
+                              },
+                              "required": ["enabled"]
+                            }
+                          },
+                          "required": ["refresh_tokens"]
+                        }
+                      }
+                    }
+                  }
+                },
+                "required": ["clients"]
+              }
+            },
+            "required": ["static_policy"]
+          },
+          {
+            "properties": {
+              "user_login_connectors": {
+                "not": {
+                  "additionalProperties": {
+                    "not": {
+                      "properties": {
+                        "type": { "not": { "const": "email" } }
+                      },
+                      "required": ["type"]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "then": {
+        "properties": {
+          "secrets": {
+            "required": ["encryption_key_name"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "allOf": [
+          {
+            "properties": {
               "policy_database": {
                 "properties": {
                   "client_defaults": {
@@ -777,7 +833,19 @@
               "$ref": "#/$defs/duration",
               "default": "2160h"
             }
-          }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": { "allow_offline_access": { "const": true } },
+                "required": ["allow_offline_access"]
+              },
+              "then": {
+                "properties": { "enabled": { "const": true } },
+                "required": ["enabled"]
+              }
+            }
+          ]
         }
       }
     },
