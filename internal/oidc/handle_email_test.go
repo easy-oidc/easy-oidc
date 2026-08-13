@@ -17,10 +17,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/truster-dev/truster/internal/challenge"
-	"github.com/truster-dev/truster/internal/config"
-	"github.com/truster-dev/truster/internal/statedb"
-	"github.com/truster-dev/truster/internal/templates"
+	"github.com/truster-dev/truster/v2/internal/challenge"
+	"github.com/truster-dev/truster/v2/internal/config"
+	"github.com/truster-dev/truster/v2/internal/statedb"
+	"github.com/truster-dev/truster/v2/internal/templates"
 )
 
 // fakeMailer returns a configured delivery result.

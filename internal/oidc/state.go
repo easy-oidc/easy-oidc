@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/truster-dev/truster/internal/statedb"
+	"github.com/truster-dev/truster/v2/internal/statedb"
 )
 
 // OAuthState represents the OAuth2 state parameter data.

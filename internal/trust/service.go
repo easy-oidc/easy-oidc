@@ -20,8 +20,8 @@ import (
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/lestrrat-go/jwx/v2/jws"
 	"github.com/lestrrat-go/jwx/v2/jwt"
-	"github.com/truster-dev/truster/internal/authpolicy"
-	"github.com/truster-dev/truster/internal/config"
+	"github.com/truster-dev/truster/v2/internal/authpolicy"
+	"github.com/truster-dev/truster/v2/internal/config"
 	"golang.org/x/sync/singleflight"
 )
 

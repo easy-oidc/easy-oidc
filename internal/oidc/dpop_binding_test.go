@@ -7,7 +7,7 @@ package oidc
 import (
 	"testing"
 
-	"github.com/truster-dev/truster/internal/config"
+	"github.com/truster-dev/truster/v2/internal/config"
 )
 
 // TestValidateDPoPBinding covers the only supported binding profiles.

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/truster-dev/truster/internal/tokens"
+	"github.com/truster-dev/truster/v2/internal/tokens"
 )
 
 // TestDemoRuntime verifies demo mode is self-contained and process-scoped.

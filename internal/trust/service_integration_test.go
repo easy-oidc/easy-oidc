@@ -20,7 +20,7 @@ import (
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/lestrrat-go/jwx/v2/jws"
 	"github.com/lestrrat-go/jwx/v2/jwt"
-	"github.com/truster-dev/truster/internal/config"
+	"github.com/truster-dev/truster/v2/internal/config"
 )
 
 // tlsIssuer is an exact local OIDC discovery, JWKS, and JWT-signing fixture.

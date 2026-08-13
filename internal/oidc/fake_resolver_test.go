@@ -7,8 +7,8 @@ package oidc
 import (
 	"context"
 
-	"github.com/truster-dev/truster/internal/authpolicy"
-	"github.com/truster-dev/truster/internal/config"
+	"github.com/truster-dev/truster/v2/internal/authpolicy"
+	"github.com/truster-dev/truster/v2/internal/config"
 )
 
 // fakePolicyResolver is a controllable policy decision seam.

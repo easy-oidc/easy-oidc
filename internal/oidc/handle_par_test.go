@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/truster-dev/truster/internal/config"
+	"github.com/truster-dev/truster/v2/internal/config"
 )
 
 // TestPushedAuthorizeReplacesConsumedState verifies connector selection replaces browser state.

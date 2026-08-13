@@ -18,7 +18,7 @@ import (
 
 	"github.com/lestrrat-go/jwx/v2/jwa"
 	"github.com/lestrrat-go/jwx/v2/jwk"
-	"github.com/truster-dev/truster/internal/config"
+	"github.com/truster-dev/truster/v2/internal/config"
 )
 
 // TestDiscoveryRequiresExactIssuerAndSecureJWKS verifies metadata using the production HTTP path.

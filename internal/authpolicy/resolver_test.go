@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/truster-dev/truster/internal/config"
+	"github.com/truster-dev/truster/v2/internal/config"
 )
 
 // TestResolverStaticPrecedenceAndPolicyDatabaseDefaults verifies deterministic client ownership and effective policy.

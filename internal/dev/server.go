@@ -23,7 +23,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/truster-dev/truster/internal/templates"
+	"github.com/truster-dev/truster/v2/internal/templates"
 	"golang.org/x/term"
 )
 

@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/truster-dev/truster/internal/statedb"
-	"github.com/truster-dev/truster/internal/templates"
+	"github.com/truster-dev/truster/v2/internal/statedb"
+	"github.com/truster-dev/truster/v2/internal/templates"
 )
 
 // HandleGrants starts a dedicated authentication flow that cannot issue tokens.

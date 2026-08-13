@@ -18,10 +18,10 @@ import (
 	"time"
 
 	"github.com/lestrrat-go/jwx/v2/jwa"
-	"github.com/truster-dev/truster/internal/authpolicy"
-	"github.com/truster-dev/truster/internal/config"
-	"github.com/truster-dev/truster/internal/statedb"
-	"github.com/truster-dev/truster/internal/tokens"
+	"github.com/truster-dev/truster/v2/internal/authpolicy"
+	"github.com/truster-dev/truster/v2/internal/config"
+	"github.com/truster-dev/truster/v2/internal/statedb"
+	"github.com/truster-dev/truster/v2/internal/tokens"
 )
 
 // TestHandleUserInfoDPoP verifies bound-token scheme, key, ath, replay, and header enforcement.

@@ -7,7 +7,7 @@ package oidc
 import (
 	"net/http"
 
-	"github.com/truster-dev/truster/internal/config"
+	"github.com/truster-dev/truster/v2/internal/config"
 )
 
 const supportedDPoPAlgorithmChallenge = "ES256 ES512"

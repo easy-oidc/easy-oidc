@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/truster-dev/truster/internal/authpolicy"
-	"github.com/truster-dev/truster/internal/statedb"
-	"github.com/truster-dev/truster/internal/templates"
+	"github.com/truster-dev/truster/v2/internal/authpolicy"
+	"github.com/truster-dev/truster/v2/internal/statedb"
+	"github.com/truster-dev/truster/v2/internal/templates"
 )
 
 // HandleAuthorize validates a downstream authorization request and starts connector selection.

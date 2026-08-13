@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/truster-dev/truster/internal/statedb"
-	"github.com/truster-dev/truster/internal/templates"
+	"github.com/truster-dev/truster/v2/internal/statedb"
+	"github.com/truster-dev/truster/v2/internal/templates"
 )
 
 // otpCode generates an eight-digit cryptographically random code.

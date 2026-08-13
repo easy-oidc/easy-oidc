@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/truster-dev/truster/internal/authpolicy"
-	"github.com/truster-dev/truster/internal/config"
-	"github.com/truster-dev/truster/internal/statedb"
-	"github.com/truster-dev/truster/internal/tokens"
-	"github.com/truster-dev/truster/internal/upstream"
+	"github.com/truster-dev/truster/v2/internal/authpolicy"
+	"github.com/truster-dev/truster/v2/internal/config"
+	"github.com/truster-dev/truster/v2/internal/statedb"
+	"github.com/truster-dev/truster/v2/internal/tokens"
+	"github.com/truster-dev/truster/v2/internal/upstream"
 )
 
 const (

@@ -11,9 +11,9 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
-	"github.com/truster-dev/truster/internal/config"
-	"github.com/truster-dev/truster/internal/secrets"
-	"github.com/truster-dev/truster/internal/statedb"
+	"github.com/truster-dev/truster/v2/internal/config"
+	"github.com/truster-dev/truster/v2/internal/secrets"
+	"github.com/truster-dev/truster/v2/internal/statedb"
 )
 
 // newMigrateCmd creates the explicit state-schema migration command.
