@@ -6,11 +6,13 @@ package oidc
 
 import (
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"math/big"
 	"net"
 	"net/http"
 	"net/mail"
+	"strconv"
 	"strings"
 	"time"
 
@@ -152,10 +154,27 @@ func (s *Server) HandleEmailResend(w http.ResponseWriter, r *http.Request) {
 		otpTTL := s.config.Email.OTPTTL.Duration()
 		flow, expiresAt, err = s.store.ResendOTP(id, code, s.otpSecret, time.Now(), otpTTL)
 	}
-	if err == nil {
-		err = s.mailer.SendOTP(r.Context(), flow.Email, code, expiresAt)
-	}
 	if err != nil {
+		s.logger.Warn("resend OTP", "error", err)
+		status := http.StatusInternalServerError
+		var retryAfter time.Duration
+		var retryAfterSeconds int64
+		var resendErr *statedb.OTPResendError
+		if errors.As(err, &resendErr) {
+			status = http.StatusBadRequest
+			retryAfter = resendErr.RetryAfter
+			if retryAfter > 0 {
+				status = http.StatusTooManyRequests
+				retryAfterSeconds = int64((retryAfter + time.Second - 1) / time.Second)
+				w.Header().Set("Retry-After", strconv.FormatInt(retryAfterSeconds, 10))
+			}
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(status)
+		_ = s.templates.RenderPage(w, "otp", templates.OTPData{Title: "Verify email", ChallengeID: id, Error: "A new code could not be sent.", Email: flow.Email, ExpiresIn: s.config.Email.OTPTTL.Duration(), RetryAfter: retryAfter, RetryAfterSeconds: retryAfterSeconds})
+		return
+	}
+	if err = s.mailer.SendOTP(r.Context(), flow.Email, code, expiresAt); err != nil {
 		s.logger.Warn("resend OTP", "error", err)
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

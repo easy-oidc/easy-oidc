@@ -6,6 +6,7 @@ package statedb
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"testing"
@@ -54,6 +55,25 @@ func TestOTPLifecycle(t *testing.T) {
 	}
 	if _, err = s.ConsumeOTP("challenge", "12345678", secret, now); err == nil {
 		t.Fatal("OTP reused")
+	}
+}
+
+// TestOTPResendRejectionReturnsRetryDelay verifies cooldown rejections identify the next allowed resend.
+func TestOTPResendRejectionReturnsRetryDelay(t *testing.T) {
+	s := otpStore(t)
+	now := time.Now()
+	secret := []byte("01234567890123456789012345678901")
+	flow := OTPFlow{Email: "user@example.com"}
+	if _, err := s.CreateOTP("challenge", flow.Email, "11111111", flow, secret, now, 5*time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := s.ResendOTP("challenge", "22222222", secret, now.Add(20*time.Second), 5*time.Minute)
+	var resendErr *OTPResendError
+	if !errors.As(err, &resendErr) || resendErr.RetryAfter != 40*time.Second {
+		t.Fatalf("resend error = %#v, want 40 second retry", err)
+	}
+	if got != flow {
+		t.Fatalf("resend flow = %#v, want %#v", got, flow)
 	}
 }
 

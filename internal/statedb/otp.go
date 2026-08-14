@@ -7,7 +7,9 @@ package statedb
 import (
 	"crypto/hmac"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -32,6 +34,14 @@ type OTPFlow struct {
 	DPoPJKT             string
 	PushedAuthorization bool
 }
+
+// OTPResendError describes a rejected resend and how long a caller should wait before retrying.
+type OTPResendError struct {
+	RetryAfter time.Duration
+}
+
+// Error returns a client-safe resend rejection message.
+func (*OTPResendError) Error() string { return "resend unavailable" }
 
 // otpMAC authenticates a code while binding it to its challenge.
 func otpMAC(secret []byte, challengeID, code string) []byte {
@@ -87,10 +97,20 @@ func (s *Store) ResendOTP(challengeID, code string, secret []byte, now time.Time
 	var context []byte
 	var sentAt, expiresAt time.Time
 	if err = tx.QueryRow(`SELECT email,context,sent_at,expires_at FROM otp_challenges WHERE challenge_id=?`+s.lockRows(), challengeID).Scan(&email, &context, &sentAt, &expiresAt); err != nil {
-		return OTPFlow{}, time.Time{}, fmt.Errorf("invalid challenge")
+		if errors.Is(err, sql.ErrNoRows) {
+			return OTPFlow{}, time.Time{}, &OTPResendError{}
+		}
+		return OTPFlow{}, time.Time{}, err
 	}
-	if !now.Before(expiresAt) || now.Sub(sentAt) < time.Minute {
-		return OTPFlow{}, time.Time{}, fmt.Errorf("resend unavailable")
+	var flow OTPFlow
+	if err = json.Unmarshal(context, &flow); err != nil {
+		return OTPFlow{}, time.Time{}, fmt.Errorf("decode OTP flow: %w", err)
+	}
+	if !now.Before(expiresAt) {
+		return flow, time.Time{}, &OTPResendError{}
+	}
+	if retryAfter := sentAt.Add(time.Minute).Sub(now); retryAfter > 0 {
+		return flow, time.Time{}, &OTPResendError{RetryAfter: retryAfter}
 	}
 	if s.postgresql {
 		if _, err = tx.Exec(`SELECT pg_advisory_xact_lock(hashtextextended(?,0))`, email); err != nil {
@@ -102,7 +122,11 @@ func (s *Store) ResendOTP(challengeID, code string, secret []byte, now time.Time
 		return OTPFlow{}, time.Time{}, err
 	}
 	if count >= 5 {
-		return OTPFlow{}, time.Time{}, fmt.Errorf("email send limit exceeded")
+		var oldest time.Time
+		if err = tx.QueryRow(`SELECT sent_at FROM otp_sends WHERE email=? AND sent_at>? ORDER BY sent_at LIMIT 1`, email, now.Add(-time.Hour)).Scan(&oldest); err != nil {
+			return OTPFlow{}, time.Time{}, err
+		}
+		return flow, time.Time{}, &OTPResendError{RetryAfter: oldest.Add(time.Hour).Sub(now)}
 	}
 	newExpiresAt := now.Add(ttl)
 	result, err := tx.Exec(`UPDATE otp_challenges SET code_hmac=?,attempts=0,sends=sends+1,sent_at=?,expires_at=? WHERE challenge_id=? AND sent_at=? AND expires_at>?`, otpMAC(secret, challengeID, code), now, newExpiresAt, challengeID, sentAt, now)
@@ -110,17 +134,16 @@ func (s *Store) ResendOTP(challengeID, code string, secret []byte, now time.Time
 		return OTPFlow{}, time.Time{}, err
 	}
 	if affected, rowsErr := result.RowsAffected(); rowsErr != nil || affected != 1 {
-		return OTPFlow{}, time.Time{}, fmt.Errorf("resend unavailable")
+		if rowsErr != nil {
+			return OTPFlow{}, time.Time{}, rowsErr
+		}
+		return flow, time.Time{}, &OTPResendError{RetryAfter: time.Minute}
 	}
 	if _, err = tx.Exec(`INSERT INTO otp_sends(email,sent_at) VALUES(?,?)`, email, now); err != nil {
 		return OTPFlow{}, time.Time{}, err
 	}
 	if err = tx.Commit(); err != nil {
 		return OTPFlow{}, time.Time{}, err
-	}
-	var flow OTPFlow
-	if err = json.Unmarshal(context, &flow); err != nil {
-		return OTPFlow{}, time.Time{}, fmt.Errorf("decode OTP flow: %w", err)
 	}
 	return flow, newExpiresAt, nil
 }

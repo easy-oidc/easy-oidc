@@ -7,12 +7,14 @@ package oidc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -56,6 +58,39 @@ func TestBeginOTPDoesNotExposeSMTPFailure(t *testing.T) {
 	}
 	if statuses[0] != statuses[1] {
 		t.Fatalf("SMTP outcomes returned different statuses: %v", statuses)
+	}
+}
+
+// TestHandleEmailResendReturnsRetryState verifies cooldown rejections reach HTTP clients and templates.
+func TestHandleEmailResendReturnsRetryState(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	store, err := statedb.NewSQLite(t.TempDir()+"/test.db", logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	manager, err := templates.Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret := []byte("01234567890123456789012345678901")
+	flow := statedb.OTPFlow{Email: "user@example.com"}
+	if _, err = store.CreateOTP("challenge", flow.Email, "11111111", flow, secret, time.Now(), 5*time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{config: &config.Config{Email: &config.EmailConfig{OTPTTL: config.Duration(5 * time.Minute)}}, store: store, templates: manager, mailer: fakeMailer{}, otpSecret: secret, logger: logger}
+	form := url.Values{"challenge": {"challenge"}}
+	request := httptest.NewRequest(http.MethodPost, "/email/resend", strings.NewReader(form.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	response := httptest.NewRecorder()
+	server.HandleEmailResend(response, request)
+	retryAfter, retryErr := strconv.Atoi(response.Header().Get("Retry-After"))
+	if response.Code != http.StatusTooManyRequests || retryErr != nil || retryAfter < 59 || retryAfter > 60 {
+		t.Fatalf("resend status = %d, retry = %q", response.Code, response.Header().Get("Retry-After"))
+	}
+	body := response.Body.String()
+	if !strings.Contains(body, "A new code could not be sent.") || !strings.Contains(body, fmt.Sprintf("Try again in %d seconds.", retryAfter)) {
+		t.Fatalf("resend error state missing from template: %s", body)
 	}
 }
 
