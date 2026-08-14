@@ -353,7 +353,7 @@ filesystem: provide only the files you want to replace.
 | `pages/layout.html` | Common HTML page layout. |
 | `pages/selector.html` | `.Title`, `.State`, `.SiteKey`, `.Connectors` (`.ID`, `.DisplayName`, `.URL`, `.Email`). |
 | `pages/identity.html` | `.Title`, `.Token`, `.Emails` (`.Address`, `.Verified`, `.Primary`). |
-| `pages/otp.html` | `.Title`, `.ChallengeID`, `.Message`, `.Email`, `.ExpiresIn`. |
+| `pages/otp.html` | `.Title`, `.ChallengeID`, `.Message`, `.Error`, `.Email`, `.ExpiresAt`, `.ExpiresIn`, `.RetryAfter`, `.RetryAfterSeconds`. |
 | `pages/error.html` | `.Title`, `.Message`. |
 | `email/layout.html` | Common HTML email layout. |
 | `email/otp.html` | `.Code`, `.ExpiresAt`, `.ExpiresIn`. |
@@ -362,7 +362,9 @@ filesystem: provide only the files you want to replace.
 | `email/otp.subject.txt` | Email subject using `.Code`, `.ExpiresAt`, `.ExpiresIn`. |
 
 `.ExpiresAt` is an exact UTC `time.Time`; `.ExpiresIn` is the configured
-`time.Duration`. For example:
+`time.Duration`. On the OTP page, `.RetryAfter` is the remaining resend cooldown
+as a `time.Duration`, and `.RetryAfterSeconds` is that duration rounded up to a
+whole number of seconds. For example:
 
 ```gotemplate
 It expires at {{.ExpiresAt.Format "15:04 MST"}}
