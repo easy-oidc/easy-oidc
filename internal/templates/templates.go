@@ -26,6 +26,7 @@ type Manager struct {
 	emailHTML    *template.Template
 	emailText    *texttemplate.Template
 	emailSubject *texttemplate.Template
+	public       map[string]publicAsset
 }
 
 // effective reads an overlay template when present and otherwise uses the embedded template.
@@ -48,7 +49,11 @@ func Load(dir string) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	m := &Manager{pages: make(map[string]*template.Template)}
+	public, err := loadPublic(dir)
+	if err != nil {
+		return nil, err
+	}
+	m := &Manager{pages: make(map[string]*template.Template), public: public}
 	pageData := map[string]any{
 		"selector": SelectorData{Title: "Sign in", State: "opaque", SiteKey: "site-key", Connectors: []ConnectorData{{ID: "google", DisplayName: "Google", URL: "/select/google?state=opaque"}, {ID: "email", DisplayName: "Email", Email: true}}},
 		"otp":      OTPData{Title: "Verify email", ChallengeID: "opaque", Message: "A code was sent.", Email: "user@example.com", ExpiresIn: 5 * time.Minute},

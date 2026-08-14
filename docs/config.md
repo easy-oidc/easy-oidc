@@ -374,6 +374,18 @@ Page content templates define `content`; layouts render it with
 layout. The email subject template defines `subject` and must render a non-empty
 single line.
 
+### Static assets
+
+Regular files beneath `public/` are served at root paths. For example,
+`public/robots.txt` is available at `/robots.txt` and `public/images/logo.svg`
+at `/images/logo.svg`. Existing OIDC routes take precedence. Public files support
+`GET` and `HEAD`, use their detected content type, and are served with
+`Cache-Control: no-cache`. The `public/` directory and its contents must not be
+symlinks. Production loads these files at startup; the development server reloads
+them when they change.
+
+### Validate and develop templates
+
 All effective templates are parsed and test-rendered during startup. A parse or
 render error prevents the server from starting.
 

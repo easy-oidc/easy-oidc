@@ -137,6 +137,10 @@ func (s *templateServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleMockPost(w, r)
 		return
 	}
+	if r.Method == http.MethodHead {
+		manager.HandlePublic(w, r)
+		return
+	}
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -167,7 +171,7 @@ func (s *templateServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		contentType = "text/plain; charset=utf-8"
 		err = manager.RenderEmail(&output, "text", templates.OTPEmailData{Code: "12345678", ExpiresAt: time.Now().UTC().Add(5 * time.Minute), ExpiresIn: 5 * time.Minute})
 	default:
-		http.NotFound(w, r)
+		manager.HandlePublic(w, r)
 		return
 	}
 	if err != nil {

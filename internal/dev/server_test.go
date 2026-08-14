@@ -70,6 +70,33 @@ func TestTemplateServerReloadsAndDisplaysErrors(t *testing.T) {
 	}
 }
 
+// TestTemplateServerReloadsPublicFiles verifies development assets follow filesystem changes.
+func TestTemplateServerReloadsPublicFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "public"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "public", "robots.txt")
+	if err := os.WriteFile(path, []byte("first"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	server := newTemplateServer(dir)
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/robots.txt", nil))
+	if response.Code != http.StatusOK || response.Body.String() != "first" {
+		t.Fatalf("initial public file = %d %q", response.Code, response.Body.String())
+	}
+	if err := os.WriteFile(path, []byte("second"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	server.reload(false)
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/robots.txt", nil))
+	if response.Code != http.StatusOK || response.Body.String() != "second" {
+		t.Fatalf("reloaded public file = %d %q", response.Code, response.Body.String())
+	}
+}
+
 // TestHandleInputOpensForLowerAndUppercaseO verifies both open shortcuts.
 func TestHandleInputOpensForLowerAndUppercaseO(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())

@@ -63,7 +63,7 @@
     "templates_dir": {
       "type": "string",
       "minLength": 1,
-      "description": "Optional directory of page and email template overrides."
+      "description": "Optional directory of page and email template overrides and public files."
     },
     "secrets": {
       "$ref": "#/$defs/secrets"
