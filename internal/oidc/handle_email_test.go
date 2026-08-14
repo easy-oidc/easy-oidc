@@ -13,6 +13,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -91,6 +93,47 @@ func TestHandleEmailResendReturnsRetryState(t *testing.T) {
 	body := response.Body.String()
 	if !strings.Contains(body, "A new code could not be sent.") || !strings.Contains(body, fmt.Sprintf("Try again in %d seconds.", retryAfter)) {
 		t.Fatalf("resend error state missing from template: %s", body)
+	}
+}
+
+// TestHandleEmailResendExposesExpiry verifies successful resends provide their absolute expiry to page templates.
+func TestHandleEmailResendExposesExpiry(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	store, err := statedb.NewSQLite(t.TempDir()+"/test.db", logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	templateDir := t.TempDir()
+	if err = os.MkdirAll(filepath.Join(templateDir, "pages"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(templateDir, "pages/otp.html"), []byte(`{{define "content"}}expiry={{.ExpiresAt.Unix}}{{end}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := templates.Load(templateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret := []byte("01234567890123456789012345678901")
+	flow := statedb.OTPFlow{Email: "user@example.com"}
+	if _, err = store.CreateOTP("challenge", flow.Email, "11111111", flow, secret, time.Now().Add(-2*time.Minute), 5*time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{config: &config.Config{Email: &config.EmailConfig{OTPTTL: config.Duration(5 * time.Minute)}}, store: store, templates: manager, mailer: fakeMailer{}, otpSecret: secret, logger: logger}
+	form := url.Values{"challenge": {"challenge"}}
+	request := httptest.NewRequest(http.MethodPost, "/email/resend", strings.NewReader(form.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	response := httptest.NewRecorder()
+	wantExpiry := time.Now().Add(5 * time.Minute)
+	server.HandleEmailResend(response, request)
+	match := regexp.MustCompile(`expiry=(-?\d+)`).FindStringSubmatch(response.Body.String())
+	if response.Code != http.StatusOK || len(match) != 2 {
+		t.Fatalf("resend response = %d %s", response.Code, response.Body.String())
+	}
+	gotExpiry, err := strconv.ParseInt(match[1], 10, 64)
+	if err != nil || gotExpiry < wantExpiry.Add(-time.Second).Unix() || gotExpiry > wantExpiry.Add(time.Second).Unix() {
+		t.Fatalf("resend expiry = %q, want approximately %v", match[1], wantExpiry)
 	}
 }
 

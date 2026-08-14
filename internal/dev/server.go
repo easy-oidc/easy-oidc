@@ -160,7 +160,7 @@ func (s *templateServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			},
 		})
 	case "/pages/otp.html":
-		err = manager.RenderPage(&output, "otp", templates.OTPData{Title: "Verify email", ChallengeID: "mock-challenge", Message: "A code was sent.", Email: "user@example.com", ExpiresIn: 5 * time.Minute})
+		err = manager.RenderPage(&output, "otp", templates.OTPData{Title: "Verify email", ChallengeID: "mock-challenge", Message: "A code was sent.", Email: "user@example.com", ExpiresIn: 5 * time.Minute, ExpiresAt: time.Now().Add(5 * time.Minute)})
 	case "/pages/identity.html":
 		err = manager.RenderPage(&output, "identity", templates.IdentityData{Title: "Choose an email", Token: "mock-token", Emails: []templates.EmailData{{Address: "primary@example.com", Verified: true, Primary: true}, {Address: "other@example.com"}}})
 	case "/pages/error.html":

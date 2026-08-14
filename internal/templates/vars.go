@@ -24,6 +24,7 @@ type SelectorData struct {
 type OTPData struct {
 	Title, ChallengeID, Message, Error, Email string
 	ExpiresIn, RetryAfter                     time.Duration
+	ExpiresAt                                 time.Time
 	RetryAfterSeconds                         int64
 }
 
